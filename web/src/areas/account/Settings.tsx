@@ -327,9 +327,9 @@ const EMAILS: { key: NotifyKey; label: string; description: string }[] = [
   { key: 'replies', label: 'Forum and comment replies', description: 'When someone replies to your thread or comment.' },
   { key: 'mentions', label: '@mentions', description: 'When someone mentions your username.' },
   { key: 'releases', label: 'New releases', description: 'When a series or creator you follow publishes.' },
-  { key: 'feed', label: 'Weekly feed summary', description: 'A weekly digest of what happened in the things you follow.' },
+  { key: 'feed', label: 'Weekly feed summary', description: 'A weekly digest of what happened in the things you follow. This email has not started yet; your choice is saved for when it does.' },
   { key: 'followers', label: 'New followers', description: 'When someone follows a brand you run.' },
-  { key: 'analytics', label: 'Weekly publishing analytics', description: 'Reads, sales and earnings for the brands you belong to.' },
+  { key: 'analytics', label: 'Weekly publishing analytics', description: 'Reads, sales and earnings for the brands you belong to. This email has not started yet; your choice is saved for when it does.' },
 ];
 
 function EmailSection({ account }: { account: Account }) {

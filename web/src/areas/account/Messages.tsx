@@ -25,18 +25,20 @@ function useConversations() {
   });
 }
 
-function NewConversation({ initialTo, onClose }: { initialTo: string; onClose: () => void }) {
+function NewConversation({ initialTo, onClose, onSent }: { initialTo: string; onClose: () => void; onSent: () => void }) {
   const nav = useNavigate();
   const qc = useQueryClient();
   const [to, setTo] = useState(initialTo);
   const [body, setBody] = useState('');
+  const { user } = useSession();
   const [error, setError] = useState<string | null>(null);
   const send = useMutation({
     mutationFn: () => api<Sent>('/api/messages', { json: { to: to.trim(), body } }),
     onMutate: () => setError(null),
     onSuccess: (r) => {
       void qc.invalidateQueries({ queryKey: ['messages'] });
-      nav(`/messages/${r.conversation_id}`, { replace: true });
+      onSent();
+      nav(`/messages/${r.conversation_id}`, { replace: Boolean(initialTo) });
     },
     onError: (e) => setError(errorMessage(e)),
   });
@@ -62,6 +64,7 @@ function NewConversation({ initialTo, onClose }: { initialTo: string; onClose: (
         }}
       >
         {error && <ErrorState message={error} />}
+        {user && !user.email_verified && <Notice tone="warn">Confirm your email address before sending messages. The link is in the email we sent to {user.email}.</Notice>}
         <Field label="To" hint="Their username, as shown on their profile.">
           <Input value={to} onChange={(e) => setTo(e.target.value)} placeholder="username" autoCapitalize="off" autoComplete="off" spellCheck={false} maxLength={40} required autoFocus={!initialTo} />
         </Field>
@@ -133,7 +136,7 @@ function sameDay(a: string, b: string): boolean {
 
 function ThreadView({ id }: { id: string }) {
   const qc = useQueryClient();
-  const { refresh } = useSession();
+  const { refresh, user } = useSession();
   const [older, setOlder] = useState<Message[]>([]);
   const [olderPage, setOlderPage] = useState(1);
   const [noMore, setNoMore] = useState(false);
@@ -292,7 +295,7 @@ function ThreadView({ id }: { id: string }) {
             }}
           >
             <div className="min-w-0 flex-1">
-              {blocked && <div className="mb-2"><Notice tone="warn">{blocked}</Notice></div>}
+              {(blocked || (user && !user.email_verified)) && <div className="mb-2"><Notice tone="warn">{blocked ?? 'Confirm your email address before sending messages.'}</Notice></div>}
               <label className="sr-only" htmlFor="composer">Message {them?.name}</label>
               <textarea
                 id="composer"
@@ -345,7 +348,7 @@ export function Messages() {
           )}
         </section>
       </div>
-      {composing && <NewConversation initialTo={to ?? ''} onClose={closeNew} />}
+      {composing && <NewConversation initialTo={to ?? ''} onClose={closeNew} onSent={() => setComposing(false)} />}
     </div>
   );
 }

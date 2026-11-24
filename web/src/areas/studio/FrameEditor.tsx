@@ -1,5 +1,5 @@
 import {
-  Check, GripVertical, Hand, Maximize2, Minus, MousePointer2, PenTool, Plus, Redo2, ScanSearch, Square, SquareDashedMousePointer,
+  Check, ChevronDown, ChevronUp, GripVertical, Hand, Maximize2, Minus, MousePointer2, PenTool, Plus, Redo2, ScanSearch, Square, SquareDashedMousePointer,
   SquareMinus, SquarePlus, Trash2, Undo2, Wand2, X,
 } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -44,6 +44,8 @@ type Props = {
   /** Extra controls rendered at the right of the toolbar row (Preview, Save state ...). */
   actions?: ReactNode;
   rtl?: boolean;
+  /** Look but do not touch (analyst role). */
+  readOnly?: boolean;
 };
 
 type Drag =
@@ -74,7 +76,7 @@ const HINT: Record<Tool, string> = {
 };
 
 export function FrameEditor(props: Props) {
-  const { imageUrl, pageWidth, pageHeight, frames, onChange, background, onBackgroundChange, onDetect, onSmartFrame, onRefine, actions } = props;
+  const { imageUrl, pageWidth, pageHeight, frames, onChange, background, onBackgroundChange, onDetect, onSmartFrame, onRefine, actions, rtl, readOnly } = props;
   const aspect = pageWidth / pageHeight;
 
   const [tool, setTool] = useState<Tool>('select');
@@ -110,6 +112,7 @@ export function FrameEditor(props: Props) {
   const [, bump] = useState(0);
   const commit = useCallback(
     (next: Frame[], selectIndex?: number | null) => {
+      if (readOnly) return;
       past.current.push(frames);
       if (past.current.length > 100) past.current.shift();
       future.current = [];
@@ -117,7 +120,7 @@ export function FrameEditor(props: Props) {
       if (selectIndex !== undefined) setSelected(selectIndex);
       bump((n) => n + 1);
     },
-    [frames, onChange],
+    [frames, onChange, readOnly],
   );
   const undo = useCallback(() => {
     const prev = past.current.pop();
@@ -385,10 +388,10 @@ export function FrameEditor(props: Props) {
           </label>
         </div>
         <div className="border-b border-line p-3">
-          <Button variant="sun" size="sm" block loading={busy === 'detect'} onClick={detect} icon={<Wand2 className="size-4" />}>
+          <Button variant="sun" size="sm" block loading={busy === 'detect'} disabled={readOnly} onClick={detect} icon={<Wand2 className="size-4" />}>
             {frames.length ? 'Detect again' : 'Detect frames'}
           </Button>
-          <p className="mt-2 text-[11px] leading-snug text-faint">Finds panel borders by analysing the page image. No generative AI; nothing leaves the server.</p>
+          <p className="mt-2 text-[11px] leading-snug text-faint">Finds panel borders by analysing the page image. No generative AI; nothing leaves the server.{rtl ? ' Frames are ordered right to left for this series.' : ''}</p>
         </div>
         <ol className="min-h-0 flex-1 space-y-1 overflow-auto p-2" aria-label="Frames in reading order">
           {frames.length === 0 && <li className="px-2 py-3 text-xs text-muted">No frames yet. Detect them, or press <kbd className="rounded bg-raised px-1">F</kbd> and drag a box.</li>}
@@ -406,7 +409,8 @@ export function FrameEditor(props: Props) {
             >
               <GripVertical className="size-4 shrink-0 cursor-grab text-faint" aria-hidden />
               <button className="flex-1 text-left" onClick={() => { setSelected(i); setTool('select'); }}>Frame {i + 1}</button>
-              <IconButton label={`Move frame ${i + 1} earlier`} className="size-7" disabled={i === 0} onClick={() => reorder(i, i - 1)}><Minus className="size-3.5 rotate-90" /></IconButton>
+              <IconButton label={`Move frame ${i + 1} earlier`} className="size-7" disabled={i === 0} onClick={() => reorder(i, i - 1)}><ChevronUp className="size-3.5" /></IconButton>
+              <IconButton label={`Move frame ${i + 1} later`} className="size-7" disabled={i === frames.length - 1} onClick={() => reorder(i, i + 1)}><ChevronDown className="size-3.5" /></IconButton>
               <IconButton label={`Delete frame ${i + 1}`} className="size-7" onClick={() => removeFrame(i)}><Trash2 className="size-3.5" /></IconButton>
             </li>
           ))}

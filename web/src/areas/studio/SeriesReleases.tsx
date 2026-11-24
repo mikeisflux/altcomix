@@ -9,7 +9,7 @@ import { languageLabel, useSession } from '@/lib/session';
 import { Badge, Button, Checkbox, EmptyState, Field, FormRow, IconButton, Input, Modal, ProgressBar, Select, Table, cx, toast } from '@/ui';
 import { releasesKey, seriesKey, useReleases, useSeries } from './SeriesEditor';
 import type { Release, ReleaseList, Series } from './SeriesEditor';
-import { Cover, PAGE_TYPES, Q, STATUS_TONE, can, cap, useAct } from './shared';
+import { Cover, Q, STATUS_TONE, can, cap, useAct } from './shared';
 
 export function accessBadge(series: Pick<Series, 'access_model' | 'default_price_cents'>, r: Pick<Release, 'force_free' | 'price_cents' | 'free_at'>) {
   if (series.access_model === 'blocked') return <Badge tone="danger">Blocked</Badge>;
@@ -226,7 +226,6 @@ export function SeriesReleases() {
           </Select>
         </Field>
       </Modal>
-      <input type="hidden" value={PAGE_TYPES} readOnly />
     </div>
   );
 }

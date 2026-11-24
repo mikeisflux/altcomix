@@ -417,13 +417,22 @@ export function Membership() {
   else if (membership.isError) body = <ErrorState message={errorMessage(membership.error)} retry={() => membership.refetch()} />;
   else {
     const { member, plans, subscription: sub } = membership.data;
-    const live = sub && member && (sub.status === 'active' || sub.status === 'past_due');
+    const conf = membership.data.confirmation;
+    const returned = conf === 'active' ? <Notice tone="ok">Welcome aboard. Your membership is active.</Notice>
+      : conf === 'updated' ? <Notice tone="ok">Your new payment method is saved.</Notice>
+      : conf === 'pending' ? <Notice tone="info" action={<Button size="sm" className="h-10" onClick={() => membership.refetch()}>Check again</Button>}>Your card details are still being confirmed. This usually takes a few seconds.</Notice>
+      : conf === 'declined' || conf === 'failed' ? <Notice tone="danger">The card was not accepted, so nothing was charged and nothing changed. You can try again with another card.</Notice>
+      : null;
+    const live = sub && ((member && sub.status === 'active') || sub.status === 'past_due');
     if (!live || !sub) {
       body = (
         <div className="space-y-4">
+          {returned}
           {sub && (
-            <Notice tone="info">
-              Your last membership ({sub.plan}) ended on {date(sub.current_period_end)}.
+            <Notice tone={sub.status === 'expired' ? 'warn' : 'info'}>
+              {sub.status === 'expired' && !sub.from_code
+                ? `Your ${sub.plan} membership ended on ${date(sub.current_period_end)} because the renewal payment could not be collected. Start a new one to get back in.`
+                : `Your last membership ended on ${date(sub.current_period_end)}.`}
             </Notice>
           )}
           <EmptyState
@@ -438,21 +447,29 @@ export function Membership() {
         </div>
       );
     } else {
-      const ending = sub.cancel_at_period_end || !sub.renews_at;
+      const pastDue = sub.status === 'past_due';
+      const ending = !pastDue && (sub.cancel_at_period_end || !sub.renews_at);
       body = (
         <div className="space-y-4">
-          {membership.data.confirmation === 'active' && <Notice tone="ok">Welcome aboard. Your membership is active.</Notice>}
+          {returned}
+          {pastDue && !sub.payment_problem && (
+            <Notice tone="danger" action={<Button size="sm" className="h-10" loading={card.isPending} onClick={() => card.mutate()}>Update payment method</Button>}>
+              Your renewal payment did not go through, so your membership is paused. Update your payment method to get back in.
+            </Notice>
+          )}
           {sub.payment_problem && (
             <Notice tone="danger" action={<Button size="sm" className="h-10" loading={card.isPending} onClick={() => card.mutate()}>Update payment method</Button>}>
               Your last payment did not go through{sub.payment_problem.message ? ` (${sub.payment_problem.message})` : ''}.{' '}
-              {sub.payment_problem.next_attempt_at ? `We will try again on ${date(sub.payment_problem.next_attempt_at)}.` : ''} Update your payment method to keep your membership.
+              Your membership is paused until a payment succeeds. {sub.payment_problem.next_attempt_at ? `We will try the card again on ${date(sub.payment_problem.next_attempt_at)}; ` : ''}a new card is charged straight away.
             </Notice>
           )}
           <Card>
             <CardHeader
-              title={<span className="flex flex-wrap items-center gap-2">{plans.name} {sub.status === 'past_due' ? <Badge tone="danger">Payment problem</Badge> : ending ? <Badge tone="warn">Ending</Badge> : <Badge tone="ok">Active</Badge>}</span>}
+              title={<span className="flex flex-wrap items-center gap-2">{plans.name} {pastDue ? <Badge tone="danger">Paused: payment failed</Badge> : ending && !sub.from_code ? <Badge tone="warn">Ending</Badge> : <Badge tone="ok">Active</Badge>}</span>}
               description={
-                sub.from_code
+                pastDue
+                  ? 'You cannot read membership comics until a payment goes through. After four failed tries the membership ends.'
+                  : sub.from_code
                   ? `From a code. It ends on ${date(sub.current_period_end)} and nothing is charged.`
                   : ending
                     ? `You cancelled renewal. You keep full access until ${date(sub.current_period_end)}, then it ends.`
@@ -464,7 +481,7 @@ export function Membership() {
                 items={[
                   ['Plan', sub.from_code ? 'Membership code' : sub.plan === 'annual' ? `Annual, ${moneyExact(sub.price_cents, currency)} a year` : `Monthly, ${moneyExact(sub.price_cents, currency)} a month`],
                   ['Current period', `${date(sub.current_period_start)} to ${date(sub.current_period_end)}`],
-                  [ending ? 'Access ends' : 'Next payment', date(ending ? sub.current_period_end : sub.renews_at)],
+                  [pastDue ? 'Payment was due' : ending ? 'Access ends' : 'Next payment', date(pastDue || ending ? sub.current_period_end : sub.renews_at)],
                   ...(sub.from_code ? [] : ([['Payment method', sub.has_payment_method ? (sub.provider === 'sandbox' ? 'Test card (sandbox)' : 'Card on file') : 'None saved']] as [ReactNode, ReactNode][])),
                 ]}
               />
