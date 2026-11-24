@@ -1,0 +1,19 @@
+{
+  "name": "altcomix",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": { "node": ">=26" },
+  "workspaces": ["api", "web"],
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:api": "npm run dev -w api",
+    "dev:web": "npm run dev -w web",
+    "build": "npm run build -w web",
+    "start": "npm run start -w api",
+    "migrate": "npm run migrate -w api",
+    "seed": "npm run seed -w api",
+    "typecheck": "npm run typecheck -w api && npm run typecheck -w web",
+    "test": "npm run test -w api"
+  }
+}

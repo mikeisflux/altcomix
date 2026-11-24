@@ -1,0 +1,177 @@
+import { q, exec } from '../db.ts';
+import { decrypt, encrypt } from './crypto.ts';
+
+/**
+ * Admin-editable settings. Each key holds one JSON object. Fields listed in
+ * `secret` are stored encrypted and are never sent to the browser: the admin
+ * API returns only whether they are set.
+ */
+export const SETTINGS = {
+  site: {
+    defaults: {
+      name: 'AltComix',
+      tagline: 'Comics, straight from the people who make them.',
+      support_email: '',
+      currency: 'usd',
+      socials: {} as Record<string, string>,
+      registration_open: true,
+      maintenance: false,
+    },
+    secret: [] as string[],
+  },
+  revenue: {
+    defaults: {
+      // Creator share of each kind of money, in basis points, after payment fees.
+      sale_share_bps: 8500,
+      sub_share_bps: 8000,
+      tip_share_bps: 9500,
+      payout_minimum_cents: 2000,
+      payout_hold_days: 7,
+      // Estimated card processing cost used when the processor does not report a fee.
+      fee_pct_bps: 290,
+      fee_fixed_cents: 30,
+    },
+    secret: [],
+  },
+  membership: {
+    defaults: {
+      name: 'AltComix Unlimited',
+      monthly_cents: 599,
+      annual_cents: 5900,
+      trial_days: 0,
+      page_credit_cents: 5,
+    },
+    secret: [],
+  },
+  storage: {
+    defaults: {
+      driver: 'local' as 'local' | 'r2',
+      r2_account_id: '',
+      r2_bucket: '',
+      r2_access_key_id: '',
+      r2_secret_access_key: '',
+      r2_public_url: '',
+    },
+    secret: ['r2_secret_access_key'],
+  },
+  email: {
+    defaults: {
+      // 'log' writes mail to the email log without sending (development).
+      provider: 'log' as 'log' | 'sendgrid' | 'mailgun',
+      sendgrid_api_key: '',
+      sendgrid_webhook_key: '',
+      mailgun_api_key: '',
+      mailgun_domain: '',
+      mailgun_webhook_signing_key: '',
+      from_email: '',
+      from_name: 'AltComix',
+      reply_to: '',
+      queue_paused: false,
+    },
+    secret: ['sendgrid_api_key', 'sendgrid_webhook_key', 'mailgun_api_key', 'mailgun_webhook_signing_key'],
+  },
+  payments: {
+    defaults: {
+      // 'sandbox' completes orders instantly and is refused in production.
+      provider: 'sandbox' as 'sandbox' | 'stripe',
+      stripe_publishable_key: '',
+      stripe_secret_key: '',
+      stripe_webhook_secret: '',
+    },
+    secret: ['stripe_secret_key', 'stripe_webhook_secret'],
+  },
+  security: {
+    defaults: {
+      recaptcha_site_key: '',
+      recaptcha_secret_key: '',
+      recaptcha_enabled: false,
+      bot_blocker_enabled: true,
+      rate_limit_per_minute: 240,
+      admin_2fa_required: false,
+      max_login_attempts: 8,
+      password_min_length: 10,
+    },
+    secret: ['recaptcha_secret_key'],
+  },
+  analytics: {
+    defaults: { ga_measurement_id: '', sentry_dsn: '' },
+    secret: [],
+  },
+} as const;
+
+export type SettingKey = keyof typeof SETTINGS;
+export type SettingValue<K extends SettingKey> = { -readonly [P in keyof (typeof SETTINGS)[K]['defaults']]: (typeof SETTINGS)[K]['defaults'][P] };
+
+let cache: Map<string, Record<string, unknown>> | null = null;
+let cachedAt = 0;
+const TTL_MS = 15_000;
+
+async function load(): Promise<Map<string, Record<string, unknown>>> {
+  if (cache && Date.now() - cachedAt < TTL_MS) return cache;
+  const rows = await q('select key, value from settings');
+  cache = new Map(rows.map((r) => [r.key, r.value]));
+  cachedAt = Date.now();
+  return cache;
+}
+
+export function invalidateSettings(): void {
+  cache = null;
+}
+
+/** Full value with secrets decrypted. Server-side use only. */
+export async function getSetting<K extends SettingKey>(key: K): Promise<SettingValue<K>> {
+  const stored = (await load()).get(key) ?? {};
+  const def = SETTINGS[key];
+  const out: Record<string, unknown> = { ...def.defaults };
+  for (const [k, v] of Object.entries(stored)) {
+    if (!(k in def.defaults)) continue;
+    out[k] = (def.secret as readonly string[]).includes(k) && typeof v === 'string' && v ? (decrypt(v) ?? '') : v;
+  }
+  return out as SettingValue<K>;
+}
+
+/** Value safe to send to an admin browser: secrets replaced by `{ set: boolean }`. */
+export async function getSettingMasked(key: SettingKey): Promise<Record<string, unknown>> {
+  const full = (await getSetting(key)) as Record<string, unknown>;
+  for (const s of SETTINGS[key].secret) full[s] = { set: Boolean(full[s]) };
+  return full;
+}
+
+/** Merge a partial update. Secret fields left empty/undefined keep their current value. */
+export async function setSetting(key: SettingKey, patch: Record<string, unknown>, userId: string | null): Promise<void> {
+  const def = SETTINGS[key];
+  const stored = { ...((await load()).get(key) ?? {}) };
+  for (const [k, v] of Object.entries(patch)) {
+    if (!(k in def.defaults)) continue;
+    if ((def.secret as readonly string[]).includes(k)) {
+      if (typeof v !== 'string' || v === '') continue;
+      stored[k] = encrypt(v);
+    } else {
+      stored[k] = v;
+    }
+  }
+  await exec(
+    `insert into settings (key, value, is_secret, updated_by) values ($1, $2, $3, $4)
+     on conflict (key) do update set value = excluded.value, updated_by = excluded.updated_by, updated_at = now()`,
+    [key, JSON.stringify(stored), def.secret.length > 0, userId],
+  );
+  invalidateSettings();
+}
+
+/** Subset of settings the public site needs. */
+export async function publicSettings(): Promise<Record<string, unknown>> {
+  const [site, membership, payments, security, analytics] = await Promise.all([
+    getSetting('site'),
+    getSetting('membership'),
+    getSetting('payments'),
+    getSetting('security'),
+    getSetting('analytics'),
+  ]);
+  return {
+    site: { name: site.name, tagline: site.tagline, socials: site.socials, registration_open: site.registration_open, currency: site.currency },
+    membership,
+    payments: { provider: payments.provider, stripe_publishable_key: payments.stripe_publishable_key },
+    recaptcha_site_key: security.recaptcha_site_key,
+    ga_measurement_id: analytics.ga_measurement_id,
+  };
+}
