@@ -337,10 +337,12 @@ export function AppShell() {
   return (
     <div className="flex min-h-dvh flex-col">
       <Announcements />
-      <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-line bg-ink/90 px-3 backdrop-blur sm:px-5">
+      <header className="sticky top-0 z-30 flex h-16 print:hidden items-center gap-3 border-b border-line bg-ink/90 px-3 backdrop-blur sm:px-5">
         <IconButton label="Open menu" className="lg:hidden" onClick={() => setDrawer(true)}><Menu className="size-5" /></IconButton>
         <Logo className="shrink-0 [&>span:last-child]:hidden sm:[&>span:last-child]:inline lg:w-56" />
-        <SearchBox />
+        <div className="hidden min-w-0 flex-1 sm:flex"><SearchBox /></div>
+        <div className="flex-1 sm:hidden" />
+        <Link to="/browse" aria-label="Search" className="inline-flex size-9 items-center justify-center rounded-lg text-muted hover:bg-hover hover:text-paper sm:hidden"><Search className="size-5" /></Link>
         {user && (
           <>
             <Link to="/messages" aria-label="Messages" className="hidden size-9 items-center justify-center rounded-lg text-muted hover:bg-hover hover:text-paper sm:inline-flex"><MessageCircle className="size-5" /></Link>
@@ -360,7 +362,7 @@ export function AppShell() {
       <VerifyBanner />
 
       <div className="flex min-h-0 flex-1">
-        <aside className="sticky top-16 hidden h-[calc(100dvh-4rem)] w-60 shrink-0 border-r border-line lg:block">
+        <aside className="sticky top-16 hidden h-[calc(100dvh-4rem)] w-60 shrink-0 border-r border-line print:!hidden lg:block">
           <Sidebar />
         </aside>
         <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">

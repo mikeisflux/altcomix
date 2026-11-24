@@ -26,9 +26,6 @@ export default async function contentRoutes(app: FastifyInstance) {
     return { page };
   });
 
-  // Another route file may already serve the news endpoints; registering them twice would stop the server from booting.
-  if (app.hasRoute({ method: 'GET', url: '/api/news' })) return;
-
   app.get('/api/news', async (req) => {
     const { limit, offset, page } = pageParams(req.query, 12, 50);
     const total = (await one<{ n: number }>('select count(*)::int as n from news_posts where published_at <= now()'))!.n;

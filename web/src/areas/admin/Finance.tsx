@@ -2,7 +2,7 @@ import { Gift, Receipt, Sparkles, Ticket, Wallet } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { ApiError, api } from '@/lib/api';
-import { ago, date, dateTime, moneyExact, number } from '@/lib/format';
+import { ago, date, dateTime, moneyExact, number, plural } from '@/lib/format';
 import { useSession } from '@/lib/session';
 import {
   Badge, Button, Checkbox, DefList, Field, FormRow, Input, Modal, MoneyInput, Notice, PageHeader, Segmented, Select, Stat, Table, Tabs, Textarea, toast, useConfirm,
@@ -339,44 +339,40 @@ function Payouts() {
     {
       key: 'brand', header: 'Brand',
       cell: (p) => (
-        <div className="max-w-[220px]">
+        <div className="max-w-[200px]">
           <Link className="link block truncate" to={`/admin/brands/${p.publisher_id}`}>{p.publisher_name}</Link>
-          <span className="block truncate text-xs text-muted">{p.requested_by_email ?? 'Requester removed'} · {ago(p.created_at)}</span>
+          <span className="block truncate text-xs text-muted" title={p.requested_by_email ?? ''}>{p.requested_by_email ?? 'Requester removed'}</span>
+          <span className="block text-xs text-faint">{ago(p.created_at)}</span>
           {p.publisher_suspended_at && <Badge tone="danger">Brand suspended</Badge>}
         </div>
       ),
     },
-    { key: 'amount', header: 'Amount', align: 'right', cell: (p) => <span className="font-semibold">{$(p.amount_cents)}</span> },
     {
-      key: 'context', header: 'Brand balance',
+      key: 'amount', header: 'Amount',
       cell: (p) => (
         <div className="text-xs">
-          <div>{$(p.balance_cents)} balance</div>
+          <div className="text-base font-semibold tabular-nums">{$(p.amount_cents)}</div>
+          <div className="text-muted">Balance {$(p.balance_cents)}</div>
           <div className={!p.debited && p.available_cents < p.amount_cents ? 'text-danger' : 'text-muted'}>{$(p.available_cents)} available{!p.debited && p.available_cents < p.amount_cents ? ': not enough' : ''}</div>
         </div>
       ),
     },
-    { key: 'method', header: 'Send to', cell: (p) => <div className="max-w-[220px] text-xs"><div className="capitalize">{p.method}</div><div className="truncate text-muted" title={p.destination ?? ''}>{p.destination ?? 'No destination given'}</div></div> },
+    { key: 'method', header: 'Send to', cell: (p) => <div className="max-w-[170px] text-xs"><div className="capitalize">{String(p.method).replace(/_/g, ' ')}</div><div className="truncate text-muted" title={p.destination ?? ''}>{p.destination ?? 'No destination given'}</div></div> },
     {
-      key: 'status', header: 'Status',
+      key: 'actions', header: 'Status',
       cell: (p) => (
-        <div className="max-w-[200px] text-xs">
-          <StatusBadge status={p.status} />
-          {p.reference && <div className="mt-1 truncate text-muted">Ref: {p.reference}</div>}
+        <div className="max-w-[230px] text-xs">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {f.status === 'all' || p.status === 'paid' || p.status === 'rejected' ? <StatusBadge status={p.status} /> : null}
+            {p.status === 'requested' && <Button size="sm" variant="primary" loading={busy === p.id} onClick={() => approve(p)}>Approve</Button>}
+            {p.status === 'approved' && <Button size="sm" variant="primary" loading={busy === p.id} onClick={() => paid(p)}>Mark paid</Button>}
+            {(p.status === 'requested' || p.status === 'approved') && <Button size="sm" variant="danger" disabled={busy === p.id} onClick={() => reject(p)}>Reject</Button>}
+            {(p.status === 'paid' || p.status === 'rejected') && <span className="text-muted">{date(p.paid_at ?? p.reviewed_at)}</span>}
+          </div>
+          {p.reference && <div className="mt-1 truncate text-muted" title={p.reference}>Ref: {p.reference}</div>}
           {p.note && <div className="mt-1 truncate text-muted" title={p.note}>{p.note}</div>}
           {p.reviewed_by_username && <div className="mt-1 text-faint">by @{p.reviewed_by_username}</div>}
         </div>
-      ),
-    },
-    {
-      key: 'actions', header: 'Actions',
-      cell: (p) => (
-        <span className="flex gap-1.5">
-          {p.status === 'requested' && <Button size="sm" variant="primary" loading={busy === p.id} onClick={() => approve(p)}>Approve</Button>}
-          {p.status === 'approved' && <Button size="sm" variant="primary" loading={busy === p.id} onClick={() => paid(p)}>Mark paid</Button>}
-          {(p.status === 'requested' || p.status === 'approved') && <Button size="sm" variant="danger" disabled={busy === p.id} onClick={() => reject(p)}>Reject</Button>}
-          {(p.status === 'paid' || p.status === 'rejected') && <span className="text-xs text-muted">{date(p.paid_at ?? p.reviewed_at)}</span>}
-        </span>
       ),
     },
   ];
@@ -384,10 +380,10 @@ function Payouts() {
     <>
       <PageHeader title="Payouts" description="Creators ask for their available earnings here. Approve a request to reserve the money, send it yourself, then mark it paid with the transfer reference." />
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="Waiting for review" value={$(totals.requested?.cents ?? 0)} hint={`${totals.requested?.count ?? 0} requests`} />
-        <Stat label="Approved, not sent" value={$(totals.approved?.cents ?? 0)} hint={`${totals.approved?.count ?? 0} payouts`} />
-        <Stat label="Paid out" value={$(totals.paid?.cents ?? 0)} hint={`${totals.paid?.count ?? 0} payouts`} />
-        <Stat label="Rejected" value={$(totals.rejected?.cents ?? 0)} hint={`${totals.rejected?.count ?? 0} requests`} />
+        <Stat label="Waiting for review" value={$(totals.requested?.cents ?? 0)} hint={plural(totals.requested?.count ?? 0, 'request')} />
+        <Stat label="Approved, not sent" value={$(totals.approved?.cents ?? 0)} hint={plural(totals.approved?.count ?? 0, 'payout')} />
+        <Stat label="Paid out" value={$(totals.paid?.cents ?? 0)} hint={plural(totals.paid?.count ?? 0, 'payout')} />
+        <Stat label="Rejected" value={$(totals.rejected?.cents ?? 0)} hint={plural(totals.rejected?.count ?? 0, 'request')} />
       </div>
       <div className="mb-4">
         <Tabs value={f.status} onChange={(status) => setF({ status })} tabs={[tab('requested', 'Requested'), tab('approved', 'Approved'), tab('paid', 'Paid'), tab('rejected', 'Rejected'), { value: 'all', label: 'All' }]} />

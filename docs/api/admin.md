@@ -650,12 +650,6 @@ are named e.g. `email-queue`; runs triggered over HTTP are `cron:email-queue`.
 | GET `/api/health/live` | `{ ok: true }` (process is up; touches nothing else) |
 | POST `/api/track/error` | Body `{ message, stack?, url? }` → `{ ok: true }`. No CSRF token needed. 20 per 5 minutes per address, then `429`. Appears in the error log with source `web`, grouped by page path |
 
-**Known overlap:** `routes/catalog.ts` currently also registers `GET /api/news`
-and `GET /api/news/:slug` (with `items` instead of `posts`). Because it loads
-first, `content.ts` skips its own two news routes when they are already taken,
-so the server boots; until the copy in `catalog.ts` is removed, `/api/news`
-answers with that file's shape, not the one above.
-
 ---
 
 ## 12. Cron endpoints

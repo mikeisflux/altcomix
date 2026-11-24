@@ -1,7 +1,7 @@
 import { BookOpen, Flag, MessageSquare } from 'lucide-react';
 import { Link } from 'react-router';
 import { api, errorMessage } from '@/lib/api';
-import { ago, date, dateTime, number } from '@/lib/format';
+import { ago, date, dateTime, number, plural } from '@/lib/format';
 import { Badge, Button, Card, EmptyState, ErrorState, Notice, PageHeader, Pagination, Skeleton, useConfirm } from '@/ui';
 import type { Column } from '@/ui';
 import { DataList, FilterBar, FilterSelect, SearchInput, StatusBadge, useAct, useAsk, useFilters, useList, useTitle } from './shared';
@@ -65,47 +65,33 @@ export function SeriesPage() {
     }
   };
 
-  const columns: Column<R>[] = [
-    {
-      key: 'series', header: 'Series',
-      cell: (s) => (
-        <span className="flex items-center gap-3">
-          {s.cover_url ? <img src={s.cover_url} alt="" loading="lazy" className="aspect-[2/3] w-9 shrink-0 rounded border border-line object-cover" /> : <span className="flex aspect-[2/3] w-9 shrink-0 items-center justify-center rounded border border-line bg-raised text-faint"><BookOpen className="size-4" /></span>}
-          <span className="min-w-0 max-w-[240px]">
-            <Link className="block truncate font-medium hover:text-accent-hover" to={`/series/${s.slug}`}>{s.title}</Link>
-            <Link className="block truncate text-xs text-muted hover:text-paper" to={`/admin/brands/${s.publisher_id}`}>{s.publisher_name}</Link>
+  const row = (s: R) => (
+    <li key={s.id} className="flex flex-wrap items-center gap-x-4 gap-y-3 border-b border-line px-3.5 py-3 last:border-0">
+      <span className="flex min-w-0 flex-1 basis-64 items-center gap-3">
+        {s.cover_url ? <img src={s.cover_url} alt="" loading="lazy" className="aspect-[2/3] w-10 shrink-0 rounded border border-line object-cover" /> : <span className="flex aspect-[2/3] w-10 shrink-0 items-center justify-center rounded border border-line bg-raised text-faint"><BookOpen className="size-4" /></span>}
+        <span className="min-w-0">
+          <Link className="block truncate font-medium hover:text-accent-hover" to={`/series/${s.slug}`}>{s.title}</Link>
+          <span className="block truncate text-xs text-muted">
+            <Link className="hover:text-paper" to={`/admin/brands/${s.publisher_id}`}>{s.publisher_name}</Link> · <span className="capitalize">{s.access_model}</span> · {plural(s.release_count, 'release')} · {number(s.read_count)} reads · updated {ago(s.updated_at)}
           </span>
+          <span className="mt-1.5 flex flex-wrap gap-1">
+            {s.takedown_at ? <span title={s.takedown_reason ?? ''}><StatusBadge status="taken down" /></span> : <StatusBadge status={s.visibility} />}
+            {s.mature && <Badge tone="info">18+</Badge>}
+            {s.open_reports > 0 && <Badge tone="danger">{plural(s.open_reports, 'report')}</Badge>}
+            {s.featured_slots.map((slot: string) => <Badge key={slot} tone="accent">{slot.replace('_', ' ')}</Badge>)}
+          </span>
+          {s.takedown_at && s.takedown_reason && <span className="mt-1 block text-xs text-danger">{s.takedown_reason}</span>}
         </span>
-      ),
-    },
-    {
-      key: 'state', header: 'Status',
-      cell: (s) => (
-        <span className="flex max-w-[200px] flex-wrap gap-1">
-          {s.takedown_at ? <span title={s.takedown_reason ?? ''}><StatusBadge status="taken down" /></span> : <StatusBadge status={s.visibility} />}
-          {s.mature && <Badge tone="info">18+</Badge>}
-          {s.open_reports > 0 && <Badge tone="danger">{s.open_reports} {s.open_reports === 1 ? 'report' : 'reports'}</Badge>}
-          {s.featured_slots.map((slot: string) => <Badge key={slot} tone="accent">{slot.replace('_', ' ')}</Badge>)}
-        </span>
-      ),
-    },
-    { key: 'access', header: 'Access', cell: (s) => <span className="capitalize">{s.access_model}</span>, hideOnMobile: true },
-    { key: 'releases', header: 'Releases', align: 'right', cell: (s) => number(s.release_count), hideOnMobile: true },
-    { key: 'reads', header: 'Reads', align: 'right', cell: (s) => number(s.read_count), hideOnMobile: true },
-    { key: 'updated', header: 'Updated', cell: (s) => <span className="text-muted">{ago(s.updated_at)}</span>, hideOnMobile: true },
-    {
-      key: 'actions', header: 'Actions',
-      cell: (s) => (
-        <span className="flex gap-1.5">
-          {s.takedown_at
-            ? <Button size="sm" loading={busy === `td-${s.id}`} onClick={() => restore(s)}>Restore</Button>
-            : <Button size="sm" variant="danger" loading={busy === `td-${s.id}`} onClick={() => takedown(s)}>Take down</Button>}
-          <Button size="sm" loading={busy === `m-${s.id}`} onClick={() => mature(s)}>{s.mature ? 'Remove 18+ label' : 'Add 18+ label'}</Button>
-          {s.visibility === 'public' && !s.takedown_at && <Button size="sm" loading={busy === `f-${s.id}`} onClick={() => feature(s)}>{s.featured_slots.includes('staff_picks') ? 'Unpick' : 'Staff pick'}</Button>}
-        </span>
-      ),
-    },
-  ];
+      </span>
+      <span className="flex flex-wrap gap-1.5">
+        <Button size="sm" loading={busy === `m-${s.id}`} onClick={() => mature(s)}>{s.mature ? 'Remove 18+ label' : 'Add 18+ label'}</Button>
+        {s.visibility === 'public' && !s.takedown_at && <Button size="sm" loading={busy === `f-${s.id}`} onClick={() => feature(s)}>{s.featured_slots.includes('staff_picks') ? 'Remove staff pick' : 'Staff pick'}</Button>}
+        {s.takedown_at
+          ? <Button size="sm" loading={busy === `td-${s.id}`} onClick={() => restore(s)}>Restore</Button>
+          : <Button size="sm" variant="danger" loading={busy === `td-${s.id}`} onClick={() => takedown(s)}>Take down</Button>}
+      </span>
+    </li>
+  );
   return (
     <>
       <PageHeader title="Series" description="Every series on the platform. Adult work is welcome here when it carries the 18+ label. Take a series down only when it breaks one of the hard limits." />
@@ -118,12 +104,21 @@ export function SeriesPage() {
         <FilterSelect label="Reports" value={f.reported} onChange={(reported) => setF({ reported })} options={[['', 'With or without reports'], ['1', 'Has open reports']]} />
         <FilterSelect label="Sort" value={f.sort} onChange={(sort) => setF({ sort })} options={[['', 'Newest first'], ['updated', 'Recently updated'], ['reads', 'Most read'], ['title', 'Title A-Z']]} />
       </FilterBar>
-      <DataList
-        query={list}
-        columns={columns}
-        onPage={(page) => setF({ page })}
-        empty={{ icon: <BookOpen />, title: 'No series match', hint: 'Series show up here as soon as a creator makes one. Try clearing the filters.', action: <Button onClick={() => setF({ q: '', visibility: '', access_model: '', mature: '', takedown: '', reported: '' })}>Clear filters</Button> }}
-      />
+      {list.isPending ? (
+        <Skeleton className="h-72 w-full" />
+      ) : list.isError ? (
+        <ErrorState message={errorMessage(list.error)} retry={() => void list.refetch()} />
+      ) : list.data.items.length === 0 ? (
+        <EmptyState icon={<BookOpen />} title="No series match" action={<Button onClick={() => setF({ q: '', visibility: '', access_model: '', mature: '', takedown: '', reported: '' })}>Clear filters</Button>}>
+          Series show up here as soon as a creator makes one. Try clearing the filters.
+        </EmptyState>
+      ) : (
+        <>
+          <ul className="rounded-xl border border-line">{list.data.items.map(row)}</ul>
+          <div className="mt-2 text-xs text-faint">{number(list.data.total)} in total</div>
+          <Pagination page={list.data.page} pages={Math.ceil(list.data.total / list.data.limit)} onPage={(page) => setF({ page })} />
+        </>
+      )}
     </>
   );
 }
@@ -268,7 +263,7 @@ export function CommentsPage() {
     {
       key: 'body', header: 'Comment',
       cell: (c) => (
-        <div className="w-[min(46vw,420px)] min-w-[220px]">
+        <div className="w-[min(46vw,340px)] min-w-[220px]">
           <p className="line-clamp-3 whitespace-pre-line break-words">{c.body}</p>
           <p className="mt-1 text-xs text-muted">
             <Link className="hover:text-paper" to={`/admin/users/${c.user_id}`}>@{c.username}</Link>{c.user_banned_at ? ' (banned)' : ''} on <Link className="hover:text-paper" to={`/series/${c.series_slug}`}>{c.series_title}</Link> · {ago(c.created_at)}

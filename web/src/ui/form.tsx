@@ -68,9 +68,11 @@ export function Switch({ checked, onChange, label, description, disabled }: { ch
         aria-checked={checked}
         disabled={disabled}
         onClick={() => onChange(!checked)}
-        className={cx('relative mt-0.5 h-6 w-11 shrink-0 rounded-full border transition-colors disabled:opacity-50', checked ? 'border-accent bg-accent' : 'border-line-strong bg-raised')}
+        className="-my-2 -mr-1 flex h-11 w-[52px] shrink-0 items-center justify-center rounded-full disabled:opacity-50"
       >
-        <span className={cx('absolute top-0.5 size-[18px] rounded-full transition-all', checked ? 'left-[22px] bg-accent-ink' : 'left-0.5 bg-muted')} />
+        <span className={cx('relative h-6 w-11 rounded-full border transition-colors', checked ? 'border-accent bg-accent' : 'border-line-strong bg-raised')}>
+          <span className={cx('absolute top-0.5 size-[18px] rounded-full transition-all', checked ? 'left-[22px] bg-accent-ink' : 'left-0.5 bg-muted')} />
+        </span>
       </button>
     </div>
   );
