@@ -105,3 +105,23 @@ export function applyCode(code: CodeScope, lines: Line[]): { prices: number[]; d
   });
   return { prices, discount_cents: off };
 }
+
+/**
+ * "Buy the whole series": every currently published release that is sold,
+ * not already free to read for good, and not already owned by this reader.
+ * The same function prices the offer on the page and the order at checkout.
+ */
+export async function seriesPurchase(series: Row, userId: string | null, discounts: Discount[], db: Queryable = pool) {
+  if (series.access_model !== 'premium') return { base_cents: 0, price_cents: 0, releases: [] as { id: string; price_cents: number }[] };
+  const rows = await q(
+    `select r.* from releases r
+      where r.series_id = $1 and r.status = 'published' and r.deleted_at is null and not r.force_free
+        and (r.free_at is null or r.free_at > now())
+        and ($3::int is null or r.published_at is null or r.published_at + ($3::int || ' days')::interval > now())
+        and not exists (select 1 from entitlements e where e.user_id = $2 and e.release_id = r.id)
+      order by r.language, r.number`,
+    [series.id, userId, series.paywall_expires_days ?? null],
+    db,
+  );
+  return seriesPrice(series, rows, discounts);
+}

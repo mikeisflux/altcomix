@@ -180,7 +180,7 @@ export default async function adminEmailRoutes(app: FastifyInstance) {
       const key = templateKey(req);
       const body = parse(templateBody, req.body);
       const unknown = unknownVars(key, body.subject, body.html);
-      if (unknown.length) throw badRequest(`This template has no value called ${unknown.map((v) => `{{${v}}}`).join(', ')}. Available: ${[...TEMPLATES[key].vars, 'site'].join(', ')}`);
+      if (unknown.length) throw badRequest(`This template has no value called ${unknown.map((v) => `{{${v}}}`).join(', ')}. Available: ${[...new Set([...TEMPLATES[key].vars, 'site'])].join(', ')}`);
       if (/<script|javascript:|\son\w+\s*=/i.test(body.html)) throw badRequest('Email HTML cannot contain scripts or event handlers');
       await exec(
         `insert into email_templates (key, subject, html, updated_by) values ($1,$2,$3,$4)
@@ -238,7 +238,7 @@ export default async function adminEmailRoutes(app: FastifyInstance) {
 
     s.delete('/api/admin/email-suppressions/:email', async (req) => {
       requireAdmin(req);
-      const email = decodeURIComponent((req.params as { email: string }).email).toLowerCase();
+      const email = (req.params as { email: string }).email.toLowerCase();
       const row = await one('delete from email_suppressions where email = $1 returning reason, source', [email]);
       if (!row) throw notFound('That address is not on the suppression list');
       audit(req, 'email_suppression.remove', { kind: 'email', id: email }, { reason: row.reason, source: row.source });

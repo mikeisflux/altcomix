@@ -26,7 +26,7 @@ const SCHEMAS: Record<SettingKey, z.ZodObject> = {
     tagline: str(160),
     support_email: emailOrBlank,
     currency: z.string().trim().toLowerCase().regex(/^[a-z]{3}$/, 'Use a 3-letter currency code such as usd'),
-    socials: z.record(z.string().regex(/^[a-z0-9_]{2,24}$/), z.string().trim().max(300).regex(/^https:\/\/\S+$/, 'Social links must start with https://')),
+    socials: z.record(z.string().regex(/^[a-z0-9_]{1,24}$/), z.string().trim().max(300).regex(/^https:\/\/\S+$/, 'Social links must start with https://')),
     registration_open: z.boolean(),
     maintenance: z.boolean(),
   }),
@@ -224,7 +224,15 @@ export default async function adminSettingsRoutes(app: FastifyInstance) {
       if (!/^[a-f0-9]{32}$/i.test(c.accountId)) return { ok: false, message: 'The R2 account ID is 32 hexadecimal characters' };
       const r = await testR2(c);
       audit(req, 'settings.test', { kind: 'settings', id: 'storage' }, { target: 'r2', ok: r.ok });
-      return r.ok ? { ok: true, message: `Connected to bucket "${c.bucket}"` } : { ok: false, message: `R2 refused the connection: ${r.error}` };
+      if (r.ok) return { ok: true, message: `Connected to bucket "${c.bucket}"` };
+      const denied = /AccessDenied|InvalidAccessKeyId|SignatureDoesNotMatch|Forbidden|403/i.test(r.error ?? '');
+      const missing = /NotFound|NoSuchBucket|404/i.test(r.error ?? '');
+      return {
+        ok: false,
+        message: denied ? `R2 rejected the access key for bucket "${c.bucket}" (${r.error})`
+          : missing ? `R2 has no bucket called "${c.bucket}" on this account (${r.error})`
+          : `Could not connect to R2 at ${c.accountId}.r2.cloudflarestorage.com (${r.error}). Check the account ID and that this server can reach Cloudflare.`,
+      };
     });
 
     s.post('/api/admin/settings/test/sendgrid', async (req) => {
@@ -332,11 +340,12 @@ export default async function adminSettingsRoutes(app: FastifyInstance) {
           ? { ok: false, message: 'Google does not recognise this secret key' }
           : { ok: true, message: 'Both keys have the right format and Google recognises the secret key' };
       });
-      audit(req, 'settings.test', { kind: 'settings', id: 'security' }, { target: 'recaptcha', ok: live.ok });
       // If Google cannot be reached the format check is all we know: say exactly that.
-      return live.message.startsWith('Could not reach')
+      const result: TestResult = live.message.startsWith('Could not reach')
         ? { ok: true, message: 'Both keys have the right format. Google could not be reached to confirm the secret.', detail: { verified_with_google: false } }
         : live;
+      audit(req, 'settings.test', { kind: 'settings', id: 'security' }, { target: 'recaptcha', ok: result.ok, verified_with_google: result.detail?.verified_with_google ?? true });
+      return result;
     });
 
     /** Queues a real message to the signed-in admin through the normal pipeline. */

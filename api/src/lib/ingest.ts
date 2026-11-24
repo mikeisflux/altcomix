@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { extname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
-import type { FastifyRequest } from 'fastify';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 import { Unzip, UnzipInflate } from 'fflate';
 import sharp from 'sharp';
 import { exec, one, q, tx } from '../db.ts';
@@ -797,4 +797,12 @@ export function parseCsv(text: string): string[][] {
   row.push(cur);
   if (row.some((v) => v.trim())) rows.push(row);
   return rows;
+}
+
+export function sendCsv(reply: FastifyReply, filename: string, rows: Row[], columns: string[]) {
+  return reply
+    .type('text/csv; charset=utf-8')
+    .header('content-disposition', `attachment; filename="${filename.replace(/[^a-z0-9._-]+/gi, '-')}"`)
+    .header('cache-control', 'private, no-store')
+    .send(toCsv(rows, columns));
 }

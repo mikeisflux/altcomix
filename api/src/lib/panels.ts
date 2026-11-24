@@ -120,9 +120,20 @@ export function estimateBackground(grey: Uint8Array, w: number, h: number): { bg
     wn += hist[k];
   }
   const bg = wn ? Math.round(ws / wn) : 255;
-  let match = 0;
-  for (let k = Math.max(0, bg - TOLERANCE); k <= Math.min(255, bg + TOLERANCE); k++) match += hist[k];
-  return { bg, uniform: n ? match / n : 0 };
+  // A real margin shows the gutter colour on all four sides, so score the worst side.
+  const share = (x0: number, y0: number, x1: number, y1: number) => {
+    let hit = 0;
+    let all = 0;
+    for (let y = y0; y < y1; y++) {
+      for (let x = x0; x < x1; x++) {
+        all++;
+        if (Math.abs(grey[y * w + x] - bg) <= TOLERANCE) hit++;
+      }
+    }
+    return all ? hit / all : 0;
+  };
+  const uniform = n ? Math.min(share(0, 0, w, band), share(0, h - band, w, h), share(0, 0, band, h), share(w - band, 0, w, h)) : 0;
+  return { bg, uniform };
 }
 
 function buildMasks(grey: Uint8Array, w: number, h: number, bg: number): { content: Uint8Array; gutter: Uint8Array } {
@@ -207,7 +218,7 @@ function buildMasks(grey: Uint8Array, w: number, h: number, bg: number): { conte
 export function analyseGrey(grey: Uint8Array, w: number, h: number, forceBg?: number): Analysis {
   const est = estimateBackground(grey, w, h);
   const bg = forceBg ?? est.bg;
-  return { w, h, grey, bg, uniform: forceBg === undefined ? est.uniform : est.uniform, ...buildMasks(grey, w, h, bg) };
+  return { w, h, grey, bg, uniform: est.uniform, ...buildMasks(grey, w, h, bg) };
 }
 
 export async function analysePage(input: Buffer | string): Promise<Analysis> {
@@ -805,8 +816,10 @@ export function refineFrame(a: Analysis, frame: Frame, x: number, y: number, mod
   let region: Mask | null = panelAt(a, x, y)?.mask ?? null;
   if (!region || inside(region) > 0.9 * curArea) region = toneAt(a, x, y).mask;
   if (inside(region) > 0.9 * curArea) throw new RefineError('That would remove the whole frame. Delete the frame instead.');
+  // The gutter alongside the removed part goes with it.
+  const reach = morph(region, w, h, Math.ceil(Math.max(w, h) * 0.04), true);
   let out: Mask = new Uint8Array(n);
-  for (let i = 0; i < n; i++) out[i] = cur[i] & (region[i] ^ 1);
+  for (let i = 0; i < n; i++) out[i] = cur[i] & (region[i] ^ 1) & ((reach[i] & a.gutter[i]) ^ 1);
   // Shave off slivers left along the cut.
   const r = Math.max(1, Math.round(Math.max(w, h) * 0.004));
   out = morph(morph(out, w, h, r, false), w, h, r, true);

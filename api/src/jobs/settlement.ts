@@ -1,4 +1,4 @@
-import { exec, one, q, tx } from '../db.ts';
+import { one, q, tx } from '../db.ts';
 import type { Queryable } from '../db.ts';
 import { HttpError, badRequest } from '../lib/http.ts';
 import { allocate, creditSubscription } from '../lib/ledger.ts';
@@ -187,8 +187,6 @@ const job: Job = {
       const r = await settleMonth(month);
       out.push(`${month.slice(0, 7)}: ${r.subscribers} members, ${r.creator_cents} cents to creators`);
     }
-    // Rows that arrived for a month after it was settled roll forward when they are written; nothing to do here.
-    await exec('select 1');
     return out.length ? out.join('; ') : undefined;
   },
 };

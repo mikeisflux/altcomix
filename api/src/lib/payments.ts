@@ -120,7 +120,7 @@ type ChargeResult = { outcome: 'paid' | 'declined' | 'uncertain'; paymentRef: st
 export type PaymentProvider = {
   name: 'sandbox' | 'divinity';
   /** Begin paying for an order. `url` null means the provider settled it on the spot. */
-  startOrder(a: { orderId: string; userId: string; email: string; amountCents: number; currency: string; description: string; origin: Origin }): Promise<{ ref: string; url: string | null; state: SessionState['status'] }>;
+  startOrder(a: { orderId: string; next?: string | null; userId: string; email: string; amountCents: number; currency: string; description: string; origin: Origin }): Promise<{ ref: string; url: string | null; state: SessionState['status'] }>;
   /** Begin saving a payment method. `token` set means no redirect is needed. */
   startSetup(a: { key: string; userId: string; email: string; description: string; origin: Origin }): Promise<{ ref: string; url: string | null; token: string | null }>;
   getSession(ref: string): Promise<SessionState | null>;
@@ -197,7 +197,7 @@ const divinity: PaymentProvider = {
       // One hold per pledgeId on the processor: the order id is ours to reconcile on.
       pledgeId: a.orderId,
       projectId: STORE_PROJECT,
-      returnUrl: `${config.appUrl}/checkout/return?order=${a.orderId}`,
+      returnUrl: `${config.appUrl}/checkout/return?order=${a.orderId}${a.next ? `&next=${encodeURIComponent(a.next)}` : ''}`,
       cancelUrl: `${config.appUrl}/checkout/return?order=${a.orderId}&cancelled=1`,
       description: a.description.slice(0, 200),
       expiresInMinutes: 60,
@@ -337,7 +337,7 @@ export async function startOrderPayment(orderId: string): Promise<OrderResult> {
     const p = await getProvider(o.provider);
     const items = await q<{ description: string }>('select description from order_items where order_id = $1 order by id', [orderId]);
     const description = items.length === 1 ? items[0].description : `${site.name} order (${items.length} items)`;
-    const s = await p.startOrder({ orderId, userId: o.user_id, email: o.email, amountCents: charge, currency: site.currency, description, origin: { ip: o.ip, userAgent: o.user_agent } });
+    const s = await p.startOrder({ orderId, next: typeof o.meta?.return_to === 'string' ? o.meta.return_to : null, userId: o.user_id, email: o.email, amountCents: charge, currency: site.currency, description, origin: { ip: o.ip, userAgent: o.user_agent } });
     await exec('update orders set provider_ref = $2 where id = $1', [orderId, s.ref]);
     if (s.state === 'complete') {
       await completeOrder(orderId);
@@ -424,6 +424,10 @@ export async function completeOrder(orderId: string, opts: { paymentRef?: string
         await walletAdd(db, o.user_id, 'credits_purchase', 0, Number(meta.quantity ?? 0), `${meta.quantity} page credits`);
       }
       if (creator) await db.query('update order_items set creator_cents = $2 where id = $1', [it.id, creator]);
+    }
+    if (o.discount_code_id) {
+      const used = await db.query('insert into code_redemptions (code_id, user_id) values ($1,$2) on conflict do nothing', [o.discount_code_id, o.user_id]);
+      if (used.rowCount) await db.query('update promo_codes set redeemed_count = redeemed_count + 1 where id = $1', [o.discount_code_id]);
     }
     await db.query(
       `update orders set status = 'paid', paid_at = now(), fee_cents = $2, payment_ref = coalesce($3, payment_ref),
@@ -593,7 +597,7 @@ export async function markChargePaid(chargeId: string, paymentRef: string | null
     if (!c || c.status === 'paid' || c.status === 'refunded') return null;
     const sub = await one('select * from subscriptions where id = $1 for update', [c.subscription_id], db);
     if (!sub) return null;
-    c.fee_cents = sub.provider === 'sandbox' ? 0 : estimateFee(c.amount_cents, rev);
+    c.fee_cents = estimateFee(c.amount_cents, rev);
     await db.query(
       `update subscription_charges set status = 'paid', paid_at = now(), fee_cents = $2, payment_ref = coalesce($3, payment_ref), uncertain = false,
               last_error = null, captured_at = case when $4 then null else now() end where id = $1`,

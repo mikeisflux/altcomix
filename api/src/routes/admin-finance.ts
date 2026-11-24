@@ -13,15 +13,18 @@ import { reverseOrder } from '../lib/ledger.ts';
 import { notify } from '../lib/notify.ts';
 import { getSetting } from '../lib/settings.ts';
 
-type ProviderRefund = (orderId: string, opts: { reason: string; actorId: string }) => Promise<unknown>;
+type PaymentsModule = {
+  refundOrder?: (orderId: string, opts: { reason?: string }) => Promise<unknown>;
+  reverseOrderBooks?: (orderId: string, why: { reason: string }) => Promise<boolean>;
+  refundCharge?: (chargeId: string, reason?: string) => Promise<{ refunded: boolean }>;
+};
 
-/** The reader/commerce worker's payments module, if it offers a refund. */
-async function providerRefund(): Promise<ProviderRefund | null> {
+/** The reader/commerce payments module, loaded lazily so the admin API boots without it. */
+async function payments(): Promise<PaymentsModule> {
   try {
-    const mod = (await import(new URL('../lib/payments.ts', import.meta.url).href)) as Record<string, unknown>;
-    return typeof mod.refundOrder === 'function' ? (mod.refundOrder as ProviderRefund) : null;
+    return (await import(new URL('../lib/payments.ts', import.meta.url).href)) as PaymentsModule;
   } catch (e) {
-    if ((e as { code?: string }).code === 'ERR_MODULE_NOT_FOUND') return null;
+    if ((e as { code?: string }).code === 'ERR_MODULE_NOT_FOUND') return {};
     throw e;
   }
 }
@@ -159,10 +162,10 @@ export default async function adminFinanceRoutes(app: FastifyInstance) {
 
     /**
      * Refund a paid order.
-     *   - If lib/payments.ts exports refundOrder, the money goes back through the processor.
-     *   - `to_wallet: true` refunds as store credit instead (no processor call).
-     *   - Otherwise a processor order needs `provider_refunded: true`: you confirm the money
-     *     was already returned in the processor's dashboard, and this records it.
+     *   - Default: the card payment goes back through the processor (lib/payments.ts refundOrder).
+     *   - `to_wallet: true` gives the reader store credit instead; the processor is not called.
+     *   - On an install without the payments module, a card order needs `provider_refunded: true`:
+     *     you confirm the money was returned in the processor's dashboard and this records it.
      * Either way creator earnings are reversed and ownership of the releases is removed.
      */
     s.post('/api/admin/orders/:id/refund', async (req) => {
@@ -176,57 +179,66 @@ export default async function adminFinanceRoutes(app: FastifyInstance) {
         }),
         req.body,
       );
-      const order = await one('select id, status, provider, total_cents, user_id from orders where id = $1', [id]);
+      const order = await one('select * from orders where id = $1', [id]);
       if (!order) throw notFound('Order not found');
       if (order.status === 'refunded') throw conflict('This order has already been refunded');
       if (order.status !== 'paid') throw badRequest('Only paid orders can be refunded');
 
-      let method: 'provider' | 'wallet' | 'recorded' | 'sandbox';
+      const pay = await payments();
+      const external = order.provider !== 'sandbox' && order.total_cents - (order.credit_cents ?? 0) > 0;
+      let method: 'provider' | 'wallet' | 'recorded' | 'none';
       if (body.to_wallet) method = 'wallet';
-      else if (order.provider === 'sandbox' || order.total_cents === 0) method = 'sandbox';
+      else if (!external) method = 'none'; // nothing was charged to a card
+      else if (pay.refundOrder) method = 'provider';
+      else if (body.provider_refunded) method = 'recorded';
       else {
-        const refund = await providerRefund();
-        if (refund) {
-          try {
-            await refund(id, { reason: body.reason, actorId: req.user!.id });
-          } catch (e) {
-            if (e instanceof HttpError) throw e;
-            throw new HttpError(502, `The payment processor did not accept the refund: ${(e as Error).message}`);
-          }
-          method = 'provider';
-        } else if (body.provider_refunded) method = 'recorded';
-        else {
-          throw new HttpError(
-            409,
-            'This server cannot send refunds to the payment processor. Refund it in the processor dashboard and confirm here, or refund as store credit.',
-            'provider_refund_unavailable',
-          );
-        }
+        throw new HttpError(
+          409,
+          'This server cannot send refunds to the payment processor. Refund it in the processor dashboard and confirm here, or refund as store credit.',
+          'provider_refund_unavailable',
+        );
       }
 
       const warnings: string[] = [];
+      let booksBy: 'payments' | 'admin' = 'payments';
+      if (method === 'provider') {
+        // Asks the processor for the money first; changes nothing if it refuses.
+        await pay.refundOrder!(id, { reason: body.reason });
+      } else if (pay.reverseOrderBooks) {
+        await pay.reverseOrderBooks(id, { reason: body.reason });
+      } else {
+        booksBy = 'admin';
+      }
+
+      // Without the payments module: reverse earnings and remove ownership here. Every step is idempotent.
       const reversed = await tx(async (db) => {
         const cur = await one<{ status: string }>('select status from orders where id = $1 for update', [id], db);
+        if (booksBy === 'payments' && cur!.status !== 'refunded') throw new HttpError(409, 'The order could not be refunded. Reload it and try again.');
         await exec(`update orders set status = 'refunded', refunded_at = coalesce(refunded_at, now()) where id = $1`, [id], db);
-        // Idempotent: does nothing if the payments module already reversed the ledger.
         const cents = await reverseOrder(db, id, `Refund: ${body.reason}`);
         await exec('delete from entitlements where order_id = $1', [id], db);
-        await exec('update gift_cards set balance_cents = 0 where order_id = $1 and redeemed_at is null', [id], db);
-        if (method === 'wallet' && cur!.status === 'paid') {
-          await exec(
-            `insert into wallets (user_id, credit_cents) values ($1, $2)
-             on conflict (user_id) do update set credit_cents = wallets.credit_cents + excluded.credit_cents, updated_at = now()`,
-            [order.user_id, order.total_cents], db);
-          await exec(`insert into wallet_log (user_id, kind, credit_cents, note) values ($1, 'refund', $2, $3)`, [order.user_id, order.total_cents, `Refund of order ${id}: ${body.reason}`], db);
+        if (booksBy === 'admin') await exec('update gift_cards set balance_cents = 0 where order_id = $1 and redeemed_at is null', [id], db);
+        if (method === 'wallet') {
+          // The payments module already hands back any store credit spent on the order.
+          const back = booksBy === 'payments' ? order.total_cents - (order.credit_cents ?? 0) : order.total_cents;
+          if (back > 0) {
+            await exec(
+              `insert into wallets (user_id, credit_cents) values ($1, $2)
+               on conflict (user_id) do update set credit_cents = wallets.credit_cents + excluded.credit_cents, updated_at = now()`,
+              [order.user_id, back], db);
+            await exec(`insert into wallet_log (user_id, kind, credit_cents, note) values ($1, 'refund', $2, $3)`, [order.user_id, back, `Refund of order ${id} as store credit: ${body.reason}`], db);
+          }
         }
         return cents;
       });
-      const kinds = (await q<{ kind: string }>('select distinct kind from order_items where order_id = $1', [id])).map((r) => r.kind);
-      if (kinds.includes('credits')) warnings.push('This order bought page credits. They were not removed: adjust the reader\'s wallet if needed.');
-      if (kinds.includes('subscription')) warnings.push('This order paid for a membership period. The membership was not cancelled.');
-      if (await one('select 1 from gift_cards where order_id = $1 and redeemed_at is not null', [id])) warnings.push('A gift card from this order was already redeemed and keeps its value.');
-      audit(req, 'order.refund', { kind: 'order', id }, { reason: body.reason, method, total_cents: order.total_cents, creator_cents_reversed: reversed });
-      return { ok: true, method, creator_cents_reversed: reversed, warnings };
+      if (booksBy === 'admin') {
+        const kinds = (await q<{ kind: string }>('select distinct kind from order_items where order_id = $1', [id])).map((r) => r.kind);
+        if (kinds.includes('credits')) warnings.push('This order bought page credits. They were not removed: adjust the reader\'s wallet if needed.');
+        if (await one('select 1 from gift_cards where order_id = $1 and redeemed_at is not null', [id])) warnings.push('A gift card from this order was already redeemed and keeps its value.');
+      }
+      const ledgerReversed = await one<{ cents: number }>(`select coalesce(-sum(amount_cents),0)::float8 as cents from ledger where order_id = $1 and kind = 'refund'`, [id]);
+      audit(req, 'order.refund', { kind: 'order', id }, { reason: body.reason, method, total_cents: order.total_cents, creator_cents_reversed: ledgerReversed?.cents ?? reversed });
+      return { ok: true, method, creator_cents_reversed: ledgerReversed?.cents ?? reversed, warnings };
     });
 
     // ------------------------------------------------------------ memberships
@@ -261,6 +273,41 @@ export default async function adminFinanceRoutes(app: FastifyInstance) {
            from subscriptions`,
       );
       return { items, total, page, limit, summary };
+    });
+
+    /** One membership with its billing history. */
+    s.get('/api/admin/memberships/:id', async (req) => {
+      requireAdmin(req);
+      const id = idParam(req);
+      const membership = await one(
+        `select sb.id, sb.plan, sb.status, sb.provider, sb.provider_ref, sb.price_cents, sb.current_period_start, sb.current_period_end,
+                sb.cancel_at_period_end, sb.canceled_at, sb.created_at, sb.user_id, u.email, u.username
+           from subscriptions sb join users u on u.id = sb.user_id where sb.id = $1`,
+        [id],
+      );
+      if (!membership) throw notFound('Membership not found');
+      const charges = await q(
+        `select id, period_start, period_end, amount_cents, fee_cents, status, attempts, last_error, payment_ref, paid_at, refunded_at, created_at
+           from subscription_charges where subscription_id = $1 order by period_start desc limit 60`,
+        [id],
+      );
+      const months = await q(`select to_char(month, 'YYYY-MM') as month, gross_cents, fee_cents, settled_at from sub_months where subscription_id = $1 order by month desc limit 60`, [id]);
+      return { membership, charges, months };
+    });
+
+    /** Refund one membership payment through the processor. Ends the membership. */
+    s.post('/api/admin/membership-charges/:id/refund', async (req) => {
+      requireAdmin(req);
+      const id = idParam(req);
+      const { reason } = parse(z.object({ reason: z.string().trim().min(3, 'Give a reason for the refund').max(300) }), req.body);
+      const pay = await payments();
+      if (!pay.refundCharge) throw new HttpError(501, 'Membership refunds are not available on this server (lib/payments.ts is missing)');
+      const charge = await one('select amount_cents, user_id, status from subscription_charges where id = $1', [id]);
+      if (!charge) throw notFound('Membership charge not found');
+      const r = await pay.refundCharge(id, reason);
+      if (!r.refunded) throw conflict(`This charge is ${charge.status}; only a paid charge can be refunded`);
+      audit(req, 'membership_charge.refund', { kind: 'subscription_charge', id }, { reason, amount_cents: charge.amount_cents, user_id: charge.user_id });
+      return { ok: true };
     });
 
     // ------------------------------------------------------------ payouts (super admin)

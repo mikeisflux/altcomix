@@ -20,6 +20,9 @@ const SERIES: [string, string, string, string, string][] = [
   ['fee_cents', 'orders', 'paid_at', 'coalesce(sum(fee_cents),0)', `status in ('paid','refunded')`],
   ['refunded_cents', 'orders', 'refunded_at', 'coalesce(sum(total_cents),0)', `status = 'refunded'`],
   ['creator_cents', 'ledger', 'created_at', 'coalesce(sum(amount_cents),0)', `kind in ('sale','subscription','tip','refund')`],
+  ['m_gross', 'subscription_charges', 'paid_at', 'coalesce(sum(amount_cents),0)', `status in ('paid','refunded')`],
+  ['m_fee', 'subscription_charges', 'paid_at', 'coalesce(sum(fee_cents),0)', `status in ('paid','refunded')`],
+  ['m_refunded', 'subscription_charges', 'refunded_at', 'coalesce(sum(amount_cents),0)', `status = 'refunded'`],
   ['new_members', 'subscriptions', 'created_at', 'count(*)', 'true'],
 ];
 
@@ -46,10 +49,17 @@ async function dailySeries(days: number): Promise<Record<string, unknown>> {
   );
   const anonByDay = new Map(anon.map((r) => [r.day, r.v]));
   out.pages_read = (out.pages_read as number[]).map((v, i) => v + (anonByDay.get((out.days as string[])[i]) ?? 0));
-  const g = out.gross_cents as number[];
-  const f = out.fee_cents as number[];
+  // Money in = store orders + membership charges.
+  const add = (a: string, b: string) => (out[a] as number[]).map((v, i) => v + (out[b] as number[])[i]);
+  out.sales_cents = out.gross_cents;
+  out.membership_cents = out.m_gross;
+  const g = (out.gross_cents = add('gross_cents', 'm_gross'));
+  const f = (out.fee_cents = add('fee_cents', 'm_fee'));
+  const r = (out.refunded_cents = add('refunded_cents', 'm_refunded'));
   const c = out.creator_cents as number[];
-  const r = out.refunded_cents as number[];
+  delete out.m_gross;
+  delete out.m_fee;
+  delete out.m_refunded;
   out.platform_cents = g.map((v, i) => v - f[i] - c[i] - r[i]);
   return out;
 }
@@ -97,6 +107,7 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
   await adminScope(app, (s) => {
     /**
      * Totals plus per-day series for the last N days.
+     * gross = store orders + membership charges.
      * platform revenue = gross - processing fees - creator earnings - refunds.
      * Membership money reaches creator earnings when the month is settled.
      */
@@ -112,9 +123,12 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
              (select count(*) from releases where deleted_at is null and status = 'published')::int as releases,
              ((select count(*) from page_reads) + (select coalesce(sum(pages),0) from anon_reads))::float8 as pages_read,
              (select count(*) from orders where status in ('paid','refunded'))::int as orders,
-             (select coalesce(sum(total_cents),0) from orders where status in ('paid','refunded'))::float8 as gross_cents,
-             (select coalesce(sum(fee_cents),0) from orders where status in ('paid','refunded'))::float8 as fee_cents,
-             (select coalesce(sum(total_cents),0) from orders where status = 'refunded')::float8 as refunded_cents,
+             (select coalesce(sum(total_cents),0) from orders where status in ('paid','refunded'))::float8 as sales_cents,
+             (select coalesce(sum(amount_cents),0) from subscription_charges where status in ('paid','refunded'))::float8 as membership_cents,
+             ((select coalesce(sum(fee_cents),0) from orders where status in ('paid','refunded'))
+               + (select coalesce(sum(fee_cents),0) from subscription_charges where status in ('paid','refunded')))::float8 as fee_cents,
+             ((select coalesce(sum(total_cents),0) from orders where status = 'refunded')
+               + (select coalesce(sum(amount_cents),0) from subscription_charges where status = 'refunded'))::float8 as refunded_cents,
              (select coalesce(sum(amount_cents),0) from ledger where kind in ('sale','subscription','tip','refund'))::float8 as creator_cents,
              (select count(distinct user_id) from subscriptions
                where status in ('active','past_due') and current_period_end > now())::int as active_members,
@@ -129,7 +143,8 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
         days,
         totals: {
           ...t,
-          platform_cents: t.gross_cents - t.fee_cents - t.creator_cents - t.refunded_cents,
+          gross_cents: t.sales_cents + t.membership_cents,
+          platform_cents: t.sales_cents + t.membership_cents - t.fee_cents - t.creator_cents - t.refunded_cents,
           pending_payouts: c!.payouts_requested,
           pending_payouts_cents: c!.payouts_requested_cents,
           approved_payouts: c!.payouts_approved,

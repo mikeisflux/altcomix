@@ -180,7 +180,7 @@ export default async function adminStorefrontRoutes(app: FastifyInstance) {
       const cur = await one('select * from announcements where id = $1', [id]);
       if (!cur) throw notFound('Announcement not found');
       const next = { ...cur, ...body };
-      checkWindow(new Date(next.starts_at).toISOString(), next.ends_at && new Date(next.ends_at).toISOString());
+      checkWindow(new Date(next.starts_at as string).toISOString(), next.ends_at && new Date(next.ends_at).toISOString());
       if (Boolean(next.cta_label) !== Boolean(next.cta_url)) throw badRequest('A button needs both a label and a link');
       const { sets, values } = patch(body, ['kind', 'headline', 'body', 'cta_label', 'cta_url', 'starts_at', 'ends_at', 'active'], 2);
       const row = sets.length ? await one(`update announcements set ${sets.join(', ')} where id = $1 returning *`, [id, ...values]) : cur;
