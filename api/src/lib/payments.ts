@@ -122,7 +122,7 @@ export type PaymentProvider = {
   /** Begin paying for an order. `url` null means the provider settled it on the spot. */
   startOrder(a: { orderId: string; next?: string | null; userId: string; email: string; amountCents: number; currency: string; description: string; origin: Origin }): Promise<{ ref: string; url: string | null; state: SessionState['status'] }>;
   /** Begin saving a payment method. `token` set means no redirect is needed. */
-  startSetup(a: { key: string; userId: string; email: string; description: string; origin: Origin }): Promise<{ ref: string; url: string | null; token: string | null }>;
+  startSetup(a: { key: string; next?: string | null; userId: string; email: string; description: string; origin: Origin }): Promise<{ ref: string; url: string | null; token: string | null }>;
   getSession(ref: string): Promise<SessionState | null>;
   /** Charge a saved payment method off-session. `attempt` starts at 1. */
   charge(a: { chargeId: string; userId: string; token: string; amountCents: number; currency: string; attempt: number; description: string; origin: Origin }): Promise<ChargeResult>;
@@ -215,8 +215,9 @@ const divinity: PaymentProvider = {
       mode: 'setup',
       platformUserId: a.userId,
       email: a.email,
-      returnUrl: `${config.appUrl}/account/membership`,
-      cancelUrl: `${config.appUrl}/account/membership?cancelled=1`,
+      // `next` (already validated same-site) rides along so /account/membership can send the reader on afterwards.
+      returnUrl: `${config.appUrl}/account/membership${a.next ? `?next=${encodeURIComponent(a.next)}` : ''}`,
+      cancelUrl: `${config.appUrl}/account/membership?cancelled=1${a.next ? `&next=${encodeURIComponent(a.next)}` : ''}`,
       description: a.description.slice(0, 200),
       expiresInMinutes: 60,
       idempotencyKey: `setup-${a.key}`,
@@ -752,7 +753,7 @@ export async function activateMembership(subId: string, token: string): Promise<
 
 export type MembershipStart = { completed: boolean; status: string; url?: string };
 
-export async function startMembership(user: { id: string; email: string }, plan: 'monthly' | 'annual', origin: Origin): Promise<MembershipStart> {
+export async function startMembership(user: { id: string; email: string }, plan: 'monthly' | 'annual', origin: Origin, next: string | null = null): Promise<MembershipStart> {
   const live = await one(`select 1 from subscriptions where user_id = $1 and status in ('active','past_due') and current_period_end > now() limit 1`, [user.id]);
   if (live) throw conflict('You already have an active membership');
   const p = await getProvider();
@@ -765,7 +766,7 @@ export async function startMembership(user: { id: string; email: string }, plan:
      values ($1,$2,'pending',$3,$4, now(), now(), $5, $6) returning id`,
     [user.id, plan, p.name, price, origin.ip, origin.userAgent?.slice(0, 512) ?? null],
   );
-  const s = await p.startSetup({ key: sub!.id, userId: user.id, email: user.email, description: `${mem.name} (${plan})`, origin });
+  const s = await p.startSetup({ key: sub!.id, next: next && /^\/(?!\/)[^\\\s]*$/.test(next) ? next : null, userId: user.id, email: user.email, description: `${mem.name} (${plan})`, origin });
   await exec('update subscriptions set setup_ref = $2, provider_ref = $2 where id = $1', [sub!.id, s.ref]);
   if (s.token) {
     const r = await activateMembership(sub!.id, s.token);

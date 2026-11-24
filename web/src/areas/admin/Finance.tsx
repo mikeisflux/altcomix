@@ -7,13 +7,12 @@ import { useSession } from '@/lib/session';
 import {
   Badge, Button, Checkbox, DefList, Field, FormRow, Input, Modal, MoneyInput, Notice, PageHeader, Segmented, Select, Stat, Table, Tabs, Textarea, toast, useConfirm,
 } from '@/ui';
-import type { Column } from '@/ui';
 import { SuperOnly } from './AdminLayout';
 import {
   CopyButton, DataList, FilterBar, FilterSelect, Group, Loaded, Mono, SearchInput, Section, StatusBadge, fromLocalInput, shortId, useAct, useAdminQuery, useAsk, useFilters,
-  useIsSuper, useList, useTitle,
+  useIsSuper, useList, useTitle, useWide,
 } from './shared';
-import type { R } from './shared';
+import type { AdminColumn, R } from './shared';
 
 function useMoney() {
   const { currency } = useSession();
@@ -28,12 +27,12 @@ export function OrdersPage() {
   const $ = useMoney();
   const [f, setF] = useFilters({ q: '', status: '', provider: '', from: '', to: '' });
   const list = useList<{ paid_cents: number }>('/api/admin/orders', { q: f.q, status: f.status, provider: f.provider, from: f.from, to: f.to ? `${f.to}T23:59:59` : '', page: f.page });
-  const columns: Column<R>[] = [
-    { key: 'when', header: 'Date', cell: (o) => dateTime(o.created_at) },
-    { key: 'who', header: 'Buyer', cell: (o) => <span className="block max-w-[200px] truncate">{o.email}</span> },
-    { key: 'what', header: 'Items', cell: (o) => <span className="block max-w-[260px] truncate text-muted" title={o.summary ?? ''}>{o.item_count > 1 ? `${o.item_count} items: ` : ''}{o.summary ?? '—'}</span> },
+  const columns: AdminColumn[] = [
+    { key: 'when', header: 'Date', cell: (o) => <span title={dateTime(o.created_at)}>{date(o.created_at)}</span> },
+    { key: 'who', header: 'Buyer', cell: (o) => <span className="block max-w-[160px] truncate" title={o.email}>{o.email}</span> },
+    { key: 'what', header: 'Items', cell: (o) => <span className="block max-w-[190px] truncate text-muted" title={o.summary ?? ''}>{o.item_count > 1 ? `${o.item_count} items: ` : ''}{o.summary ?? '—'}</span> },
     { key: 'status', header: 'Status', cell: (o) => <StatusBadge status={o.status} /> },
-    { key: 'provider', header: 'Paid with', cell: (o) => <span className="capitalize text-muted">{o.provider}</span>, hideOnMobile: true },
+    { key: 'provider', header: 'Paid with', cell: (o) => <span className="capitalize text-muted">{o.provider}</span>, hideOnMobile: true, wide: true },
     { key: 'total', header: 'Total', align: 'right', cell: (o) => $(o.total_cents) },
   ];
   return (
@@ -253,13 +252,13 @@ export function MembershipsPage() {
   const [open, setOpen] = useState<string | null>(null);
   const list = useList<{ summary: R }>('/api/admin/memberships', { q: f.q, status: f.status, plan: f.plan, provider: f.provider, page: f.page });
   const s = list.data?.summary;
-  const columns: Column<R>[] = [
+  const columns: AdminColumn[] = [
     { key: 'who', header: 'Member', cell: (m) => <span className="block max-w-[220px] truncate">{m.email}</span> },
     { key: 'plan', header: 'Plan', cell: (m) => <span className="capitalize">{m.provider === 'grant' ? 'Complimentary' : m.plan}</span> },
     { key: 'status', header: 'Status', cell: (m) => <span className="flex gap-1"><StatusBadge status={m.status} />{m.cancel_at_period_end && m.provider !== 'grant' && m.status === 'active' && <Badge tone="warn">Ending</Badge>}</span> },
     { key: 'price', header: 'Price', align: 'right', cell: (m) => $(m.price_cents) },
     { key: 'until', header: 'Period ends', cell: (m) => date(m.current_period_end) },
-    { key: 'since', header: 'Started', cell: (m) => <span className="text-muted">{date(m.created_at)}</span>, hideOnMobile: true },
+    { key: 'since', header: 'Started', cell: (m) => <span className="text-muted">{date(m.created_at)}</span>, hideOnMobile: true, wide: true },
   ];
   return (
     <>
@@ -335,7 +334,7 @@ function Payouts() {
     if (v) void run({ key: p.id, fn: () => api(`/api/admin/payouts/${p.id}/reject`, { json: { note: v.note } }), ok: 'Payout rejected' });
   };
 
-  const columns: Column<R>[] = [
+  const columns: AdminColumn[] = [
     {
       key: 'brand', header: 'Brand',
       cell: (p) => (
@@ -481,6 +480,7 @@ function Settlement() {
   const $ = useMoney();
   const { settings } = useSession();
   const q = useAdminQuery<{ months: R[] }>('/api/admin/settlement');
+  const wide = useWide();
   const [open, setOpen] = useState<R | null>(null);
   return (
     <>
@@ -505,10 +505,10 @@ function Settlement() {
               { key: 'state', header: 'Status', cell: (m: R) => (m.ran_at ? <Badge tone="ok">Settled</Badge> : m.closed ? <Badge tone="warn">Ready to settle</Badge> : <Badge tone="info">In progress</Badge>) },
               { key: 'subs', header: 'Members', align: 'right', cell: (m: R) => number(m.subscribers) },
               { key: 'gross', header: 'Paid in', align: 'right', cell: (m: R) => $(m.gross_cents) },
-              { key: 'fees', header: 'Fees', align: 'right', cell: (m: R) => $(m.fee_cents), hideOnMobile: true },
+              ...(wide ? [{ key: 'fees', header: 'Fees', align: 'right' as const, cell: (m: R) => $(m.fee_cents) }] : []),
               { key: 'creator', header: 'To creators', align: 'right', cell: (m: R) => (m.ran_at ? $(m.creator_cents) : '—') },
-              { key: 'platform', header: 'Platform', align: 'right', cell: (m: R) => (m.ran_at ? $(m.platform_cents) : '—'), hideOnMobile: true },
-              { key: 'ran', header: 'Settled', cell: (m: R) => (m.ran_at ? <span className="text-muted">{date(m.ran_at)}{m.ran_by_username ? ` by @${m.ran_by_username}` : ' automatically'}</span> : '—'), hideOnMobile: true },
+              ...(wide ? [{ key: 'platform', header: 'Platform', align: 'right' as const, cell: (m: R) => (m.ran_at ? $(m.platform_cents) : '—') }] : []),
+              ...(wide ? [{ key: 'ran', header: 'Settled', cell: (m: R) => (m.ran_at ? <span className="text-muted">{date(m.ran_at)}{m.ran_by_username ? ` by @${m.ran_by_username}` : ' automatically'}</span> : '—') }] : []),
               { key: 'act', header: '', cell: (m: R) => <Button size="sm" onClick={() => setOpen(m)}>{m.ran_at ? 'View' : m.closed ? 'Preview and run' : 'Preview'}</Button> },
             ]}
           />
@@ -601,7 +601,7 @@ function CodesTab() {
   const { run, busy } = useAct();
   const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState<R[] | null>(null);
-  const columns: Column<R>[] = [
+  const columns: AdminColumn[] = [
     { key: 'code', header: 'Code', cell: (c) => <span className="flex items-center gap-2"><Mono>{c.code}</Mono></span> },
     { key: 'gives', header: 'Gives', cell: codeGives },
     { key: 'used', header: 'Used', align: 'right', cell: (c) => `${number(c.redeemed_count)}${c.max_redemptions ? ` of ${number(c.max_redemptions)}` : ''}` },
@@ -612,8 +612,8 @@ function CodesTab() {
         : c.max_redemptions && c.redeemed_count >= c.max_redemptions ? <Badge>Used up</Badge>
         : <Badge tone="ok">Active</Badge>,
     },
-    { key: 'label', header: 'Label', cell: (c) => <span className="block max-w-[180px] truncate text-muted">{c.batch_label ?? c.assigned_email ?? '—'}</span>, hideOnMobile: true },
-    { key: 'expires', header: 'Expires', cell: (c) => <span className="text-muted">{c.expires_at ? date(c.expires_at) : 'Never'}</span>, hideOnMobile: true },
+    { key: 'label', header: 'Label', cell: (c) => <span className="block max-w-[180px] truncate text-muted">{c.batch_label ?? c.assigned_email ?? '—'}</span>, hideOnMobile: true, wide: true },
+    { key: 'expires', header: 'Expires', cell: (c) => <span className="text-muted">{c.expires_at ? date(c.expires_at) : 'Never'}</span>, hideOnMobile: true, wide: true },
     {
       key: 'act', header: '',
       cell: (c) => (
@@ -681,13 +681,13 @@ function GiftCardsTab() {
   const { run, busy } = useAct();
   const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState<R | null>(null);
-  const columns: Column<R>[] = [
+  const columns: AdminColumn[] = [
     { key: 'code', header: 'Code', cell: (g) => <Mono>{g.code}</Mono> },
     { key: 'amount', header: 'Amount', align: 'right', cell: (g) => $(g.amount_cents) },
     { key: 'state', header: 'Status', cell: (g) => (g.redeemed_at ? <Badge tone="ok">Redeemed</Badge> : g.balance_cents > 0 ? <Badge tone="info">Not redeemed</Badge> : <Badge tone="danger">Void</Badge>) },
-    { key: 'to', header: 'For', cell: (g) => <span className="block max-w-[200px] truncate">{g.recipient_email ?? '—'}</span> },
-    { key: 'from', header: 'From', cell: (g) => <span className="text-muted">{g.order_id ? <Link className="link" to={`/admin/orders/${g.order_id}`}>@{g.purchaser_username ?? 'buyer'}</Link> : `Issued by @${g.purchaser_username ?? 'staff'}`}</span>, hideOnMobile: true },
-    { key: 'created', header: 'Created', cell: (g) => <span className="text-muted">{date(g.created_at)}</span>, hideOnMobile: true },
+    { key: 'to', header: 'For', cell: (g) => <span className="block max-w-[160px] truncate">{g.recipient_email ?? '—'}</span> },
+    { key: 'from', header: 'From', cell: (g) => <span className="text-muted">{g.order_id ? <Link className="link" to={`/admin/orders/${g.order_id}`}>@{g.purchaser_username ?? 'buyer'}</Link> : `Issued by @${g.purchaser_username ?? 'staff'}`}</span>, hideOnMobile: true, wide: true },
+    { key: 'created', header: 'Created', cell: (g) => <span className="text-muted">{date(g.created_at)}</span>, hideOnMobile: true, wide: true },
     {
       key: 'act', header: '',
       cell: (g) => !g.redeemed_at && g.balance_cents > 0 ? (

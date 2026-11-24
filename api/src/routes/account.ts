@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import QRCode from 'qrcode';
 import sharp from 'sharp';
 import { z } from 'zod';
 import { config } from '../config.ts';
@@ -7,13 +8,15 @@ import type { Row } from '../db.ts';
 import { hasMembership } from '../lib/access.ts';
 import { destroySession } from '../lib/auth.ts';
 import { rateLimit } from '../lib/botblock.ts';
-import { hashPassword, randomToken, sha256, verifyPassword } from '../lib/crypto.ts';
+import { hashPassword, randomCode, randomToken, sha256, verifyPassword } from '../lib/crypto.ts';
 import { sendTemplate } from '../lib/email.ts';
-import { HttpError, audit, badRequest, conflict, notFound, pageParams, parse, requireUser } from '../lib/http.ts';
+import { HttpError, audit, badRequest, conflict, isAdmin, notFound, pageParams, parse, requireUser } from '../lib/http.ts';
 import { getSetting } from '../lib/settings.ts';
 import { publicUrl, storage } from '../lib/storage.ts';
 import { FAVORITE_GENRES, LANGUAGES } from '../lib/taxonomy.ts';
+import { generateSecret, otpauthUrl, verifyTotp } from '../lib/totp.ts';
 import { toCards, CARD_SELECT, listable } from './catalog.ts';
+import { orderItems } from './commerce.ts';
 
 const NOTIFY_KEYS = ['releases', 'messages', 'replies', 'mentions', 'followers', 'feed', 'analytics', 'newsletter'] as const;
 const LANG = LANGUAGES.map((l) => l.code) as string[];
@@ -254,14 +257,38 @@ export default async function accountRoutes(app: FastifyInstance) {
     const u = requireUser(req);
     const { limit, offset, page } = pageParams(req.query, 20, 100);
     const orders = await q(
-      `select id, status, total_cents, credit_cents, provider, created_at, paid_at, refunded_at from orders
+      `select id, status, total_cents, credit_cents, provider, created_at, paid_at, refunded_at,
+              case when status = 'refunded' then total_cents - credit_cents else refunded_cents end as refunded_cents from orders
         where user_id = $1 and status in ('paid','refunded') order by created_at desc limit ${limit} offset ${offset}`,
       [u.id],
     );
-    const items = orders.length ? await q('select id, order_id, kind, description, price_cents, release_id, series_id, publisher_id, bundle_id from order_items where order_id = any($1) order by id', [orders.map((o) => o.id)]) : [];
+    const items = await orderItems(orders.map((o) => o.id));
     const total = await one<{ n: number }>(`select count(*)::int as n from orders where user_id = $1 and status in ('paid','refunded')`, [u.id]);
     return {
       items: orders.map((o) => ({ ...o, charged_cents: o.total_cents - o.credit_cents, items: items.filter((i) => i.order_id === o.id).map(({ order_id: _o, ...i }) => i) })),
+      total: total?.n ?? 0, page, limit,
+    };
+  });
+
+  /** Membership charges (one per billed period), newest first: the "Membership payments" list. Unpaid first attempts that never started a membership are left out. */
+  app.get('/api/account/membership-payments', async (req) => {
+    const u = requireUser(req);
+    const { limit, offset, page } = pageParams(req.query, 24, 100);
+    const where = `c.user_id = $1 and (c.status <> 'failed' or c.attempts > 0)`;
+    const rows = await q(
+      `select c.id, c.status, c.amount_cents, c.period_start, c.period_end, c.created_at, c.paid_at, c.refunded_at, c.attempts, c.next_attempt_at, s.plan, s.provider
+         from subscription_charges c join subscriptions s on s.id = c.subscription_id
+        where ${where} order by c.created_at desc limit ${limit} offset ${offset}`,
+      [u.id],
+    );
+    const total = await one<{ n: number }>(`select count(*)::int as n from subscription_charges c where ${where}`, [u.id]);
+    return {
+      items: rows.map((c) => ({
+        id: c.id, status: c.status as 'pending' | 'paid' | 'failed' | 'refunded', amount_cents: c.amount_cents, plan: c.plan, provider: c.provider,
+        period_start: c.period_start, period_end: c.period_end, date: c.paid_at ?? c.created_at, paid_at: c.paid_at, refunded_at: c.refunded_at,
+        // A pending charge that has been declined at least once is being retried.
+        retrying: c.status === 'pending' && c.attempts > 0, next_attempt_at: c.status === 'pending' ? c.next_attempt_at : null,
+      })),
       total: total?.n ?? 0, page, limit,
     };
   });
@@ -272,6 +299,80 @@ export default async function accountRoutes(app: FastifyInstance) {
     const bought = await q('select id, code, amount_cents, balance_cents, recipient_email, message, redeemed_at, created_at from gift_cards where purchaser_id = $1 order by created_at desc limit 100', [u.id]);
     const redeemed = await q('select id, amount_cents, redeemed_at from gift_cards where redeemed_by = $1 order by redeemed_at desc limit 100', [u.id]);
     return { bought: bought.map((g) => ({ ...g, redeemed: Boolean(g.redeemed_at) })), redeemed };
+  });
+
+  // ---------------------------------------------------------------- two-factor sign-in (any account)
+  // Same flow as /api/admin/security/2fa/* (routes/admin-security.ts), for every signed-in user. Sign-in itself
+  // (POST /api/auth/login) already asks for the code whenever users.totp_enabled is set.
+
+  const totpCode = z.object({ code: z.string().trim().regex(/^\d{6}$/, 'Enter the 6-digit code from your authenticator app') });
+  const newBackupCodes = () => Array.from({ length: 10 }, () => randomCode(2, 5));
+
+  app.get('/api/account/2fa', async (req) => {
+    const u = requireUser(req);
+    const row = await one<{ n: number; pending: boolean }>('select cardinality(totp_backup_codes) as n, (totp_secret is not null and not totp_enabled) as pending from users where id = $1', [u.id]);
+    return { enabled: u.totp_enabled, enrolment_pending: row?.pending ?? false, backup_codes_left: u.totp_enabled ? (row?.n ?? 0) : 0 };
+  });
+
+  /** Start (or restart) enrolment. Nothing is enforced until /confirm succeeds. */
+  app.post('/api/account/2fa/begin', async (req) => {
+    const u = requireUser(req);
+    if (u.totp_enabled) throw conflict('Two-factor sign-in is already on. Turn it off first to set up a new device.');
+    if (!rateLimit('2fa-begin', u.id, 10, 3600)) throw new HttpError(429, 'Too many attempts. Try again later.');
+    const site = await getSetting('site');
+    const secret = generateSecret();
+    await exec('update users set totp_secret = $2 where id = $1 and not totp_enabled', [u.id, secret]);
+    const url = otpauthUrl(secret, u.email, site.name);
+    audit(req, 'security.2fa_begin', { kind: 'user', id: u.id });
+    return { secret, otpauth_url: url, qr_data_url: await QRCode.toDataURL(url, { margin: 1, width: 240 }) };
+  });
+
+  /** Confirm with a code from the app. Returns the backup codes once; only their hashes are stored. */
+  app.post('/api/account/2fa/confirm', async (req) => {
+    const u = requireUser(req);
+    const { code } = parse(totpCode, req.body);
+    if (u.totp_enabled) throw conflict('Two-factor sign-in is already on');
+    if (!rateLimit('2fa-confirm', u.id, 10, 600)) throw new HttpError(429, 'Too many attempts. Wait a few minutes and try again.');
+    const row = await one<{ totp_secret: string | null }>('select totp_secret from users where id = $1', [u.id]);
+    if (!row?.totp_secret) throw badRequest('Start the setup first');
+    if (!(await verifyTotp(row.totp_secret, code))) throw badRequest('That code is not valid. Check the time on your phone and try the next code.');
+    const codes = newBackupCodes();
+    await exec('update users set totp_enabled = true, totp_backup_codes = $2 where id = $1', [u.id, codes.map((c) => sha256(c))]);
+    audit(req, 'security.2fa_enable', { kind: 'user', id: u.id });
+    return { ok: true, backup_codes: codes };
+  });
+
+  /** New backup codes; the old ones stop working. Needs a current code. */
+  app.post('/api/account/2fa/backup-codes', async (req) => {
+    const u = requireUser(req);
+    const { code } = parse(totpCode, req.body);
+    if (!rateLimit('2fa-confirm', u.id, 10, 600)) throw new HttpError(429, 'Too many attempts. Wait a few minutes and try again.');
+    const row = await one<{ totp_secret: string | null; totp_enabled: boolean }>('select totp_secret, totp_enabled from users where id = $1', [u.id]);
+    if (!row?.totp_enabled) throw badRequest('Two-factor sign-in is not on');
+    if (!(await verifyTotp(row.totp_secret, code))) throw badRequest('That code is not valid');
+    const codes = newBackupCodes();
+    await exec('update users set totp_backup_codes = $2 where id = $1', [u.id, codes.map((c) => sha256(c))]);
+    audit(req, 'security.2fa_backup_codes', { kind: 'user', id: u.id });
+    return { ok: true, backup_codes: codes };
+  });
+
+  /** Turn off: password plus a current code (or an unused backup code). */
+  app.post('/api/account/2fa/disable', async (req) => {
+    const u = requireUser(req);
+    const body = parse(z.object({ password: z.string().min(1, 'Enter your password').max(200), code: z.string().trim().min(6, 'Enter a code from your app, or a backup code').max(20) }), req.body);
+    if (!rateLimit('2fa-disable', u.id, 8, 900)) throw new HttpError(429, 'Too many attempts. Wait a few minutes and try again.');
+    const row = await one<{ password_hash: string; totp_secret: string | null; totp_enabled: boolean; totp_backup_codes: string[] }>(
+      'select password_hash, totp_secret, totp_enabled, totp_backup_codes from users where id = $1', [u.id]);
+    if (!row?.totp_enabled) throw badRequest('Two-factor sign-in is not on');
+    if (!(await verifyPassword(body.password, row.password_hash))) throw badRequest('That password is not correct');
+    const code = body.code.replace(/\s/g, '');
+    const ok = (await verifyTotp(row.totp_secret, code)) || row.totp_backup_codes.includes(sha256(code.toUpperCase()));
+    if (!ok) throw badRequest('That code is not valid');
+    await exec(`update users set totp_enabled = false, totp_secret = null, totp_backup_codes = '{}' where id = $1`, [u.id]);
+    audit(req, 'security.2fa_disable', { kind: 'user', id: u.id });
+    // Staff may be required to have it: the admin area will ask them to set it up again.
+    const security = await getSetting('security');
+    return { ok: true, setup_required: security.admin_2fa_required && isAdmin(u) };
   });
 
   /** Public profile at /u/<username>. */

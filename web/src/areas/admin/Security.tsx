@@ -7,10 +7,9 @@ import { api, errorMessage } from '@/lib/api';
 import { ago, dateTime, number } from '@/lib/format';
 import { useSession } from '@/lib/session';
 import { Badge, Button, Card, Field, Input, Notice, PageHeader, RankList, Stat, Tabs, toast, useConfirm } from '@/ui';
-import type { Column } from '@/ui';
 import { SuperOnly } from './AdminLayout';
 import { CopyButton, DataList, FilterBar, FilterSelect, Loaded, Mono, SearchInput, Section, useAct, useAdminQuery, useAsk, useFilters, useList, useTitle } from './shared';
-import type { R } from './shared';
+import type { AdminColumn, R } from './shared';
 
 const DURATIONS = [
   { value: '1', label: '1 hour' }, { value: '24', label: '1 day' }, { value: '168', label: '7 days' }, { value: '720', label: '30 days' }, { value: '', label: 'Until I unblock it' },
@@ -42,13 +41,13 @@ function BlockedIps() {
   const { run, busy } = useAct();
   const confirm = useConfirm();
   const { block } = useBlock();
-  const columns: Column<R>[] = [
+  const columns: AdminColumn[] = [
     { key: 'ip', header: 'IP address', cell: (b) => <Mono>{b.ip_address}</Mono> },
     { key: 'reason', header: 'Reason', cell: (b) => <span className="block max-w-[280px] truncate" title={b.reason}>{b.reason}</span> },
     { key: 'hits', header: 'Strikes', align: 'right', cell: (b) => number(b.violation_count) },
     { key: 'when', header: 'Blocked', cell: (b) => <span title={dateTime(b.blocked_at)}>{ago(b.blocked_at)}</span> },
     { key: 'until', header: 'Until', cell: (b) => (b.permanent ? <Badge tone="danger">Permanent</Badge> : b.active ? dateTime(b.expires_at) : <span className="text-muted">Expired {ago(b.expires_at)}</span>) },
-    { key: 'last', header: 'Last seen doing', cell: (b) => <span className="block max-w-[220px] truncate text-xs text-muted" title={`${b.last_path ?? ''} ${b.last_user_agent ?? ''}`}>{b.last_path ?? b.last_user_agent ?? '—'}</span>, hideOnMobile: true },
+    { key: 'last', header: 'Last seen doing', cell: (b) => <span className="block max-w-[220px] truncate text-xs text-muted" title={`${b.last_path ?? ''} ${b.last_user_agent ?? ''}`}>{b.last_path ?? b.last_user_agent ?? '—'}</span>, hideOnMobile: true, wide: true },
     {
       key: 'act', header: '',
       cell: (b) => (
@@ -93,7 +92,7 @@ function Suspicious() {
           { key: 'ip', header: 'IP address', cell: (a) => <Mono>{a.ip_address}</Mono> },
           { key: 'reason', header: 'What happened', cell: (a) => <span className="block max-w-[240px] truncate" title={a.reason}>{a.reason}</span> },
           { key: 'path', header: 'Path', cell: (a) => <span className="block max-w-[220px] truncate font-mono text-xs text-muted" title={a.path ?? ''}>{a.path ?? '—'}</span> },
-          { key: 'ua', header: 'Browser', cell: (a) => <span className="block max-w-[200px] truncate text-xs text-muted" title={a.user_agent ?? ''}>{a.user_agent ?? '—'}</span>, hideOnMobile: true },
+          { key: 'ua', header: 'Browser', cell: (a) => <span className="block max-w-[200px] truncate text-xs text-muted" title={a.user_agent ?? ''}>{a.user_agent ?? '—'}</span>, hideOnMobile: true, wide: true },
           { key: 'act', header: '', cell: (a) => (a.blocked ? <Badge tone="danger">Blocked</Badge> : <Button size="sm" loading={busy === `block-${a.ip_address}`} onClick={() => block(a.ip_address)}>Block</Button>) },
         ]}
       />
@@ -119,7 +118,7 @@ function Logins() {
           { key: 'who', header: 'Account', cell: (l) => <span className="block max-w-[240px] truncate">{l.user_id ? <Link className="link" to={`/admin/users/${l.user_id}`}>@{l.username}</Link> : l.email}{l.role && l.role !== 'user' && <Badge tone="info" className="ml-1.5">Staff</Badge>}</span> },
           { key: 'ok', header: 'Result', cell: (l) => (l.success ? <Badge tone="ok">Signed in</Badge> : <Badge tone="danger">{String(l.reason ?? 'failed').replace(/_/g, ' ')}</Badge>) },
           { key: 'ip', header: 'IP address', cell: (l) => <Mono>{l.ip}</Mono> },
-          { key: 'ua', header: 'Browser', cell: (l) => <span className="block max-w-[240px] truncate text-xs text-muted" title={l.user_agent ?? ''}>{l.user_agent ?? '—'}</span>, hideOnMobile: true },
+          { key: 'ua', header: 'Browser', cell: (l) => <span className="block max-w-[240px] truncate text-xs text-muted" title={l.user_agent ?? ''}>{l.user_agent ?? '—'}</span>, hideOnMobile: true, wide: true },
         ]}
       />
     </>

@@ -1,5 +1,6 @@
-import { q, pool } from '../db.ts';
+import { one, q, pool } from '../db.ts';
 import type { Queryable, Row } from '../db.ts';
+import { releaseAccess } from './access.ts';
 
 /**
  * What things cost. Read-online and download are priced separately:
@@ -106,22 +107,65 @@ export function applyCode(code: CodeScope, lines: Line[]): { prices: number[]; d
   return { prices, discount_cents: off };
 }
 
+/** The parts of a release's access decision (lib/access.ts) that pricing depends on. */
+export type OfferAccess = { model: string; releaseFree: boolean; unlock: string | null };
+
 /**
- * "Buy the whole series": every currently published release that is sold,
- * not already free to read for good, and not already owned by this reader.
- * The same function prices the offer on the page and the order at checkout.
+ * THE rule for "can this reader buy this release to read, and for how much".
+ * Used for the price on the series page, the single-release checkout line
+ * and every release inside a whole-series purchase, so they cannot disagree.
+ *
+ * Not for sale when: the release is not published; it is free to read for
+ * this reader's country / language edition (free model, forced free, free
+ * date passed, paywall expired, or free under the series preview rule); the
+ * reader already owns it (purchase or code) or is on the brand's team; or it
+ * has no price. A membership does not remove the price: members can still buy
+ * a release to keep it.
  */
-export async function seriesPurchase(series: Row, userId: string | null, discounts: Discount[], db: Queryable = pool) {
-  if (series.access_model !== 'premium') return { base_cents: 0, price_cents: 0, releases: [] as { id: string; price_cents: number }[] };
+export function readOffer(series: Row, release: Row, access: OfferAccess, discounts: Discount[]): Price | null {
+  if (release.status !== 'published' || release.deleted_at) return null;
+  if (access.model !== 'premium' || access.releaseFree) return null;
+  if (access.unlock === 'owner' || access.unlock === 'purchase' || access.unlock === 'code') return null;
+  return readPrice(series, release, discounts);
+}
+
+type Buyer = { id: string; role?: string } | null;
+
+/**
+ * "Buy the whole series": the sum of `readOffer` over every published
+ * release, i.e. exactly the releases that show a read price to this reader.
+ * The same function prices the offer on the page and the order at checkout.
+ * `ctx.access` lets a caller that has already worked out access per release
+ * (the series page) hand it over instead of having it worked out again.
+ */
+export async function seriesPurchase(
+  series: Row,
+  userId: string | null,
+  discounts: Discount[],
+  db: Queryable = pool,
+  ctx: { country?: string | null; access?: Map<string, OfferAccess> } = {},
+) {
+  const out = { base_cents: 0, price_cents: 0, releases: [] as { id: string; price_cents: number; base_cents: number }[] };
   const rows = await q(
-    `select r.* from releases r
-      where r.series_id = $1 and r.status = 'published' and r.deleted_at is null and not r.force_free
-        and (r.free_at is null or r.free_at > now())
-        and ($3::int is null or r.published_at is null or r.published_at + ($3::int || ' days')::interval > now())
-        and not exists (select 1 from entitlements e where e.user_id = $2 and e.release_id = r.id)
-      order by r.language, r.number`,
-    [series.id, userId, series.paywall_expires_days ?? null],
+    `select r.* from releases r where r.series_id = $1 and r.status = 'published' and r.deleted_at is null order by r.language, r.number, r.created_at`,
+    [series.id],
     db,
   );
-  return seriesPrice(series, rows, discounts);
+  if (!rows.length) return out;
+  let user: Buyer = null;
+  if (userId && rows.some((r) => !ctx.access?.has(r.id))) user = await one<{ id: string; role: string }>('select id, role from users where id = $1', [userId], db);
+  for (let i = 0; i < rows.length; i += 6) {
+    const chunk = rows.slice(i, i + 6);
+    const access = await Promise.all(
+      chunk.map((r) => ctx.access?.get(r.id) ?? releaseAccess({ series, release: r, pages: [], user: user as never, country: ctx.country ?? null })),
+    );
+    chunk.forEach((r, n) => {
+      const p = readOffer(series, r, access[n], discounts);
+      if (!p) return;
+      out.base_cents += p.base_cents;
+      out.price_cents += p.price_cents;
+      out.releases.push({ id: r.id, price_cents: p.price_cents, base_cents: p.base_cents });
+    });
+  }
+  return out;
 }

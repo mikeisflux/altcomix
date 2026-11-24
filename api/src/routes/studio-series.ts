@@ -4,7 +4,7 @@ import { config } from '../config.ts';
 import { exec, one, patch, q } from '../db.ts';
 import type { Row } from '../db.ts';
 import { audit, badRequest, conflict, notFound, parse, requireMember, requireSeriesMember, uniqueSlug } from '../lib/http.ts';
-import { coverUrls, idParam, isUuid, probeImage, receiveImage, receiveMultipart, setSeriesCover, storeWebp } from '../lib/ingest.ts';
+import { announceSeriesLaunch, coverUrls, idParam, isUuid, probeImage, receiveImage, receiveMultipart, setSeriesCover, storeWebp } from '../lib/ingest.ts';
 import { getSetting } from '../lib/settings.ts';
 import { publicUrl, storage } from '../lib/storage.ts';
 import {
@@ -239,6 +239,8 @@ export default async function (app: FastifyInstance) {
         await setSeriesCover(series!.id, `upload-${Date.now().toString(36)}`, input.coverPath);
         series = await one('select * from series where id = $1', [series!.id]);
       }
+      // Created already public: there is nothing published yet to summarise, so this only stamps the launch.
+      await announceSeriesLaunch(series!.id);
       audit(req, 'series.create', { kind: 'series', id: series!.id });
       reply.code(201);
       return { series: await seriesView(series!) };
@@ -293,7 +295,13 @@ export default async function (app: FastifyInstance) {
     if (!sets.length) return { series: await seriesView(s) };
     const updated = await one(`update series set ${sets.join(', ')}, updated_at = now() where id = $1 returning *`, [s.id, ...values]);
     audit(req, 'series.update', { kind: 'series', id: s.id }, { fields: Object.keys(body) });
-    return { series: await seriesView(updated!) };
+    // Leaving draft for the first time: followers hear once about what is already published.
+    let launch_notified: number | null = null;
+    if (s.visibility === 'draft' && updated!.visibility !== 'draft' && !updated!.takedown_at) {
+      launch_notified = await announceSeriesLaunch(s.id);
+      if (launch_notified !== null) audit(req, 'series.launch', { kind: 'series', id: s.id }, { notified: launch_notified });
+    }
+    return { series: await seriesView(updated!), launch_notified };
   });
 
   app.delete('/api/studio/series/:id', async (req) => {

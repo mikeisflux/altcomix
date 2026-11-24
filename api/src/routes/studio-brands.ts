@@ -7,7 +7,7 @@ import { randomToken, sha256 } from '../lib/crypto.ts';
 import { sendTemplate } from '../lib/email.ts';
 import { HttpError, audit, badRequest, conflict, forbidden, isAdmin, notFound, parse, requireMember, requireUser, uniqueSlug } from '../lib/http.ts';
 import type { MemberRole } from '../lib/http.ts';
-import { idParam, receiveImage, storeWebp } from '../lib/ingest.ts';
+import { idParam, receiveImage, requireVerifiedEmail, storeWebp } from '../lib/ingest.ts';
 import type { Row } from '../db.ts';
 import { publicUrl, storage } from '../lib/storage.ts';
 import { LANGUAGES } from '../lib/taxonomy.ts';
@@ -119,7 +119,7 @@ export default async function (app: FastifyInstance) {
   });
 
   app.post('/api/studio/brands', async (req, reply) => {
-    const u = requireUser(req);
+    const u = requireVerifiedEmail(req);
     const body = parse(identity.partial().required({ name: true }), req.body);
     if (!rateLimit('brand_create', u.id, 5, 3600)) throw new HttpError(429, 'You have created several brands in a short time. Try again later.');
     let slug: string;
@@ -149,6 +149,29 @@ export default async function (app: FastifyInstance) {
     audit(req, 'brand.create', { kind: 'publisher', id: brand.id });
     reply.code(201);
     return { brand: await brandView(brand, 'owner') };
+  });
+
+  /**
+   * Open a brand by its URL name. Members get their own role. A platform admin
+   * who is not a member gets in with owner-level controls and `viewing_as_admin`
+   * set, so the Studio can say so. Registered before `/:id`; a slug is never a uuid.
+   */
+  app.get('/api/studio/brands/by-slug/:slug', async (req) => {
+    const u = requireUser(req);
+    const slug = String((req.params as { slug: string }).slug ?? '').toLowerCase();
+    const b = await one('select * from publishers where slug = $1 and deleted_at is null', [slug]);
+    if (!b) throw notFound('Brand not found');
+    const member = await one<{ role: MemberRole }>('select role from publisher_members where publisher_id = $1 and user_id = $2', [b.id, u.id]);
+    if (!member && !isAdmin(u)) throw forbidden('You are not a member of this brand');
+    const counts = await one(
+      `select (select count(*)::int from series s where s.publisher_id = $1 and s.deleted_at is null) as series_count,
+              (select count(*)::int from publisher_members pm where pm.publisher_id = $1) as member_count,
+              (select count(*)::int from publisher_follows f where f.publisher_id = $1) as follower_count`,
+      [b.id],
+    );
+    // Same rule as requireMember: a platform admin acts as an owner everywhere in the Studio.
+    const role: MemberRole = isAdmin(u) ? 'owner' : member!.role;
+    return { brand: { ...(await brandView(b, role)), ...counts, member_role: member?.role ?? null, viewing_as_admin: isAdmin(u) && !member } };
   });
 
   app.get('/api/studio/brands/:id', async (req) => {
@@ -191,13 +214,54 @@ export default async function (app: FastifyInstance) {
     return { brand: await brandView(updated!, role) };
   });
 
+  /** Money still owed to (or by) the brand, and what deleting it would take with it. Owner only. */
+  const deletionState = async (id: string) => {
+    const r = (await one<{ balance: number; open_payouts: number; open_payout_cents: number; series: number; published: number; owned: number; codes: number }>(
+      `select (select coalesce(sum(amount_cents), 0)::int from ledger where publisher_id = $1) as balance,
+              (select count(*)::int from payouts where publisher_id = $1 and status in ('requested','approved')) as open_payouts,
+              (select coalesce(sum(amount_cents), 0)::int from payouts where publisher_id = $1 and status in ('requested','approved')) as open_payout_cents,
+              (select count(*)::int from series where publisher_id = $1 and deleted_at is null) as series,
+              (select count(*)::int from releases r join series s on s.id = r.series_id
+                where s.publisher_id = $1 and s.deleted_at is null and r.deleted_at is null and r.status = 'published') as published,
+              (select count(*)::int from entitlements e join releases r on r.id = e.release_id join series s on s.id = r.series_id
+                where s.publisher_id = $1 and s.deleted_at is null) as owned,
+              (select count(*)::int from promo_codes c where c.publisher_id = $1 and c.disabled_at is null
+                  and (c.expires_at is null or c.expires_at > now())
+                  and (c.max_redemptions is null or c.redeemed_count < c.max_redemptions)) as codes`,
+      [id],
+    ))!;
+    const blockers: string[] = [];
+    if (r.balance > 0) blockers.push('This brand still has earnings that have not been paid out. Request a payout and wait for it to be paid before deleting the brand.');
+    if (r.open_payouts > 0) blockers.push('A payout for this brand is still being processed. Wait until it has been paid (or withdraw the request) before deleting the brand.');
+    return {
+      balance_cents: r.balance, open_payouts: r.open_payouts, open_payout_cents: r.open_payout_cents, series_count: r.series,
+      published_release_count: r.published, owned_copies: r.owned, usable_codes: r.codes, can_delete: blockers.length === 0, blockers,
+    };
+  };
+
+  app.get('/api/studio/brands/:id/deletion', async (req) => {
+    const id = idParam(req);
+    await requireMember(req, id, 'owner');
+    await loadBrand(id);
+    return deletionState(id);
+  });
+
+  /**
+   * Soft-deletes the brand and all of its series. Refused while money is owed:
+   * a positive balance (earned, including the part still on hold) or a payout
+   * that has been requested or approved but not yet paid.
+   */
   app.delete('/api/studio/brands/:id', async (req) => {
     const id = idParam(req);
     await requireMember(req, id, 'owner');
     await loadBrand(id);
-    const owed = await one<{ balance: number }>('select coalesce(sum(amount_cents), 0)::int as balance from ledger where publisher_id = $1', [id]);
-    if ((owed?.balance ?? 0) > 0) throw conflict('This brand still has a balance. Request a payout before deleting it.');
     await tx(async (db) => {
+      // Same lock as a payout request, so one cannot slip in between the check and the delete.
+      await db.query('select id from publishers where id = $1 for update', [id]);
+      const owed = (await db.query('select coalesce(sum(amount_cents), 0)::int as balance from ledger where publisher_id = $1', [id])).rows[0];
+      if (owed.balance > 0) throw conflict('This brand still has earnings that have not been paid out. Request a payout and wait for it to be paid before deleting the brand.');
+      const open = (await db.query(`select count(*)::int as n from payouts where publisher_id = $1 and status in ('requested','approved')`, [id])).rows[0];
+      if (open.n > 0) throw conflict('A payout for this brand is still being processed. Wait until it has been paid (or withdraw the request) before deleting the brand.');
       await db.query('update publishers set deleted_at = now() where id = $1', [id]);
       await db.query('update series set deleted_at = now() where publisher_id = $1 and deleted_at is null', [id]);
     });

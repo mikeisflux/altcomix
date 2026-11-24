@@ -3,7 +3,7 @@ import { one, q } from '../db.ts';
 import type { Row } from '../db.ts';
 import { canView, hasMembership, releaseAccess } from '../lib/access.ts';
 import { isAdmin, notFound, pageParams, HttpError } from '../lib/http.ts';
-import { activeDiscounts, bundlePrice, downloadPrice, readPrice, percentOff, seriesPurchase } from '../lib/pricing.ts';
+import { activeDiscounts, bundlePrice, downloadPrice, readOffer, percentOff, seriesPurchase } from '../lib/pricing.ts';
 import { money } from '../lib/payments.ts';
 import { publicUrl } from '../lib/storage.ts';
 import { FAVORITE_GENRES, RELEASE_GROUPS } from '../lib/taxonomy.ts';
@@ -330,17 +330,21 @@ export default async function catalogRoutes(app: FastifyInstance) {
     const progress = u && ids.length ? await q('select release_id, position, finished from reading_progress where user_id = $1 and release_id = any($2)', [u.id, ids]) : [];
     const isMember = u ? await hasMembership(u.id) : false;
 
-    const whole = await seriesPurchase(s, u?.id ?? null, discounts);
+    // Access is worked out once per release; the per-release price and the whole-series price both come from it.
+    const accessOf = new Map(await Promise.all(relRows.map(async (r) => {
+      const rp = pages.filter((p) => p.release_id === r.id);
+      return [r.id as string, await releaseAccess({ series: s, release: r, pages: rp, user: u, country: req.country })] as const;
+    })));
+    const whole = await seriesPurchase(s, u?.id ?? null, discounts, undefined, { country: req.country, access: accessOf });
     const releases = await Promise.all(relRows.map(async (r) => {
       const rp = pages.filter((p) => p.release_id === r.id);
-      const a = await releaseAccess({ series: s, release: r, pages: rp, user: u, country: req.country });
-      const read = readPrice(s, r, discounts);
+      const a = accessOf.get(r.id)!;
+      const read = readOffer(s, r, a, discounts);
       const dl = downloadPrice(s, r, discounts);
       const owned = a.unlock === 'purchase' || a.unlock === 'code';
       const status =
         a.model === 'blocked' && a.unlock !== 'owner' ? 'blocked' :
         a.unlock === 'owner' ? 'owner' : owned ? 'owned' : a.lockedPages === 0 && a.unlock !== 'subscription' ? 'free' : a.unlock === 'subscription' ? 'membership' : a.freePages > 0 ? 'preview' : 'locked';
-      const sellable = a.model === 'premium' && !a.releaseFree && !owned && a.unlock !== 'owner' && r.status === 'published';
       const pr = progress.find((p) => p.release_id === r.id);
       return {
         id: r.id, number: r.number, kind: r.kind, language: r.language, title: r.title, synopsis: r.synopsis, mature: r.mature, status: r.status,
@@ -348,7 +352,7 @@ export default async function catalogRoutes(app: FastifyInstance) {
         free_at: r.free_at,
         access: {
           status, model: a.model, release_free: a.releaseFree, unlock: a.unlock, can_download: a.canDownload, free_pages: a.freePages, locked_pages: a.lockedPages,
-          read_price_cents: sellable && read ? read.price_cents : null, read_list_price_cents: sellable && read ? read.base_cents : null,
+          read_price_cents: read ? read.price_cents : null, read_list_price_cents: read ? read.base_cents : null,
           download_price_cents: dl && !a.canDownload && a.model !== 'blocked' ? dl.price_cents : null, download_list_price_cents: dl && !a.canDownload && a.model !== 'blocked' ? dl.base_cents : null,
           in_membership: a.model === 'premium' && s.in_subscription,
         },
@@ -390,7 +394,7 @@ export default async function catalogRoutes(app: FastifyInstance) {
       print_links: releases.filter((r) => r.print_url).map((r) => ({ release_id: r.id, title: r.title, number: r.number, kind: r.kind, url: r.print_url, isbn: r.isbn })),
       discount: best ? { label: best.label, percent_off: best.percent_off, applies_to: best.applies_to, ends_at: best.ends_at } : null,
       offers: {
-        series_price_cents: whole.releases.length > 1 ? whole.price_cents : null, series_list_price_cents: whole.releases.length > 1 ? whole.base_cents : null, series_release_count: whole.releases.length,
+        series_price_cents: whole.releases.length > 1 ? whole.price_cents : null, series_list_price_cents: whole.releases.length > 1 ? whole.base_cents : null, series_release_count: whole.releases.length, series_release_ids: whole.releases.map((r) => r.id),
         bundles: bundles.map((b) => {
           const p = bundlePrice(b, discounts);
           return { id: b.id, title: b.title, description: b.description, price_cents: p.price_cents, list_price_cents: p.base_cents, includes_download: b.includes_download, release_ids: b.release_ids };

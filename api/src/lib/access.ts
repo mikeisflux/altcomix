@@ -182,10 +182,33 @@ export async function hasMembership(userId: string): Promise<boolean> {
   );
 }
 
-/** Can this visitor open the series/release at all (drafts, takedowns, mature gate)? */
-export function canView(series: Row, release: Row | null, showMature: boolean, isMember: boolean): { ok: boolean; reason?: string } {
+export type ViewOpts = {
+  /** Platform admin: sees everything, including purged takedowns. */
+  admin?: boolean;
+  /** The reader holds an entitlement (purchase, code or grant) for `release`. */
+  entitled?: boolean;
+};
+
+/**
+ * Can this visitor open the series/release at all (drafts, takedowns, mature gate)?
+ *
+ * Takedowns: a taken-down series is gone for the public (store, search, brand
+ * page, direct links), but a reader keeps what they own: with an entitlement
+ * for the release they can still open it (and download it if their purchase
+ * included the file). The exception is `takedown_purge`, used when access has
+ * to end for everyone (illegal content): then only platform admins get in,
+ * not the brand and not past buyers.
+ *
+ * `isMember` is "works for the brand, or is a platform admin". Pass
+ * `opts.admin` as well so a purge can tell the two apart.
+ */
+export function canView(series: Row, release: Row | null, showMature: boolean, isMember: boolean, opts: ViewOpts = {}): { ok: boolean; reason?: string } {
+  if (opts.admin) return { ok: true };
+  if (series.takedown_at && series.takedown_purge) return { ok: false, reason: 'This title has been removed' };
   if (isMember) return { ok: true };
-  if (series.deleted_at || series.takedown_at) return { ok: false, reason: 'This title is not available' };
+  if (series.deleted_at) return { ok: false, reason: 'This title is not available' };
+  const owns = Boolean(opts.entitled && release && !release.deleted_at);
+  if (series.takedown_at && !owns) return { ok: false, reason: 'This title is not available' };
   if (series.visibility === 'draft') return { ok: false, reason: 'This title is not published yet' };
   if (release && (release.status !== 'published' || release.deleted_at)) return { ok: false, reason: 'This release is not published yet' };
   const mature = series.mature || release?.mature;
@@ -193,4 +216,10 @@ export function canView(series: Row, release: Row | null, showMature: boolean, i
     return { ok: false, reason: 'mature' };
   }
   return { ok: true };
+}
+
+/** Does this reader own the release for good (purchase, code or grant)? */
+export async function hasEntitlement(userId: string | null | undefined, releaseId: string): Promise<boolean> {
+  if (!userId) return false;
+  return Boolean(await one('select 1 from entitlements where user_id = $1 and release_id = $2', [userId, releaseId]));
 }

@@ -39,6 +39,11 @@ export function AdminLayout() {
   useEffect(() => {
     navRef.current?.querySelector('a[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'center' });
   }, [loc.pathname, badges.isSuccess]);
+  // Same for a page's own tab strip (settings, security) when the tab comes from the address.
+  const bodyRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    bodyRef.current?.querySelector('[role="tab"][aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'center' });
+  }, [loc.pathname, loc.search]);
 
   if (!user) {
     return (
@@ -119,7 +124,7 @@ export function AdminLayout() {
   return (
     <AskProvider>
       <div className="md:grid md:grid-cols-[212px_minmax(0,1fr)] md:gap-8">
-        <aside ref={navRef} className="-mx-4 mb-5 border-b border-line px-4 pb-3 sm:-mx-6 sm:px-6 md:sticky md:top-20 md:mx-0 md:mb-0 md:max-h-[calc(100dvh-6rem)] md:self-start md:overflow-y-auto md:border-0 md:px-0 md:pb-6">
+        <aside ref={navRef} className="max-md:[&_a]:min-h-10 -mx-4 mb-5 border-b border-line px-4 pb-3 sm:-mx-6 sm:px-6 md:sticky md:top-20 md:mx-0 md:mb-0 md:max-h-[calc(100dvh-6rem)] md:self-start md:overflow-y-auto md:border-0 md:px-0 md:pb-6">
           <div className="mb-3 hidden items-center gap-2 px-2.5 text-xs font-semibold uppercase tracking-wider text-muted md:flex">
             <Activity className="size-4 text-accent" /> Admin
             {!isSuper && <span className="rounded border border-line px-1 text-[10px] normal-case tracking-normal text-faint">limited</span>}
@@ -130,7 +135,8 @@ export function AdminLayout() {
             <SideNav groups={groups} />
           )}
         </aside>
-        <div className="min-w-0">
+        {/* Phones: lift the kit's compact buttons to a 40px touch target. */}
+        <div ref={bodyRef} className="min-w-0 max-md:[&_button:not([role=switch]):not(.underline)]:min-h-10">
           <Outlet />
         </div>
       </div>

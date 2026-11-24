@@ -5,16 +5,16 @@ import { Zip, ZipPassThrough } from 'fflate';
 import { z } from 'zod';
 import { exec, one, q } from '../db.ts';
 import type { Row } from '../db.ts';
-import { hasMembership, releaseAccess } from '../lib/access.ts';
+import { canView, hasEntitlement, hasMembership, releaseAccess } from '../lib/access.ts';
 import type { ReleaseAccess, Via } from '../lib/access.ts';
 import { loadSession } from '../lib/auth.ts';
 import { rateLimit } from '../lib/botblock.ts';
 import { sha256, sign } from '../lib/crypto.ts';
-import { HttpError, forbidden, notFound, paymentRequired, parse, requireUser } from '../lib/http.ts';
+import { HttpError, forbidden, isAdmin, notFound, paymentRequired, parse, requireUser } from '../lib/http.ts';
 import { activeDiscounts, downloadPrice, readPrice, seriesPurchase } from '../lib/pricing.ts';
 import { getSetting } from '../lib/settings.ts';
 import { publicUrl, storage } from '../lib/storage.ts';
-import { assertViewable, crowdfunding, isUuid } from './catalog.ts';
+import { crowdfunding, isBrandMember, isUuid } from './catalog.ts';
 
 type PageRow = { id: string; position: number; width: number; height: number; bg_color: string; is_free: boolean | null; frames: unknown[]; variants: Record<string, string> };
 type Loaded = { series: Row; release: Row; pages: PageRow[]; access: ReleaseAccess; preview: boolean; member: boolean };
@@ -30,12 +30,37 @@ async function load(req: FastifyRequest, releaseId: string, previewToken?: strin
   const series = release && (await one('select * from series where id = $1 and deleted_at is null', [release.series_id]));
   if (!release || !series) throw notFound('Release not found');
   const preview = Boolean(previewToken) && previewToken === release.private_token;
-  const member = await assertViewable(req, series, release, { preview });
+  const member = await gate(req, series, release, preview);
   const pages = await q<PageRow>('select id, position, width, height, bg_color, is_free, frames, variants from pages where release_id = $1 order by position, id', [releaseId]);
   const access = await releaseAccess({ series, release, pages, user: req.user, country: req.country, preview });
   if (access.model === 'blocked' && access.unlock !== 'owner' && !preview) throw notFound('This title is not available in your country');
   if (preview) access.pages = access.pages.map((v) => v ?? 'free');
   return { series, release, pages, access, preview, member };
+}
+
+/**
+ * 404 / 403 unless this visitor may open the release. The rule is `canView`
+ * (lib/access.ts); this gathers what it needs: staff of the brand, platform
+ * admin, and whether the reader owns the release (which keeps a taken-down
+ * book readable for the people who bought it). Returns whether they are staff.
+ */
+async function gate(req: FastifyRequest, series: Row, release: Row, preview: boolean): Promise<boolean> {
+  const admin = isAdmin(req.user);
+  const member = admin || (await isBrandMember(req.user?.id, series.publisher_id));
+  if (!member) {
+    const pub = await one('select suspended_at, deleted_at from publishers where id = $1', [series.publisher_id]);
+    if (!pub || pub.deleted_at || pub.suspended_at) throw notFound('This title is not available');
+  }
+  const purged = Boolean(series.takedown_at && series.takedown_purge);
+  // A private preview link skips the draft and mature gates, never a purge.
+  if (preview && !purged) return member;
+  const entitled = !member && series.takedown_at ? await hasEntitlement(req.user?.id, release.id) : false;
+  const v = canView(series, release, req.showMature, member, { admin, entitled });
+  if (!v.ok) {
+    if (v.reason === 'mature') throw new HttpError(403, 'This title is for adults. Confirm you are 18 or older to open it.', 'mature');
+    throw notFound(v.reason);
+  }
+  return member;
 }
 
 // Wholly free releases are remembered briefly so a 40-page issue is not 40 paywall evaluations.
@@ -58,7 +83,7 @@ export default async function readerRoutes(app: FastifyInstance) {
     const u = req.user;
     const suffix = l.preview ? `?preview=${encodeURIComponent(token!)}` : '';
 
-    const [pub, siblings, discounts, wallet, progress, mem] = await Promise.all([
+    const [pub, allSiblings, discounts, wallet, progress, mem] = await Promise.all([
       one('select id, slug, name, avatar_key from publishers where id = $1', [s.publisher_id]),
       q<{ id: string }>(
         `select id from releases where series_id = $1 and language = $2 and deleted_at is null and (status = 'published' or id = $3) order by number, created_at`,
@@ -69,11 +94,17 @@ export default async function readerRoutes(app: FastifyInstance) {
       u ? one('select position, finished from reading_progress where user_id = $1 and release_id = $2', [u.id, r.id]) : null,
       getSetting('membership'),
     ]);
+    let siblings = allSiblings;
+    // After a takedown a reader can only move between the releases they own.
+    if (s.takedown_at && !l.member && u) {
+      const mine = new Set((await q<{ release_id: string }>('select release_id from entitlements where user_id = $1 and release_id = any($2::uuid[])', [u.id, siblings.map((x) => x.id)])).map((x) => x.release_id));
+      siblings = siblings.filter((x) => mine.has(x.id));
+    }
     const at = siblings.findIndex((x) => x.id === r.id);
     const owned = a.unlock === 'owner' || a.unlock === 'purchase' || a.unlock === 'code';
-    const sellable = a.model === 'premium' && !a.releaseFree && !owned && r.status === 'published';
+    const sellable = a.model === 'premium' && !a.releaseFree && !owned && r.status === 'published' && !s.takedown_at;
     const read = sellable ? readPrice(s, r, discounts) : null;
-    const dl = !a.canDownload && a.model !== 'blocked' && r.status === 'published' ? downloadPrice(s, r, discounts) : null;
+    const dl = !a.canDownload && a.model !== 'blocked' && r.status === 'published' && !s.takedown_at ? downloadPrice(s, r, discounts) : null;
     const whole = sellable ? await seriesPurchase(s, u?.id ?? null, discounts) : null;
 
     return {
@@ -83,6 +114,8 @@ export default async function readerRoutes(app: FastifyInstance) {
       },
       series: {
         id: s.id, slug: s.slug, title: s.title, layout: s.layout, reading_dir: s.reading_dir, cover_url: await publicUrl(s.cover_key), allow_comments: s.allow_comments,
+        // No longer in the store; this reader still has it because they own it (or work for the brand).
+        taken_down: Boolean(s.takedown_at),
         publisher: pub && { id: pub.id, slug: pub.slug, name: pub.name, avatar_url: await publicUrl(pub.avatar_key) },
         crowdfunding: crowdfunding(s.crowdfunding),
       },

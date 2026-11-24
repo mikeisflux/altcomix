@@ -7,7 +7,7 @@ import { rateLimit } from '../lib/botblock.ts';
 import { randomCode } from '../lib/crypto.ts';
 import { alertAdmins, sendTemplate } from '../lib/email.ts';
 import { HttpError, audit, badRequest, conflict, notFound, pageParams, parse, requireMember } from '../lib/http.ts';
-import { coverThumbKey, idParam, isUuid, parseCsv, sendCsv } from '../lib/ingest.ts';
+import { coverThumbKey, idParam, isUuid, parseCsv, requireVerifiedEmail, sendCsv } from '../lib/ingest.ts';
 import { getSetting } from '../lib/settings.ts';
 import { publicUrl } from '../lib/storage.ts';
 
@@ -374,6 +374,7 @@ export default async function (app: FastifyInstance) {
   app.post('/api/studio/brands/:id/code-batches/:batchId/email', async (req) => {
     const id = idParam(req);
     await requireMember(req, id, 'admin');
+    requireVerifiedEmail(req);
     const batch = await batchOf(req, id);
     const body = parse(
       z.object({
@@ -705,6 +706,7 @@ export default async function (app: FastifyInstance) {
   app.post('/api/studio/brands/:id/payouts', async (req, reply) => {
     const id = idParam(req);
     await requireMember(req, id, 'admin');
+    requireVerifiedEmail(req);
     // Leave amount_cents out to request everything that can be requested.
     const body = parse(z.object({ amount_cents: z.number().int().min(1).optional(), note: z.string().trim().max(300).optional() }), req.body ?? {});
     const revenue = await getSetting('revenue');

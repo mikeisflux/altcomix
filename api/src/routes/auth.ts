@@ -85,7 +85,11 @@ async function me(req: FastifyRequest) {
 
 export default async function authRoutes(app: FastifyInstance) {
   // One call on page load: public settings, vocabularies, current user.
-  app.get('/api/bootstrap', async (req) => ({ settings: await publicSettings(), meta: meta(), user: await me(req), adult: req.showMature }));
+  // `settings.password_min_length` lets the sign-up, reset and change-password forms show the real rule.
+  app.get('/api/bootstrap', async (req) => ({
+    settings: { ...(await publicSettings()), password_min_length: (await getSetting('security')).password_min_length },
+    meta: meta(), user: await me(req), adult: req.showMature,
+  }));
 
   /**
    * "I am 18 or older, show me adult titles" (or turn it back off). Signed in:

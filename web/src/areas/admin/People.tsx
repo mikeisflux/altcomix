@@ -5,9 +5,8 @@ import { api } from '@/lib/api';
 import { ago, date, dateTime, moneyExact, number } from '@/lib/format';
 import { useSession } from '@/lib/session';
 import { Avatar, Badge, Button, DefList, Field, FormRow, Input, Notice, PageHeader, Stat, Table, useConfirm } from '@/ui';
-import type { Column } from '@/ui';
 import { DataList, FilterBar, FilterSelect, Loaded, SearchInput, Section, StatusBadge, bpsToPct, pctToBps, shortId, useAct, useAdminQuery, useAsk, useFilters, useIsSuper, useList, useTitle } from './shared';
-import type { R } from './shared';
+import type { AdminColumn, R } from './shared';
 import { toast } from '@/ui';
 
 // ---------------------------------------------------------------- users
@@ -27,11 +26,11 @@ export function UsersPage() {
   const nav = useNavigate();
   const [f, setF] = useFilters({ q: '', role: '', status: '', member: '', sort: 'newest' });
   const list = useList('/api/admin/users', { q: f.q, role: f.role, status: f.status, member: f.member, sort: f.sort, page: f.page });
-  const columns: Column<R>[] = [
+  const columns: AdminColumn[] = [
     {
       key: 'user', header: 'User',
       cell: (u) => (
-        <div className="max-w-[260px]">
+        <div className="max-w-[200px]">
           <div className="truncate font-medium">{u.display_name} <span className="font-normal text-muted">@{u.username}</span></div>
           <div className="truncate text-xs text-muted">{u.email}</div>
         </div>
@@ -39,10 +38,10 @@ export function UsersPage() {
     },
     { key: 'role', header: 'Role', cell: (u) => (u.role === 'user' ? <span className="text-muted">Reader</span> : <StatusBadge status={u.role} />) },
     { key: 'state', header: 'Status', cell: userState },
-    { key: 'brands', header: 'Brands', align: 'right', cell: (u) => u.brand_count || '—', hideOnMobile: true },
-    { key: '2fa', header: '2FA', cell: (u) => (u.totp_enabled ? 'On' : <span className="text-faint">Off</span>), hideOnMobile: true },
+    { key: 'brands', header: 'Brands', align: 'right', cell: (u) => u.brand_count || '—', hideOnMobile: true, wide: true },
+    { key: '2fa', header: '2FA', cell: (u) => (u.totp_enabled ? 'On' : <span className="text-faint">Off</span>), hideOnMobile: true, wide: true },
     { key: 'login', header: 'Last sign-in', cell: (u) => <span className="text-muted">{u.last_login_at ? ago(u.last_login_at) : 'Never'}</span> },
-    { key: 'joined', header: 'Joined', cell: (u) => <span className="text-muted">{date(u.created_at)}</span>, hideOnMobile: true },
+    { key: 'joined', header: 'Joined', cell: (u) => <span className="text-muted">{date(u.created_at)}</span>, hideOnMobile: true, wide: true },
   ];
   return (
     <>
@@ -333,7 +332,7 @@ export function BrandsPage() {
   const { currency } = useSession();
   const [f, setF] = useFilters({ q: '', kind: '', status: '', sort: '' });
   const list = useList('/api/admin/brands', { q: f.q, kind: f.kind, status: f.status, sort: f.sort, page: f.page });
-  const columns: Column<R>[] = [
+  const columns: AdminColumn[] = [
     {
       key: 'brand', header: 'Brand',
       cell: (b) => (
@@ -346,9 +345,9 @@ export function BrandsPage() {
     { key: 'kind', header: 'Type', cell: (b) => <span className="capitalize">{b.kind}</span> },
     { key: 'state', header: 'Status', cell: brandState },
     { key: 'series', header: 'Series', align: 'right', cell: (b) => number(b.series_count) },
-    { key: 'members', header: 'Team', align: 'right', cell: (b) => number(b.member_count), hideOnMobile: true },
+    { key: 'members', header: 'Team', align: 'right', cell: (b) => number(b.member_count), hideOnMobile: true, wide: true },
     { key: 'balance', header: 'Balance', align: 'right', cell: (b) => moneyExact(b.balance_cents, currency) },
-    { key: 'created', header: 'Created', cell: (b) => <span className="text-muted">{date(b.created_at)}</span>, hideOnMobile: true },
+    { key: 'created', header: 'Created', cell: (b) => <span className="text-muted">{date(b.created_at)}</span>, hideOnMobile: true, wide: true },
   ];
   return (
     <>

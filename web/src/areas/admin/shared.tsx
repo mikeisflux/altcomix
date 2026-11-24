@@ -274,22 +274,39 @@ export function FilterBar({ children }: { children: ReactNode }) {
   return <div className="mb-4 flex flex-wrap items-center gap-2">{children}</div>;
 }
 
+/** True on screens wide enough for the secondary table columns (the admin shares the row with two navigation columns). */
+export function useWide(): boolean {
+  const query = '(min-width: 1500px)';
+  const [wide, setWide] = useState(() => window.matchMedia(query).matches);
+  useEffect(() => {
+    const m = window.matchMedia(query);
+    const on = () => setWide(m.matches);
+    m.addEventListener('change', on);
+    return () => m.removeEventListener('change', on);
+  }, []);
+  return wide;
+}
+
+/** A column marked `wide` is only shown on large screens, so the main columns and row actions fit without sideways scrolling. */
+export type AdminColumn = Column<R> & { wide?: boolean };
+
 /** Table with the loading, error, empty and paging states every admin list needs. */
 export function DataList({ query, columns, onRowClick, empty, onPage, rowKey = (r: R) => r.id }: {
   query: UseQueryResult<Paged>;
-  columns: Column<R>[];
+  columns: AdminColumn[];
   onRowClick?: (row: R) => void;
   empty: { title: string; hint?: ReactNode; action?: ReactNode; icon?: ReactNode };
   onPage: (p: number) => void;
   rowKey?: (row: R) => string;
 }) {
+  const wide = useWide();
   if (query.isPending) return <Skeleton className="h-72 w-full" />;
   if (query.isError) return <ErrorState message={errorMessage(query.error)} retry={() => void query.refetch()} />;
   const d = query.data;
   if (!d.items.length) return <EmptyState icon={empty.icon} title={empty.title} action={empty.action}>{empty.hint}</EmptyState>;
   return (
     <div className={cx('transition-opacity', query.isPlaceholderData && 'opacity-60')}>
-      <Table columns={columns} rows={d.items} rowKey={rowKey} onRowClick={onRowClick} />
+      <Table columns={wide ? columns : columns.filter((c) => !c.wide)} rows={d.items} rowKey={rowKey} onRowClick={onRowClick} />
       <div className="mt-2 text-xs text-faint">{new Intl.NumberFormat().format(d.total)} in total</div>
       <Pagination page={d.page} pages={Math.ceil(d.total / d.limit)} onPage={onPage} />
     </div>
@@ -334,7 +351,7 @@ export function CopyField({ label, value, hint }: { label: string; value: string
     <div>
       <div className="mb-1.5 text-[13px] font-medium">{label}</div>
       <div className="flex items-center gap-2">
-        <code className="min-w-0 flex-1 truncate rounded-lg border border-line bg-ink px-3 py-2.5 text-[13px]">{value}</code>
+        <code className="w-0 min-w-0 flex-1 truncate rounded-lg border border-line bg-ink px-3 py-2.5 text-[13px]">{value}</code>
         <CopyButton text={value} size="md" />
       </div>
       {hint && <div className="mt-1.5 text-xs text-faint">{hint}</div>}

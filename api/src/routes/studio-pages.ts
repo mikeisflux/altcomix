@@ -5,9 +5,9 @@ import { Zip, ZipPassThrough } from 'fflate';
 import { z } from 'zod';
 import { exec, one, patch, q, tx } from '../db.ts';
 import type { Row } from '../db.ts';
-import { releaseAccess } from '../lib/access.ts';
+import { canView, releaseAccess } from '../lib/access.ts';
 import { captureError } from '../lib/errors.ts';
-import { HttpError, audit, badRequest, conflict, notFound, parse, requireReleaseMember } from '../lib/http.ts';
+import { HttpError, audit, badRequest, conflict, isAdmin, notFound, parse, requireReleaseMember } from '../lib/http.ts';
 import type { MemberRole } from '../lib/http.ts';
 import {
   acceptUpload, coverUrls, deletePages, detectPageFrames, idParam, isUuid, kickJobs, queueArchiveJob, queueDetectJob, receiveMultipart,
@@ -90,6 +90,12 @@ async function requirePage(req: FastifyRequest, min: MemberRole = 'editor'): Pro
   return { page, release };
 }
 
+/** Files of a purged takedown are not handed out to the brand either (rule: canView in lib/access.ts). */
+async function refusePurged(req: FastifyRequest, seriesId: string): Promise<void> {
+  const s = await one('select takedown_at, takedown_purge, deleted_at, visibility, mature from series where id = $1', [seriesId]);
+  if (s && !canView(s, null, true, true, { admin: isAdmin(req.user) }).ok) throw notFound('This title has been removed');
+}
+
 const point = z.number().min(0).max(1);
 
 export default async function (app: FastifyInstance) {
@@ -161,7 +167,8 @@ export default async function (app: FastifyInstance) {
   });
 
   app.get('/api/studio/archives/:id/download', async (req, reply) => {
-    const { archive } = await requireArchive(req, 'editor');
+    const { archive, release } = await requireArchive(req, 'editor');
+    await refusePurged(req, release.series_id);
     const obj = await (await storage()).get(archive.storage_key);
     if (!obj) throw notFound('The archive file is missing');
     reply
@@ -187,6 +194,7 @@ export default async function (app: FastifyInstance) {
   /** Every original page file of the release as one ZIP, streamed. */
   app.get('/api/studio/releases/:id/originals.zip', async (req, reply) => {
     const r = await requireReleaseMember(req, idParam(req), 'editor');
+    await refusePurged(req, r.series_id);
     const pages = await q<{ position: number; source_key: string }>('select position, source_key from pages where release_id = $1 order by position', [r.id]);
     if (!pages.length) throw notFound('This release has no pages yet');
     const store = await storage();
@@ -274,7 +282,8 @@ export default async function (app: FastifyInstance) {
 
   /** Streams a page image to brand members: original | thumb | medium | full. */
   app.get('/api/studio/pages/:id/image/:variant', async (req, reply) => {
-    const { page } = await requirePage(req, 'analyst');
+    const { page, release } = await requirePage(req, 'analyst');
+    await refusePurged(req, release.series_id);
     const variant = (req.params as { variant: string }).variant as (typeof VARIANTS)[number];
     if (!VARIANTS.includes(variant)) throw notFound('Unknown image size');
     const key = variant === 'original' ? page.source_key : page.variants?.[variant];

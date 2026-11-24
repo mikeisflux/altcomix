@@ -4,6 +4,7 @@ import { exec, one, q, tx } from '../db.ts';
 import type { Queryable, Row } from '../db.ts';
 import { hasMembership, releaseAccess } from '../lib/access.ts';
 import { rateLimit } from '../lib/botblock.ts';
+import { requireConfirmedEmail } from '../lib/email.ts';
 import { HttpError, badRequest, conflict, forbidden, notFound, parse, paymentRequired, requireUser } from '../lib/http.ts';
 import type { SessionUser } from '../lib/http.ts';
 import { creditSale } from '../lib/ledger.ts';
@@ -11,7 +12,7 @@ import {
   changePaymentMethod, confirmSession, getProvider, handleDivinityEvent, money, startMembership, startOrderPayment, verifyDivinitySignature, walletAdd,
 } from '../lib/payments.ts';
 import type { Origin } from '../lib/payments.ts';
-import { activeDiscounts, applyCode, bundlePrice, codeCovers, downloadPrice, readPrice, seriesPurchase } from '../lib/pricing.ts';
+import { activeDiscounts, applyCode, bundlePrice, codeCovers, downloadPrice, readOffer, seriesPurchase } from '../lib/pricing.ts';
 import type { Line } from '../lib/pricing.ts';
 import { getSetting } from '../lib/settings.ts';
 import { assertViewable, findPublisher, findSeries, isUuid } from './catalog.ts';
@@ -55,120 +56,212 @@ async function usableCode(code: string, user: SessionUser, db?: Queryable): Prom
   return c;
 }
 
+/**
+ * Order lines with what the web needs to link each one: the series (slug,
+ * title) for anything that belongs to one, the brand (slug, name) for tips.
+ */
+export async function orderItems(orderIds: string[]): Promise<Row[]> {
+  if (!orderIds.length) return [];
+  return q(
+    `select i.id, i.order_id, i.kind, i.description, i.price_cents, i.release_id, i.series_id, i.publisher_id, i.bundle_id,
+            s.slug as series_slug, s.title as series_title, p.slug as publisher_slug, p.name as publisher_name,
+            case when i.kind = 'series' then coalesce(i.meta->'release_ids', '[]'::jsonb)
+                 when i.kind = 'bundle' then coalesce((select jsonb_agg(x->>'id') from jsonb_array_elements(i.meta->'releases') x), '[]'::jsonb)
+                 when i.release_id is not null then jsonb_build_array(i.release_id) else '[]'::jsonb end as release_ids
+       from order_items i
+       left join series s on s.id = i.series_id and s.deleted_at is null
+       left join publishers p on p.id = i.publisher_id and p.deleted_at is null
+      where i.order_id = any($1) order by i.id`,
+    [orderIds],
+  );
+}
+
+const basketSchema = z.object({
+  items: z.array(itemSchema).min(1, 'Your basket is empty').max(20), code: z.string().trim().max(40).optional(), use_credit: z.boolean().optional(), return_to: z.string().max(300).optional(),
+});
+
+/** Only same-site paths are followed after a payment. */
+const sameSite = (path: string | undefined | null, fallback: string): string => (path && /^\/(?!\/)[^\\\s]*$/.test(path) ? path : fallback);
+
+/**
+ * Who a tip goes to. `id` may be a brand's id or slug, or a series' id or
+ * slug (the tip then goes to the brand that publishes it). Brands win when a
+ * brand and a series share a slug.
+ */
+async function tipRecipient(id: string): Promise<Row> {
+  let p = await findPublisher(id);
+  if (!p) {
+    const s = await findSeries(id);
+    if (s) p = await one('select * from publishers where id = $1 and deleted_at is null', [s.publisher_id]);
+  }
+  if (!p) throw notFound(`No brand or series matches "${id}". A tip's id must be a brand's slug or id (a series slug or id also works and tips the brand behind it).`);
+  if (p.suspended_at) throw notFound(`${p.name} is suspended and cannot receive tips right now`);
+  if (!p.tips_enabled) throw badRequest(`${p.name} is not accepting tips`);
+  return p;
+}
+
+type Basket = { drafts: Draft[]; code: Row | null; code_discount_cents: number; total_cents: number };
+
+/**
+ * Price a basket. Shared by POST /api/checkout/quote and POST /api/checkout,
+ * so the total the reader is shown is the total they are charged. Nothing is
+ * written. Nothing the browser sends is trusted for a price except a tip /
+ * gift card amount.
+ */
+async function priceBasket(req: FastifyRequest, u: SessionUser, body: z.infer<typeof basketSchema>, opts: { quote: boolean }): Promise<Basket> {
+  const mem = await getSetting('membership');
+  const drafts: Draft[] = [];
+  const seen = new Set<string>();
+  const unique = (key: string, what: string) => {
+    if (seen.has(key)) throw badRequest(`${what} is in your basket twice`);
+    seen.add(key);
+  };
+  for (const it of body.items) {
+    if (it.kind === 'release' || it.kind === 'download') {
+      const r = await one('select * from releases where id = $1 and deleted_at is null', [it.id]);
+      const s = r && (await findSeries(r.series_id));
+      if (!r || !s) throw notFound('That release is no longer available');
+      await assertViewable(req, s, r);
+      unique(`r:${r.id}`, r.title);
+      const a = await releaseAccess({ series: s, release: r, pages: [], user: u, country: req.country });
+      if (a.model === 'blocked') throw notFound('That release is not available in your country');
+      const ent = await one<{ can_download: boolean }>('select can_download from entitlements where user_id = $1 and release_id = $2', [u.id, r.id]);
+      const discounts = await activeDiscounts([s.publisher_id]);
+      if (it.kind === 'release') {
+        if (ent) throw conflict(`You already own ${r.title}`);
+        if (a.model !== 'premium' || a.releaseFree) throw badRequest(`${r.title} is free to read; there is nothing to buy`);
+        const p = readOffer(s, r, a, discounts);
+        if (!p) throw badRequest(a.unlock === 'owner' ? `${r.title} is published by your own brand; there is nothing to buy` : `${r.title} is not sold on its own`);
+        drafts.push({ kind: 'release', description: `${s.title}: ${r.title} (${label(r)})`, price_cents: p.price_cents, publisher_id: s.publisher_id, series_id: s.id, release_id: r.id, bundle_id: null, meta: { list_price_cents: p.base_cents, percent_off: p.percent_off } });
+      } else {
+        if (ent?.can_download) throw conflict(`You already own the download of ${r.title}`);
+        const p = downloadPrice(s, r, discounts);
+        if (!p) throw badRequest(`The download of ${r.title} is not for sale`);
+        drafts.push({ kind: 'download', description: `${s.title}: ${r.title} (${label(r)}), download`, price_cents: p.price_cents, publisher_id: s.publisher_id, series_id: s.id, release_id: r.id, bundle_id: null, meta: { list_price_cents: p.base_cents, percent_off: p.percent_off } });
+      }
+    } else if (it.kind === 'series') {
+      const s = await findSeries(it.id);
+      if (!s) throw notFound('That series is no longer available');
+      await assertViewable(req, s, null);
+      unique(`s:${s.id}`, s.title);
+      const whole = await seriesPurchase(s, u.id, await activeDiscounts([s.publisher_id]), undefined, { country: req.country });
+      if (!whole.releases.length) throw badRequest(`There is nothing left to buy in ${s.title}`);
+      drafts.push({
+        kind: 'series', description: `${s.title}: all ${whole.releases.length} releases`, price_cents: whole.price_cents, publisher_id: s.publisher_id, series_id: s.id, release_id: null,
+        release_ids: whole.releases.map((r) => r.id), bundle_id: null, meta: { release_ids: whole.releases.map((r) => r.id), list_price_cents: whole.base_cents },
+      });
+    } else if (it.kind === 'bundle') {
+      const b = await one('select b.* from bundles b join publishers p on p.id = b.publisher_id where b.id = $1 and b.active and p.deleted_at is null and p.suspended_at is null', [it.id]);
+      if (!b) throw notFound('That bundle is no longer available');
+      unique(`b:${b.id}`, b.title);
+      const rels = await q(
+        `select r.id, r.series_id, r.price_cents, s.default_price_cents from bundle_items bi join releases r on r.id = bi.release_id join series s on s.id = r.series_id
+          where bi.bundle_id = $1 and r.status = 'published' and r.deleted_at is null and s.deleted_at is null and s.takedown_at is null and s.publisher_id = $2 order by r.id`,
+        [b.id, b.publisher_id],
+      );
+      if (!rels.length) throw badRequest('That bundle has nothing in it right now');
+      const have = await q<{ release_id: string; can_download: boolean }>('select release_id, can_download from entitlements where user_id = $1 and release_id = any($2)', [u.id, rels.map((r) => r.id)]);
+      if (rels.every((r) => have.some((h) => h.release_id === r.id && (h.can_download || !b.includes_download)))) throw conflict(`You already own everything in ${b.title}`);
+      const p = bundlePrice(b, await activeDiscounts([b.publisher_id]));
+      drafts.push({
+        kind: 'bundle', description: `Bundle: ${b.title}${b.includes_download ? ' (with downloads)' : ''}`, price_cents: p.price_cents, publisher_id: b.publisher_id, series_id: rels.every((r) => r.series_id === rels[0].series_id) ? rels[0].series_id : null,
+        release_id: null, release_ids: rels.map((r) => r.id), bundle_id: b.id,
+        meta: { includes_download: b.includes_download, list_price_cents: p.base_cents, releases: rels.map((r) => ({ id: r.id, series_id: r.series_id, weight: r.price_cents ?? r.default_price_cents ?? 1 })) },
+      });
+    } else if (it.kind === 'tip') {
+      const p = await tipRecipient(it.id);
+      unique(`t:${p.id}`, `A tip for ${p.name}`);
+      drafts.push({ kind: 'tip', description: `Tip for ${p.name}`, price_cents: it.amount_cents, publisher_id: p.id, series_id: null, release_id: null, bundle_id: null, meta: { message: it.message ?? '', show_amount: it.show_amount !== false } });
+    } else if (it.kind === 'gift_card') {
+      drafts.push({ kind: 'gift_card', description: `Gift card ${await money(it.amount_cents)}`, price_cents: it.amount_cents, publisher_id: null, series_id: null, release_id: null, bundle_id: null, meta: { recipient_email: it.recipient_email?.toLowerCase() ?? null, message: it.message ?? '' } });
+    } else {
+      if (!mem.page_credit_cents || mem.page_credit_cents <= 0) throw badRequest('Page credits are not on sale right now');
+      unique('credits', 'Page credits');
+      drafts.push({ kind: 'credits', description: `${it.quantity} page credits`, price_cents: it.quantity * mem.page_credit_cents, publisher_id: null, series_id: null, release_id: null, bundle_id: null, meta: { quantity: it.quantity } });
+    }
+  }
+
+  let code: Row | null = null;
+  let discount = 0;
+  if (body.code) {
+    // Quotes are throttled apart from real attempts so re-quoting (credit on/off) never locks a reader out of paying.
+    if (!rateLimit(opts.quote ? 'code-quote' : 'code', u.id, opts.quote ? 40 : 15, 3600)) throw new HttpError(429, 'Too many code attempts. Try again in an hour.');
+    const c = await usableCode(body.code, u);
+    if (c.kind !== 'discount' || !c.percent_off) throw badRequest('That code is not a discount code. Redeem it from your account instead.', 'code_wrong_kind');
+    if (!drafts.some((d) => codeCovers(c as never, d))) throw badRequest('That code does not apply to anything in your basket', 'code_not_applicable');
+    const r = applyCode(c as never, drafts);
+    r.prices.forEach((p, i) => {
+      if (p !== drafts[i].price_cents) drafts[i].meta = { ...drafts[i].meta, code_discount_cents: drafts[i].price_cents - p };
+      drafts[i].price_cents = p;
+    });
+    discount = r.discount_cents;
+    code = c;
+  }
+  return { drafts, code, code_discount_cents: discount, total_cents: drafts.reduce((n, d) => n + d.price_cents, 0) };
+}
+
+/** How a total is paid: store credit first (when asked), the card for the rest. */
+function settle(total: number, creditAvailable: number, useCredit: boolean | undefined): { credit: number; charge: number; below_minimum: boolean } {
+  const credit = useCredit ? Math.min(Math.max(0, creditAvailable), total) : 0;
+  const charge = total - credit;
+  return { credit, charge, below_minimum: charge > 0 && charge < MIN_CARD_CHARGE };
+}
+const belowMinimum = async () => `The smallest card payment is ${await money(MIN_CARD_CHARGE)}. Add something else to your basket.`;
+
 export default async function commerceRoutes(app: FastifyInstance) {
   // ---------------------------------------------------------------- checkout
 
   /**
-   * Price a basket on the server and start paying for it. Nothing the
-   * browser sends is trusted for a price except a tip / gift card amount.
+   * What a basket would cost, with nothing written and nothing charged. Same
+   * body as POST /api/checkout and the same pricing code, so the two cannot
+   * disagree. A bad code is a 400 here, before any payment is started.
    */
+  app.post('/api/checkout/quote', async (req) => {
+    const u = requireUser(req);
+    const body = parse(basketSchema, req.body);
+    if (!rateLimit('quote', u.id, 120, 600)) throw new HttpError(429, 'Too many price checks. Try again in a few minutes.');
+    const b = await priceBasket(req, u, body, { quote: true });
+    const w = await one<{ credit_cents: number }>('select credit_cents from wallets where user_id = $1', [u.id]);
+    const available = w?.credit_cents ?? 0;
+    const pay = settle(b.total_cents, available, body.use_credit);
+    const lines = b.drafts.map((d) => {
+      const codeOff = Number(d.meta.code_discount_cents ?? 0);
+      const list = Number(d.meta.list_price_cents ?? d.price_cents + codeOff);
+      return {
+        kind: d.kind, description: d.description, release_id: d.release_id, series_id: d.series_id, publisher_id: d.publisher_id, bundle_id: d.bundle_id,
+        list_price_cents: list, sale_discount_cents: list - d.price_cents - codeOff, code_discount_cents: codeOff, price_cents: d.price_cents,
+      };
+    });
+    return {
+      lines,
+      list_price_cents: lines.reduce((n, l) => n + l.list_price_cents, 0),
+      discounts: { sale_cents: lines.reduce((n, l) => n + l.sale_discount_cents, 0), code_cents: b.code_discount_cents },
+      code: b.code ? { code: b.code.code, percent_off: b.code.percent_off } : null,
+      total_cents: b.total_cents,
+      credit_available_cents: available,
+      credit_applied_cents: pay.credit,
+      amount_due_cents: pay.charge,
+      // Set when this basket cannot be paid as it stands (the checkout would answer 400 with the same code).
+      problem: pay.below_minimum ? { code: 'below_minimum', message: await belowMinimum() } : null,
+    };
+  });
+
+  /** Price a basket on the server (see `priceBasket`) and start paying for it. */
   app.post('/api/checkout', async (req) => {
     const u = requireUser(req);
-    const body = parse(
-      z.object({ items: z.array(itemSchema).min(1, 'Your basket is empty').max(20), code: z.string().trim().max(40).optional(), use_credit: z.boolean().optional(), return_to: z.string().max(300).optional() }),
-      req.body,
-    );
+    const body = parse(basketSchema, req.body);
+    requireConfirmedEmail(u, 'buy things');
     if (!rateLimit('checkout', u.id, 30, 600)) throw new HttpError(429, 'Too many checkout attempts. Try again in a few minutes.');
-    const returnTo = body.return_to && /^\/(?!\/)[^\\\s]*$/.test(body.return_to) ? body.return_to : '/library';
-    const mem = await getSetting('membership');
+    const returnTo = sameSite(body.return_to, '/library');
+    const { drafts, code, code_discount_cents: discount, total_cents: total } = await priceBasket(req, u, body, { quote: false });
+    const codeId: string | null = code?.id ?? null;
 
-    const drafts: Draft[] = [];
-    const seen = new Set<string>();
-    const unique = (key: string, what: string) => {
-      if (seen.has(key)) throw badRequest(`${what} is in your basket twice`);
-      seen.add(key);
-    };
-    for (const it of body.items) {
-      if (it.kind === 'release' || it.kind === 'download') {
-        const r = await one('select * from releases where id = $1 and deleted_at is null', [it.id]);
-        const s = r && (await findSeries(r.series_id));
-        if (!r || !s) throw notFound('That release is no longer available');
-        await assertViewable(req, s, r);
-        unique(`r:${r.id}`, r.title);
-        const a = await releaseAccess({ series: s, release: r, pages: [], user: u, country: req.country });
-        if (a.model === 'blocked') throw notFound('That release is not available in your country');
-        const ent = await one<{ can_download: boolean }>('select can_download from entitlements where user_id = $1 and release_id = $2', [u.id, r.id]);
-        const discounts = await activeDiscounts([s.publisher_id]);
-        if (it.kind === 'release') {
-          if (ent) throw conflict(`You already own ${r.title}`);
-          if (a.model !== 'premium' || a.releaseFree) throw badRequest(`${r.title} is free to read; there is nothing to buy`);
-          const p = readPrice(s, r, discounts);
-          if (!p) throw badRequest(`${r.title} is not sold on its own`);
-          drafts.push({ kind: 'release', description: `${s.title}: ${r.title} (${label(r)})`, price_cents: p.price_cents, publisher_id: s.publisher_id, series_id: s.id, release_id: r.id, bundle_id: null, meta: { list_price_cents: p.base_cents, percent_off: p.percent_off } });
-        } else {
-          if (ent?.can_download) throw conflict(`You already own the download of ${r.title}`);
-          const p = downloadPrice(s, r, discounts);
-          if (!p) throw badRequest(`The download of ${r.title} is not for sale`);
-          drafts.push({ kind: 'download', description: `${s.title}: ${r.title} (${label(r)}), download`, price_cents: p.price_cents, publisher_id: s.publisher_id, series_id: s.id, release_id: r.id, bundle_id: null, meta: { list_price_cents: p.base_cents, percent_off: p.percent_off } });
-        }
-      } else if (it.kind === 'series') {
-        const s = await findSeries(it.id);
-        if (!s) throw notFound('That series is no longer available');
-        await assertViewable(req, s, null);
-        unique(`s:${s.id}`, s.title);
-        const whole = await seriesPurchase(s, u.id, await activeDiscounts([s.publisher_id]));
-        if (!whole.releases.length) throw badRequest(`There is nothing left to buy in ${s.title}`);
-        drafts.push({
-          kind: 'series', description: `${s.title}: all ${whole.releases.length} releases`, price_cents: whole.price_cents, publisher_id: s.publisher_id, series_id: s.id, release_id: null,
-          release_ids: whole.releases.map((r) => r.id), bundle_id: null, meta: { release_ids: whole.releases.map((r) => r.id), list_price_cents: whole.base_cents },
-        });
-      } else if (it.kind === 'bundle') {
-        const b = await one('select b.* from bundles b join publishers p on p.id = b.publisher_id where b.id = $1 and b.active and p.deleted_at is null and p.suspended_at is null', [it.id]);
-        if (!b) throw notFound('That bundle is no longer available');
-        unique(`b:${b.id}`, b.title);
-        const rels = await q(
-          `select r.id, r.series_id, r.price_cents, s.default_price_cents from bundle_items bi join releases r on r.id = bi.release_id join series s on s.id = r.series_id
-            where bi.bundle_id = $1 and r.status = 'published' and r.deleted_at is null and s.deleted_at is null and s.takedown_at is null and s.publisher_id = $2 order by r.id`,
-          [b.id, b.publisher_id],
-        );
-        if (!rels.length) throw badRequest('That bundle has nothing in it right now');
-        const have = await q<{ release_id: string; can_download: boolean }>('select release_id, can_download from entitlements where user_id = $1 and release_id = any($2)', [u.id, rels.map((r) => r.id)]);
-        if (rels.every((r) => have.some((h) => h.release_id === r.id && (h.can_download || !b.includes_download)))) throw conflict(`You already own everything in ${b.title}`);
-        const p = bundlePrice(b, await activeDiscounts([b.publisher_id]));
-        drafts.push({
-          kind: 'bundle', description: `Bundle: ${b.title}${b.includes_download ? ' (with downloads)' : ''}`, price_cents: p.price_cents, publisher_id: b.publisher_id, series_id: rels.every((r) => r.series_id === rels[0].series_id) ? rels[0].series_id : null,
-          release_id: null, release_ids: rels.map((r) => r.id), bundle_id: b.id,
-          meta: { includes_download: b.includes_download, list_price_cents: p.base_cents, releases: rels.map((r) => ({ id: r.id, series_id: r.series_id, weight: r.price_cents ?? r.default_price_cents ?? 1 })) },
-        });
-      } else if (it.kind === 'tip') {
-        const p = await findPublisher(it.id);
-        if (!p || p.suspended_at) throw notFound('That creator is no longer available');
-        if (!p.tips_enabled) throw badRequest(`${p.name} is not accepting tips`);
-        unique(`t:${p.id}`, `A tip for ${p.name}`);
-        drafts.push({ kind: 'tip', description: `Tip for ${p.name}`, price_cents: it.amount_cents, publisher_id: p.id, series_id: null, release_id: null, bundle_id: null, meta: { message: it.message ?? '', show_amount: it.show_amount !== false } });
-      } else if (it.kind === 'gift_card') {
-        drafts.push({ kind: 'gift_card', description: `Gift card ${await money(it.amount_cents)}`, price_cents: it.amount_cents, publisher_id: null, series_id: null, release_id: null, bundle_id: null, meta: { recipient_email: it.recipient_email?.toLowerCase() ?? null, message: it.message ?? '' } });
-      } else {
-        if (!mem.page_credit_cents || mem.page_credit_cents <= 0) throw badRequest('Page credits are not on sale right now');
-        unique('credits', 'Page credits');
-        drafts.push({ kind: 'credits', description: `${it.quantity} page credits`, price_cents: it.quantity * mem.page_credit_cents, publisher_id: null, series_id: null, release_id: null, bundle_id: null, meta: { quantity: it.quantity } });
-      }
-    }
-
-    let codeId: string | null = null;
-    let discount = 0;
-    if (body.code) {
-      if (!rateLimit('code', u.id, 15, 3600)) throw new HttpError(429, 'Too many code attempts. Try again in an hour.');
-      const c = await usableCode(body.code, u);
-      if (c.kind !== 'discount' || !c.percent_off) throw badRequest('That code is not a discount code. Redeem it from your account instead.', 'code_wrong_kind');
-      if (!drafts.some((d) => codeCovers(c as never, d))) throw badRequest('That code does not apply to anything in your basket', 'code_not_applicable');
-      const r = applyCode(c as never, drafts);
-      r.prices.forEach((p, i) => {
-        if (p !== drafts[i].price_cents) drafts[i].meta = { ...drafts[i].meta, code_discount_cents: drafts[i].price_cents - p };
-        drafts[i].price_cents = p;
-      });
-      discount = r.discount_cents;
-      codeId = c.id;
-    }
-
-    const total = drafts.reduce((n, d) => n + d.price_cents, 0);
     const pay = await getSetting('payments');
     const orderId = await tx(async (db) => {
       await db.query('insert into wallets (user_id) values ($1) on conflict do nothing', [u.id]);
       const w = await one<{ credit_cents: number }>('select credit_cents from wallets where user_id = $1 for update', [u.id], db);
-      const credit = body.use_credit ? Math.min(w?.credit_cents ?? 0, total) : 0;
-      const charge = total - credit;
-      if (charge > 0 && charge < MIN_CARD_CHARGE) throw badRequest(`The smallest card payment is ${await money(MIN_CARD_CHARGE)}. Add something else to your basket.`, 'below_minimum');
+      const { credit, charge, below_minimum } = settle(total, w?.credit_cents ?? 0, body.use_credit);
+      if (below_minimum) throw badRequest(await belowMinimum(), 'below_minimum');
       // Fail before anything is written if a card payment is needed and none can be taken.
       if (charge > 0) await getProvider();
       const o = await one<{ id: string }>(
@@ -193,7 +286,9 @@ export default async function commerceRoutes(app: FastifyInstance) {
   const orderView = async (o: Row) => ({
     id: o.id, status: o.status, total_cents: o.total_cents, credit_cents: o.credit_cents, charged_cents: o.total_cents - o.credit_cents, provider: o.provider,
     created_at: o.created_at, paid_at: o.paid_at, refunded_at: o.refunded_at, return_to: o.meta?.return_to ?? '/library', failure: o.meta?.failure ?? null,
-    items: await q('select id, kind, description, price_cents, release_id, series_id, publisher_id, bundle_id from order_items where order_id = $1 order by id', [o.id]),
+    refunded_cents: o.status === 'refunded' ? o.total_cents - o.credit_cents : (o.refunded_cents ?? 0),
+    partial_refunds: ((o.meta?.partial_refunds as Row[] | undefined) ?? []).map((r) => ({ amount_cents: r.amount_cents, reason: r.reason ?? null, at: r.at })),
+    items: await orderItems([o.id]),
   });
 
   /**
@@ -273,10 +368,13 @@ export default async function commerceRoutes(app: FastifyInstance) {
 
   app.post('/api/membership/start', async (req) => {
     const u = requireUser(req);
-    const { plan } = parse(z.object({ plan: z.enum(['monthly', 'annual']) }), req.body);
+    const { plan, next } = parse(z.object({ plan: z.enum(['monthly', 'annual']), next: z.string().max(300).optional() }), req.body);
+    requireConfirmedEmail(u, 'start a membership');
     if (!rateLimit('membership', u.id, 10, 3600)) throw new HttpError(429, 'Too many attempts. Try again later.');
-    const r = await startMembership(u, plan, origin(req));
-    return r.completed ? { completed: true, ...(await membershipView(u)) } : { url: r.url, status: r.status };
+    // Where to send the reader once the membership is confirmed; only same-site paths survive.
+    const onward = sameSite(next, '') || null;
+    const r = await startMembership(u, plan, origin(req), onward);
+    return r.completed ? { completed: true, next: onward, ...(await membershipView(u)) } : { url: r.url, status: r.status, next: onward };
   });
 
   /** Stop renewing; access continues until the paid period ends. */

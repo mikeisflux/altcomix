@@ -367,9 +367,8 @@ export function PagesPage() {
             rows={d.items}
             onRowClick={(p: R) => nav(`/admin/pages/${p.slug}`)}
             columns={[
-              { key: 'page', header: 'Page', cell: (p: R) => <><span className="font-medium">{PAGE_NAMES[p.slug] ?? p.slug}</span> <span className="text-xs text-muted">/p/{p.slug}</span></> },
+              { key: 'page', header: 'Page', cell: (p: R) => <><span className="font-medium">{PAGE_NAMES[p.slug] ?? p.slug}</span> <span className="block text-xs text-muted">/p/{p.slug}{p.length ? ` · ${number(p.length)} characters` : ''}</span></> },
               { key: 'state', header: 'Status', cell: (p: R) => (p.length > 0 ? <Badge tone="ok">Written</Badge> : <Badge tone="warn">Empty</Badge>) },
-              { key: 'len', header: 'Length', align: 'right', cell: (p: R) => (p.length ? `${number(p.length)} characters` : '—'), hideOnMobile: true },
               { key: 'updated', header: 'Last edited', cell: (p: R) => <span className="text-muted">{p.updated_at ? `${ago(p.updated_at)}${p.updated_by_username ? ` by @${p.updated_by_username}` : ''}` : 'Never'}</span> },
               { key: 'edit', header: '', cell: () => <span className="text-accent-hover">Edit</span> },
             ]}
@@ -478,13 +477,13 @@ export function NewsPage() {
             cell: (n) => (
               <span className="flex items-center gap-3">
                 {n.cover_url ? <img src={n.cover_url} alt="" loading="lazy" className="aspect-video w-16 shrink-0 rounded border border-line object-cover" /> : <span className="aspect-video w-16 shrink-0 rounded border border-line bg-raised" />}
-                <span className="min-w-0 max-w-[340px]"><span className="block truncate font-medium">{n.title}</span><span className="block truncate text-xs text-muted">{n.excerpt || `/news/${n.slug}`}</span></span>
+                <span className="min-w-0 max-w-[250px]"><span className="block truncate font-medium">{n.title}</span><span className="block truncate text-xs text-muted">{n.excerpt || `/news/${n.slug}`}</span></span>
               </span>
             ),
           },
           { key: 'state', header: 'Status', cell: newsState },
           { key: 'when', header: 'Publish date', cell: (n) => <span className="text-muted">{n.published_at ? dateTime(n.published_at) : '—'}</span> },
-          { key: 'author', header: 'Author', cell: (n) => <span className="text-muted">{n.author_username ? `@${n.author_username}` : '—'}</span>, hideOnMobile: true },
+          { key: 'author', header: 'Author', cell: (n) => <span className="text-muted">{n.author_username ? `@${n.author_username}` : '—'}</span>, hideOnMobile: true, wide: true },
         ]}
       />
     </>

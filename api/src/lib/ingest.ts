@@ -9,8 +9,11 @@ import sharp from 'sharp';
 import { exec, one, q, tx } from '../db.ts';
 import type { Queryable, Row } from '../db.ts';
 import { captureError } from './errors.ts';
-import { HttpError, badRequest } from './http.ts';
-import { notifyNewRelease } from './notify.ts';
+import { config } from '../config.ts';
+import { button, escapeHtml, layout, queueEmail } from './email.ts';
+import { HttpError, badRequest, requireUser } from './http.ts';
+import type { SessionUser } from './http.ts';
+import { notify, notifyNewRelease } from './notify.ts';
 import { detectFrames } from './panels.ts';
 import { contentTypeFor, publicUrl, storage } from './storage.ts';
 
@@ -229,9 +232,8 @@ export async function addPage(p: NewPage): Promise<{ id: string; created: boolea
 
   const { id } = (await one<{ id: string }>('select uuidv7() as id'))!;
   const store = await storage();
-  const original = await readFile(p.file);
   const sourceKey = `private/originals/${p.releaseId}/${id}.${info.format}`;
-  await store.put(sourceKey, original, contentTypeFor(sourceKey));
+  const originalBytes = await store.putStream(sourceKey, p.file, contentTypeFor(sourceKey));
 
   const variants: Record<string, string> = {};
   let thumb: Buffer | null = null;
@@ -252,7 +254,7 @@ export async function addPage(p: NewPage): Promise<{ id: string; created: boolea
       `insert into pages (id, release_id, position, source_key, width, height, bytes, filename, dpi, variants, bg_color, ingest_key, archive_id)
        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
        on conflict (ingest_key) where ingest_key is not null do nothing`,
-      [id, p.releaseId, pos.rows[0].next, sourceKey, info.width, info.height, original.length, p.filename.slice(0, 255),
+      [id, p.releaseId, pos.rows[0].next, sourceKey, info.width, info.height, originalBytes, p.filename.slice(0, 255),
        p.dpi ?? info.dpi, JSON.stringify(variants), bg, p.ingestKey, p.archiveId ?? null],
     );
     if (!ins.rowCount) return false;
@@ -367,7 +369,7 @@ export async function acceptUpload(releaseId: string, files: { path: string; fil
     const items: { key: string; filename: string }[] = [];
     for (let i = 0; i < images.length; i++) {
       const key = `private/staging/${jobId}/${i}.${images[i].format}`;
-      await store.put(key, await readFile(images[i].path), contentTypeFor(key));
+      await store.putStream(key, images[i].path, contentTypeFor(key));
       items.push({ key, filename: images[i].filename });
     }
     jobs.push(
@@ -381,11 +383,10 @@ export async function acceptUpload(releaseId: string, files: { path: string; fil
   for (const a of archives) {
     const { id } = (await one<{ id: string }>('select uuidv7() as id'))!;
     const key = `private/archives/${releaseId}/${id}.${a.ext}`;
-    const body = await readFile(a.path);
-    await store.put(key, body, contentTypeFor(key));
+    const bytes = await store.putStream(key, a.path, contentTypeFor(key));
     const row = await one(
       'insert into release_archives (id, release_id, filename, storage_key, bytes) values ($1,$2,$3,$4,$5) returning id, filename, bytes, created_at',
-      [id, releaseId, a.filename, key, body.length],
+      [id, releaseId, a.filename, key, bytes],
     );
     outArchives.push(row!);
     jobs.push(await queueArchiveJob(releaseId, id, a.filename, false, userId));
@@ -550,11 +551,11 @@ async function runIngest(job: Row): Promise<void> {
       for (let i = 0; i < items.length; i++) {
         const ingestKey = `${job.id}:${i}`;
         if (!(await one('select 1 from pages where ingest_key = $1', [ingestKey]))) {
-          const buf = await store.read(items[i].key);
-          if (!buf) skipped.push(items[i].filename);
+          const staged = await store.get(items[i].key);
+          if (!staged) skipped.push(items[i].filename);
           else {
             const file = join(dir, `img-${i}`);
-            await writeFile(file, buf);
+            await pipeline(staged.stream, createWriteStream(file));
             await addPage({ releaseId, file, filename: items[i].filename, ingestKey });
             await rm(file, { force: true });
             made++;
@@ -737,11 +738,81 @@ export async function publishRelease(releaseId: string): Promise<Row> {
     const page = await one('select * from pages where release_id = $1 order by position limit 1', [releaseId]);
     if (page) await setSeriesCoverFromPage(series.id, page);
   }
-  // A draft series has no audience yet; its followers hear about the next release.
+  // Nobody can open a draft series, so nothing is sent yet: followers get one
+  // summary of everything published so far when the series first goes public
+  // (announceSeriesLaunch below).
   if (first && series && series.visibility !== 'draft') {
+    await exec('update series set launched_at = now() where id = $1 and launched_at is null', [series.id]);
     await notifyNewRelease({ id: release.id, title: release.title, synopsis: release.synopsis, series_id: release.series_id });
   }
   return release;
+}
+
+/**
+ * Call whenever a series may have just left draft. The first time it has, the
+ * series is stamped `launched_at` and its followers (and the brand's) get ONE
+ * notification and email summarising the releases that were published while it
+ * was still a draft, instead of the per-release messages that were skipped.
+ * Later calls do nothing. Returns how many people were told, or null when this
+ * was not the launch.
+ */
+export async function announceSeriesLaunch(seriesId: string): Promise<number | null> {
+  // The stamp is the lock: two saves at once cannot both announce.
+  const s = await one<{ id: string; title: string; slug: string; publisher_id: string }>(
+    `update series set launched_at = now()
+      where id = $1 and launched_at is null and visibility <> 'draft' and deleted_at is null
+      returning id, title, slug, publisher_id`,
+    [seriesId],
+  );
+  if (!s) return null;
+  const releases = await q<{ id: string; title: string; synopsis: string }>(
+    `select id, title, synopsis from releases where series_id = $1 and status = 'published' and deleted_at is null order by number, published_at`,
+    [seriesId],
+  );
+  if (!releases.length) return 0;
+  const brand = await one<{ name: string }>('select name from publishers where id = $1', [s.publisher_id]);
+  const followers = await q<{ id: string; email: string; wants_email: boolean }>(
+    `select distinct u.id, u.email, coalesce((u.prefs->'notify'->>'releases')::boolean, true) as wants_email
+       from users u
+      where u.deleted_at is null and u.banned_at is null
+        and (exists (select 1 from follows f where f.series_id = $1 and f.user_id = u.id and f.notify)
+          or exists (select 1 from publisher_follows pf where pf.publisher_id = $2 and pf.user_id = u.id))`,
+    [s.id, s.publisher_id],
+  );
+  const one_ = releases.length === 1;
+  const path = one_ ? `/read/${releases[0].id}` : `/series/${s.slug}`;
+  const summary = one_ ? releases[0].title : `${releases.length} releases to read, starting with ${releases[0].title}`;
+  const list = releases.slice(0, 12).map((r) => `<li>${escapeHtml(r.title)}</li>`).join('');
+  const more = releases.length > 12 ? `<p>and ${releases.length - 12} more.</p>` : '';
+  const body = one_
+    ? `<p><strong>${escapeHtml(s.title)}</strong>${brand ? ` from ${escapeHtml(brand.name)}` : ''} is now out, with <strong>${escapeHtml(releases[0].title)}</strong> ready to read.</p>${releases[0].synopsis ? `<p>${escapeHtml(releases[0].synopsis.slice(0, 300))}</p>` : ''}`
+    : `<p><strong>${escapeHtml(s.title)}</strong>${brand ? ` from ${escapeHtml(brand.name)}` : ''} is now out, with ${releases.length} releases ready to read:</p><ul>${list}</ul>${more}`;
+  for (const f of followers) {
+    await notify(f.id, 'release', `${s.title} is out`, summary, path);
+    if (f.wants_email) {
+      await queueEmail({
+        to: f.email,
+        subject: `${s.title} is out now`,
+        html: await layout(body + button(one_ ? 'Read now' : 'Start reading', config.appUrl + path), { unsubscribeEmail: f.email }),
+        template: 'new_release',
+        category: 'notification',
+        userId: f.id,
+        publisherId: s.publisher_id,
+      });
+    }
+  }
+  return followers.length;
+}
+
+/**
+ * Publishing actions (create a brand, publish or schedule a release, email
+ * followers or backers, request a payout) need a confirmed email address.
+ * Drafting, uploading and editing do not.
+ */
+export function requireVerifiedEmail(req: FastifyRequest): SessionUser {
+  const u = requireUser(req);
+  if (!u.email_verified_at) throw new HttpError(403, 'Confirm your email to publish', 'email_unverified');
+  return u;
 }
 
 // ---------------------------------------------------------------- small helpers shared by the studio routes

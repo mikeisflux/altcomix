@@ -6,11 +6,10 @@ import { Link } from 'react-router';
 import { api, errorMessage } from '@/lib/api';
 import { ago, date, dateTime, number } from '@/lib/format';
 import { Badge, Button, DefList, ErrorState, Field, Input, Modal, Notice, PageHeader, Segmented, Skeleton, Stat, Table, Textarea, useConfirm } from '@/ui';
-import type { Column } from '@/ui';
 import {
-  DataList, Drawer, EmailFrame, FilterBar, FilterSelect, Loaded, SearchInput, StatusBadge, useAct, useAdminQuery, useAsk, useFilters, useIsSuper, useList, useTitle,
+  DataList, Drawer, EmailFrame, FilterBar, FilterSelect, Loaded, SearchInput, StatusBadge, useAct, useAdminQuery, useAsk, useFilters, useIsSuper, useList, useTitle, useWide,
 } from './shared';
-import type { R } from './shared';
+import type { AdminColumn, R } from './shared';
 
 const templateName = (key: string | null) => (key ? key.replace(/_/g, ' ') : 'one-off message');
 
@@ -96,11 +95,11 @@ export function EmailQueuePage() {
     }
   };
 
-  const columns: Column<R>[] = [
+  const columns: AdminColumn[] = [
     { key: 'when', header: 'Created', cell: (e) => <span title={dateTime(e.created_at)}>{ago(e.created_at)}</span> },
-    { key: 'to', header: 'To', cell: (e) => <span className="block max-w-[200px] truncate">{e.to_email}</span> },
-    { key: 'subject', header: 'Subject', cell: (e) => <span className="block max-w-[280px] truncate">{e.subject}</span> },
-    { key: 'template', header: 'Template', cell: (e) => <span className="capitalize text-muted">{templateName(e.template)}</span>, hideOnMobile: true },
+    { key: 'to', header: 'To', cell: (e) => <span className="block max-w-[170px] truncate">{e.to_email}</span> },
+    { key: 'subject', header: 'Subject', cell: (e) => <span className="block max-w-[230px] truncate">{e.subject}</span> },
+    { key: 'template', header: 'Template', cell: (e) => <span className="capitalize text-muted">{templateName(e.template)}</span>, hideOnMobile: true, wide: true },
     {
       key: 'status', header: 'Status',
       cell: (e) => (
@@ -110,7 +109,7 @@ export function EmailQueuePage() {
         </span>
       ),
     },
-    { key: 'tries', header: 'Tries', align: 'right', cell: (e) => e.attempts, hideOnMobile: true },
+    { key: 'tries', header: 'Tries', align: 'right', cell: (e) => e.attempts, hideOnMobile: true, wide: true },
   ];
 
   return (
@@ -228,6 +227,7 @@ export function EmailTemplatesPage() {
   useTitle('Email templates');
   const q = useAdminQuery<{ items: R[]; syntax: string }>('/api/admin/email-templates');
   const [open, setOpen] = useState<R | null>(null);
+  const wide = useWide();
   return (
     <>
       <PageHeader title="Email templates" description="The wording of every automatic email. Edit the subject or message, preview it with sample values, or go back to the built-in version." />
@@ -241,8 +241,8 @@ export function EmailTemplatesPage() {
             columns={[
               { key: 'name', header: 'Template', cell: (t: R) => <span className="font-medium capitalize">{templateName(t.key)}</span> },
               { key: 'subject', header: 'Subject', cell: (t: R) => <span className="block max-w-[320px] truncate text-muted">{t.subject}</span> },
-              { key: 'cat', header: 'Kind', cell: (t: R) => <span className="capitalize">{t.category}</span>, hideOnMobile: true },
-              { key: 'vars', header: 'Values', cell: (t: R) => <span className="block max-w-[220px] truncate font-mono text-xs text-muted">{t.vars.join(', ')}</span>, hideOnMobile: true },
+              ...(wide ? [{ key: 'cat', header: 'Kind', cell: (t: R) => <span className="capitalize">{t.category}</span> }] : []),
+              ...(wide ? [{ key: 'vars', header: 'Values', cell: (t: R) => <span className="block max-w-[220px] truncate font-mono text-xs text-muted">{t.vars.join(', ')}</span> }] : []),
               { key: 'state', header: 'Wording', cell: (t: R) => (t.customised ? <span title={t.updated_at ? `Edited ${date(t.updated_at)}${t.updated_by_username ? ` by @${t.updated_by_username}` : ''}` : ''}><Badge tone="accent">Edited</Badge></span> : <span className="text-muted">Built-in</span>) },
             ]}
           />

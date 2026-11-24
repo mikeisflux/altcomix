@@ -1,6 +1,8 @@
 import { config } from '../config.ts';
 import { exec, one, q } from '../db.ts';
 import { sign } from './crypto.ts';
+import { HttpError } from './http.ts';
+import type { SessionUser } from './http.ts';
 import { getSetting } from './settings.ts';
 
 /**
@@ -22,6 +24,15 @@ export type Mail = {
   publisherId?: string | null;
   sendAfter?: Date;
 };
+
+/**
+ * The one place that enforces "confirm your email first". `what` finishes the
+ * sentence "Confirm your email to …". The web app keys on the code to offer
+ * "Resend confirmation email" (POST /api/auth/resend-verification).
+ */
+export function requireConfirmedEmail(user: SessionUser, what: string): void {
+  if (!user.email_verified_at) throw new HttpError(403, `Confirm your email to ${what}. We sent a link to ${user.email}.`, 'email_unverified');
+}
 
 export function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string);
@@ -169,10 +180,40 @@ export const TEMPLATES: Record<string, { subject: string; html: string; vars: st
     vars: ['subject', 'body', 'url', 'site'],
     category: 'transactional',
   },
+  notice_reply: {
+    subject: '{{title}}',
+    html: '<p><strong>{{title}}</strong></p><p>{{preview}}</p>{{button:Read the reply|url}}',
+    vars: ['title', 'preview', 'url', 'site'],
+    category: 'notification',
+  },
+  notice_mention: {
+    subject: '{{title}}',
+    html: '<p><strong>{{title}}</strong></p><p>{{preview}}</p>{{button:See where|url}}',
+    vars: ['title', 'preview', 'url', 'site'],
+    category: 'notification',
+  },
+  membership_billing: {
+    subject: '{{subject}}',
+    html: '<p>Hi {{name}},</p><p>{{body}}</p>{{button:Manage membership|url}}',
+    vars: ['subject', 'name', 'body', 'url', 'site'],
+    category: 'transactional',
+  },
+  weekly_feed: {
+    subject: 'Your week on {{site}}: {{count}} new from what you follow',
+    html: '<p>Hi {{name}},</p><p>Here is what came out between {{from}} and {{to}} from the series and creators you follow.</p>{{items}}{{button:Open your feed|url}}<p>You can turn this weekly summary off in your account settings.</p>',
+    vars: ['name', 'count', 'from', 'to', 'items', 'url', 'site'],
+    category: 'notification',
+  },
+  weekly_analytics: {
+    subject: 'Your publishing week on {{site}}: {{from}} to {{to}}',
+    html: '<p>Hi {{name}},</p><p>Readers, page reads and earnings for {{from}} to {{to}}, compared with the week before.</p>{{summary}}{{button:Open analytics|url}}<p>You can turn this weekly summary off in your account settings.</p>',
+    vars: ['name', 'from', 'to', 'summary', 'url', 'site'],
+    category: 'notification',
+  },
 };
 
 /** Vars whose values are already HTML and must not be escaped. */
-const RAW_VARS = new Set(['items']);
+const RAW_VARS = new Set(['items', 'summary']);
 
 export function render(tpl: string, vars: Record<string, string>, escape: boolean): string {
   return tpl

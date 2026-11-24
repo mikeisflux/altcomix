@@ -4,7 +4,7 @@ import { config } from '../config.ts';
 import { exec, one, patch, q, tx } from '../db.ts';
 import type { Row } from '../db.ts';
 import { audit, badRequest, conflict, forbidden, parse, requireMember, requireReleaseMember, requireSeriesMember } from '../lib/http.ts';
-import { coverUrls, idParam, isUuid, publishRelease } from '../lib/ingest.ts';
+import { coverUrls, idParam, isUuid, publishRelease, requireVerifiedEmail } from '../lib/ingest.ts';
 import { AUDIENCES, CONTENT_RATINGS, LANGUAGES, RELEASE_GROUPS, RELEASE_KINDS, THEMES } from '../lib/taxonomy.ts';
 
 /** Studio: releases of a series (create, metadata table, pricing, publishing, private preview). */
@@ -281,6 +281,7 @@ export default async function (app: FastifyInstance) {
 
   app.post('/api/studio/releases/:id/publish', async (req) => {
     const r = await requireReleaseMember(req, idParam(req), 'editor');
+    requireVerifiedEmail(req);
     const body = parse(z.object({ publish_at: instant.nullable().optional() }), req.body ?? {});
     const series = await one('select takedown_at from series where id = $1', [r.series_id]);
     if (series?.takedown_at) throw forbidden('This series has been taken down by AltComix. Contact support before publishing to it.');

@@ -172,7 +172,7 @@ export function ReportsPage() {
       <PageHeader title="Reports" description="What readers have flagged. Each button closes the report and carries out the step in one go." />
       <div className="mb-4">
         <Notice>
-          Adult and explicit work is allowed when it carries the 18+ label. Remove something only when it breaks a hard limit: {HARD_LIMITS.map((l) => l.toLowerCase()).join('; ')}. For a correctly labelled adult title reported as too explicit, dismiss the report.
+          Adult and explicit work is allowed when it carries the 18+ label. Remove something only when it breaks a hard limit: {HARD_LIMITS.map((l) => (l.startsWith('AI') ? l : l.charAt(0).toLowerCase() + l.slice(1))).join('; ')}. For a correctly labelled adult title reported as too explicit, dismiss the report.
         </Notice>
       </div>
       <FilterBar>
