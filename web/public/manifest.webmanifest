@@ -1,0 +1,10 @@
+{
+  "name": "AltComix",
+  "short_name": "AltComix",
+  "description": "Read and publish comics, frame by frame on any screen.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#100f0d",
+  "theme_color": "#100f0d",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

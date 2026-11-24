@@ -1,0 +1,127 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/bricolage-grotesque';
+
+/*
+ * AltComix design tokens. Ink-and-paper: warm near-black surfaces, cream text,
+ * process magenta as the one accent, yellow reserved for "free / new" marks.
+ * Use the semantic names (bg-surface, text-muted, border-line ...) in
+ * components, never raw hex values.
+ */
+@theme {
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Bricolage Grotesque Variable', 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+
+  --color-ink: #100f0d;
+  --color-surface: #191714;
+  --color-raised: #23201c;
+  --color-hover: #2d2924;
+  --color-line: #37322b;
+  --color-line-strong: #4d463c;
+
+  --color-paper: #f4eee1;
+  --color-muted: #a39b8c;
+  --color-faint: #746d61;
+
+  --color-accent: #ff2e88;
+  --color-accent-hover: #ff5aa1;
+  --color-accent-ink: #1a0510;
+  --color-accent-soft: #3a1026;
+
+  --color-sun: #ffd23f;
+  --color-sun-ink: #241b00;
+
+  --color-ok: #4ad295;
+  --color-ok-soft: #10301f;
+  --color-warn: #ffb347;
+  --color-warn-soft: #3a2607;
+  --color-danger: #ff6257;
+  --color-danger-soft: #3b1512;
+  --color-info: #6fb1ff;
+  --color-info-soft: #0f2742;
+
+  --shadow-pop: 0 18px 50px -12px rgb(0 0 0 / 0.7), 0 0 0 1px rgb(255 255 255 / 0.04);
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+    background: var(--color-ink);
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-ink text-paper font-sans antialiased;
+    font-size: 15px;
+    line-height: 1.5;
+    min-height: 100dvh;
+  }
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+  }
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+  ::selection {
+    background: var(--color-accent);
+    color: var(--color-accent-ink);
+  }
+  button {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+  * {
+    scrollbar-color: var(--color-line-strong) transparent;
+    scrollbar-width: thin;
+  }
+  input[type='color'] {
+    padding: 0;
+    border: 0;
+    background: none;
+  }
+}
+
+@layer components {
+  .link {
+    color: var(--color-accent-hover);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .link:hover {
+    color: var(--color-paper);
+  }
+  .prose-cms {
+    max-width: 70ch;
+    color: var(--color-paper);
+  }
+  .prose-cms h2 { font-size: 1.35rem; margin: 2rem 0 0.6rem; }
+  .prose-cms h3 { font-size: 1.1rem; margin: 1.5rem 0 0.4rem; }
+  .prose-cms p, .prose-cms ul, .prose-cms ol { margin: 0 0 1rem; color: #d9d2c4; }
+  .prose-cms ul { list-style: disc; padding-left: 1.3rem; }
+  .prose-cms ol { list-style: decimal; padding-left: 1.3rem; }
+  .prose-cms a { color: var(--color-accent-hover); text-decoration: underline; }
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

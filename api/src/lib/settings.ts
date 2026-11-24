@@ -72,13 +72,17 @@ export const SETTINGS = {
   },
   payments: {
     defaults: {
+      // 'divinity' is the production processor (Divinity payments partner API).
       // 'sandbox' completes orders instantly and is refused in production.
-      provider: 'sandbox' as 'sandbox' | 'stripe',
-      stripe_publishable_key: '',
-      stripe_secret_key: '',
-      stripe_webhook_secret: '',
+      provider: 'sandbox' as 'sandbox' | 'divinity',
+      divinity_api_url: 'https://divinitycoin.com/internal',
+      divinity_partner_id: '',
+      divinity_api_key: '',
+      divinity_webhook_secret: '',
+      // Logo shown on the hosted checkout page (absolute URL).
+      divinity_checkout_logo_url: '',
     },
-    secret: ['stripe_secret_key', 'stripe_webhook_secret'],
+    secret: ['divinity_api_key', 'divinity_webhook_secret'],
   },
   security: {
     defaults: {
@@ -170,7 +174,7 @@ export async function publicSettings(): Promise<Record<string, unknown>> {
   return {
     site: { name: site.name, tagline: site.tagline, socials: site.socials, registration_open: site.registration_open, currency: site.currency },
     membership,
-    payments: { provider: payments.provider, stripe_publishable_key: payments.stripe_publishable_key },
+    payments: { provider: payments.provider },
     recaptcha_site_key: security.recaptcha_site_key,
     ga_measurement_id: analytics.ga_measurement_id,
   };
