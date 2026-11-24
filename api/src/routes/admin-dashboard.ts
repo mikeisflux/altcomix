@@ -77,6 +77,7 @@ async function counts() {
        (select count(*) from emails where status = 'queued')::int as emails_queued,
        (select count(*) from emails where status = 'failed')::int as emails_failed,
        (select count(*) from blocked_ips where expires_at > now())::int as blocked_ips,
+       (select count(*) from inbound_emails where read_at is null and archived_at is null and not spam)::int as inbox_unread,
        (select count(*) from publishers where kind_requested is not null and deleted_at is null)::int as kind_requests`,
   );
 }
@@ -172,6 +173,7 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
         emails_queued: c.emails_queued,
         kind_requests: c.kind_requests,
         blocked_ips: c.blocked_ips,
+        inbox_unread: c.inbox_unread,
       };
     });
 

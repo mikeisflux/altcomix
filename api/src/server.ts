@@ -67,7 +67,7 @@ export async function buildApp(): Promise<FastifyInstance> {
 
     const site = await getSetting('site');
     const staff = req.user?.role === 'admin' || req.user?.role === 'super_admin';
-    if (site.maintenance && !staff && !path.startsWith('/api/auth/') && !path.startsWith('/api/admin/') && path !== '/api/bootstrap' && !path.startsWith('/api/health')) {
+    if (site.maintenance && !staff && !path.startsWith('/api/auth/') && !path.startsWith('/api/admin/') && path !== '/api/bootstrap' && !path.startsWith('/api/health') && !path.startsWith('/api/webhooks/')) {
       return reply.code(503).send({ error: 'NSFWComix is down for maintenance. Back shortly.', code: 'maintenance' });
     }
   });

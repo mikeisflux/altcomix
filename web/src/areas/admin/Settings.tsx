@@ -1,11 +1,11 @@
 import { useMutation } from '@tanstack/react-query';
-import { CheckCircle2, PlugZap, XCircle } from 'lucide-react';
+import { CheckCircle2, PlugZap, RefreshCw, XCircle } from 'lucide-react';
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 import { api, errorMessage } from '@/lib/api';
 import { useSession } from '@/lib/session';
-import { Badge, Button, Field, FormRow, FormSection, Input, MoneyInput, Notice, PageHeader, Segmented, Select, Switch, Tabs, toast } from '@/ui';
+import { Badge, Button, Field, FormRow, FormSection, Input, MoneyInput, Notice, PageHeader, Segmented, Select, Switch, Tabs, toast, useConfirm } from '@/ui';
 import { SuperOnly } from './AdminLayout';
 import { CopyField, Loaded, bpsToPct, pctToBps, useAct, useAdminQuery, useFilters, useTitle } from './shared';
 import type { R } from './shared';
@@ -297,6 +297,69 @@ function Storage({ value, secrets }: TabProps) {
 
 // ---------------------------------------------------------------- Email
 
+type Inbound = { enabled: boolean; url: string | null; url_base: string; domains: string[]; mx_host: string; mx_priority: number };
+
+/** Receiving mail: the address the provider posts incoming mail to, and how to point a domain at it. */
+function InboundMail({ secret }: { secret: ReturnType<ReturnType<typeof useSection>['secret']> }) {
+  const q = useAdminQuery<Inbound>('/api/admin/inbound-mail');
+  const { run, busy } = useAct();
+  const confirm = useConfirm();
+  const d = q.data;
+  const host = d?.domains[0] ?? 'your domain';
+  const generate = async () => {
+    if (d?.enabled && !(await confirm({
+      title: 'Make a new address?',
+      body: 'The current address stops working straight away. Until you paste the new one into SendGrid, incoming mail is not delivered here.',
+      confirmLabel: 'Make a new address',
+      danger: true,
+    }))) return;
+    void run({ key: 'inbound-token', fn: () => api('/api/admin/inbound-mail/token', { method: 'POST' }), ok: d?.enabled ? 'New address made. Paste it into SendGrid now.' : 'Incoming mail is on. Copy the address into SendGrid.' });
+  };
+  return (
+    <FormSection title="Inbound mail" description={<>Lets people write to addresses such as support@{host}. Their mail shows up in the <Link className="link" to="/admin/inbox">admin inbox</Link>.</>}>
+      <Loaded query={q}>
+        {(inbound) => (
+          <>
+            {inbound.url ? (
+              <CopyField
+                label="Address to give SendGrid"
+                value={inbound.url}
+                hint="The long last part is a password: anyone who has this address can put mail in your inbox. Do not share it or post it anywhere."
+              />
+            ) : (
+              <Notice tone="info">Incoming mail is off. Turn it on to get the address SendGrid sends mail to.</Notice>
+            )}
+            <div className="flex flex-wrap items-center gap-3">
+              <Button icon={<RefreshCw className="size-4" />} loading={busy === 'inbound-token'} onClick={generate}>{inbound.enabled ? 'Make a new address' : 'Turn on incoming mail'}</Button>
+              {inbound.enabled && <span className="text-xs text-faint">Do this if the address may have leaked.</span>}
+            </div>
+            <SecretInput
+              label="Secret part of the address"
+              hint={<>Only needed if you were already given an address: paste the part after <code>/inbound/</code> (at least 32 letters, digits, - or _), then save.</>}
+              s={secret}
+            />
+            <Notice tone="warn">
+              Pointing the mail (MX) record of {host} at SendGrid sends <strong>all</strong> mail for that domain here. If {host} already has mailboxes somewhere else (Google Workspace, Microsoft 365, your web host), they stop receiving mail the moment you change it. To keep them, use a subdomain for the site instead, such as mail.{host}.
+            </Notice>
+            <div>
+              <div className="mb-1.5 text-[13px] font-medium">Setting it up</div>
+              <ol className="list-decimal space-y-1.5 pl-5 text-sm text-muted">
+                <li>In SendGrid, open Settings, Sender Authentication and authenticate the domain {host}. Wait until it shows as verified.</li>
+                <li>At your domain's DNS provider, add a mail record for {host}: type <span className="text-paper">MX</span>, value <span className="text-paper">{inbound.mx_host}</span>, priority <span className="text-paper">{inbound.mx_priority}</span>. Remove other MX records for the same name.</li>
+                <li>In SendGrid, open Settings, Inbound Parse and choose Add Host &amp; URL. Pick the domain, and paste the address above as the destination URL.</li>
+                <li>Leave "POST the raw, full MIME message" unticked.</li>
+                <li>Tick "Check incoming emails for spam".</li>
+                <li>Send an email to support@{host} from another account. It should appear in the inbox within a minute.</li>
+              </ol>
+            </div>
+            <p className="text-xs text-faint">Mail is only accepted for {inbound.domains.join(' and ') || 'the site’s own domain'}. Each message can carry up to 10 attachments of 10 MB each.</p>
+          </>
+        )}
+      </Loaded>
+    </FormSection>
+  );
+}
+
 function EmailTab({ value, secrets, info }: TabProps) {
   const { user } = useSession();
   const s = useSection('email', value, secrets);
@@ -343,6 +406,7 @@ function EmailTab({ value, secrets, info }: TabProps) {
           )}
         </FormSection>
       )}
+      <InboundMail secret={s.secret('inbound_token')} />
       <FormSection title="Send a test" description="Queues a real message through the saved settings, so save first if you changed anything.">
         <TestButton path="/api/admin/settings/test/email" label="Send test email" note={`Goes to ${user?.email}.`} />
         <p className="text-sm text-muted">Follow it in the <Link className="link" to="/admin/email">email queue and log</Link>.</p>

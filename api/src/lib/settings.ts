@@ -67,8 +67,10 @@ export const SETTINGS = {
       from_name: 'NSFWComix',
       reply_to: '',
       queue_paused: false,
+      // The secret last part of the inbound mail webhook address. Empty = inbound mail is off.
+      inbound_token: '',
     },
-    secret: ['sendgrid_api_key', 'sendgrid_webhook_key', 'mailgun_api_key', 'mailgun_webhook_signing_key'],
+    secret: ['sendgrid_api_key', 'sendgrid_webhook_key', 'mailgun_api_key', 'mailgun_webhook_signing_key', 'inbound_token'],
   },
   payments: {
     defaults: {

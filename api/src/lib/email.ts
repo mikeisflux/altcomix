@@ -23,7 +23,24 @@ export type Mail = {
   userId?: string | null;
   publisherId?: string | null;
   sendAfter?: Date;
+  /** Send from this address instead of the site's From address (admin mailboxes). The domain must be verified with the provider. */
+  from?: { email: string; name?: string };
+  replyTo?: string;
+  /** Extra message headers, e.g. In-Reply-To and References so a reply threads. */
+  headers?: Record<string, string>;
 };
+
+/** Headers a caller may add. Everything else (To, From, Subject, Content-Type ...) belongs to the provider. */
+const EXTRA_HEADERS = new Set(['in-reply-to', 'references', 'auto-submitted', 'x-auto-response-suppress', 'precedence']);
+
+function cleanHeaders(headers: Record<string, string> | undefined): Record<string, string> | null {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(headers ?? {})) {
+    const value = String(v).replace(/[\r\n\0]+/g, ' ').trim().slice(0, 2000);
+    if (EXTRA_HEADERS.has(k.toLowerCase()) && value) out[k] = value;
+  }
+  return Object.keys(out).length ? out : null;
+}
 
 /**
  * The one place that enforces "confirm your email first". `what` finishes the
@@ -260,25 +277,37 @@ export async function queueEmail(mail: Mail): Promise<string | null> {
     }
   }
   const row = await one<{ id: string }>(
-    `insert into emails (to_email, user_id, publisher_id, template, category, subject, html, text_body, status, error, send_after)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning id`,
+    `insert into emails (to_email, user_id, publisher_id, template, category, subject, html, text_body, status, error, send_after,
+                         from_email, from_name, reply_to, headers)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) returning id`,
     [to, mail.userId ?? null, mail.publisherId ?? null, mail.template ?? null, category, mail.subject, mail.html,
-     mail.text ?? htmlToText(mail.html), status, error, mail.sendAfter ?? new Date()],
+     mail.text ?? htmlToText(mail.html), status, error, mail.sendAfter ?? new Date(),
+     mail.from?.email.trim().toLowerCase() || null, mail.from?.name?.replace(/[\r\n"<>]+/g, ' ').trim() || null,
+     mail.replyTo?.trim().toLowerCase() || null, JSON.stringify(cleanHeaders(mail.headers))],
   );
   return row?.id ?? null;
 }
 
 type Deliver = { ok: true; provider: string; id?: string } | { ok: false; provider: string; error: string };
 
-async function deliver(m: { to_email: string; subject: string; html: string; text_body: string; category: string; id: string }): Promise<Deliver> {
+type QueuedMail = {
+  to_email: string; subject: string; html: string; text_body: string; category: string; id: string;
+  from_email: string | null; from_name: string | null; reply_to: string | null; headers: Record<string, string> | null;
+};
+
+async function deliver(m: QueuedMail): Promise<Deliver> {
   const s = await getSetting('email');
-  const from = s.from_email;
+  // A message can carry its own sender (mail sent from an admin mailbox); otherwise the site's.
+  const from = m.from_email || s.from_email;
+  const fromName = m.from_email ? (m.from_name ?? '') : s.from_name;
+  const replyTo = m.reply_to || (m.from_email ? '' : s.reply_to);
+  const extra = m.headers ?? {};
   const listUnsub =
     m.category === 'transactional' ? null : `<${config.appUrl}/api/unsubscribe?token=${unsubscribeToken(m.to_email)}>`;
 
   if (s.provider === 'sendgrid') {
     if (!s.sendgrid_api_key || !from) return { ok: false, provider: 'sendgrid', error: 'SendGrid is not configured' };
-    const headers: Record<string, string> = {};
+    const headers: Record<string, string> = { ...extra };
     if (listUnsub) {
       headers['List-Unsubscribe'] = listUnsub;
       headers['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click';
@@ -288,8 +317,8 @@ async function deliver(m: { to_email: string; subject: string; html: string; tex
       headers: { authorization: `Bearer ${s.sendgrid_api_key}`, 'content-type': 'application/json' },
       body: JSON.stringify({
         personalizations: [{ to: [{ email: m.to_email }], custom_args: { email_id: m.id } }],
-        from: { email: from, name: s.from_name },
-        ...(s.reply_to ? { reply_to: { email: s.reply_to } } : {}),
+        from: { email: from, ...(fromName ? { name: fromName } : {}) },
+        ...(replyTo ? { reply_to: { email: replyTo } } : {}),
         subject: m.subject,
         content: [
           { type: 'text/plain', value: m.text_body || ' ' },
@@ -307,14 +336,15 @@ async function deliver(m: { to_email: string; subject: string; html: string; tex
   if (s.provider === 'mailgun') {
     if (!s.mailgun_api_key || !s.mailgun_domain || !from) return { ok: false, provider: 'mailgun', error: 'Mailgun is not configured' };
     const form = new URLSearchParams({
-      from: s.from_name ? `${s.from_name} <${from}>` : from,
+      from: fromName ? `${fromName} <${from}>` : from,
       to: m.to_email,
       subject: m.subject,
       text: m.text_body || ' ',
       html: m.html,
       'v:email_id': m.id,
     });
-    if (s.reply_to) form.set('h:Reply-To', s.reply_to);
+    if (replyTo) form.set('h:Reply-To', replyTo);
+    for (const [k, v] of Object.entries(extra)) form.set(`h:${k}`, v);
     if (listUnsub) {
       form.set('h:List-Unsubscribe', listUnsub);
       form.set('h:List-Unsubscribe-Post', 'List-Unsubscribe=One-Click');
@@ -350,7 +380,7 @@ export async function processEmailQueue(batch = 20): Promise<{ sent: number; fai
       `update emails set status = 'sending', attempts = attempts + 1
         where id = (select id from emails where status = 'queued' and send_after <= now()
                      order by (category = 'transactional') desc, created_at limit 1 for update skip locked)
-        returning id, to_email, subject, html, text_body, category, attempts`,
+        returning id, to_email, subject, html, text_body, category, attempts, from_email, from_name, reply_to, headers`,
     );
     if (!m) break;
     let r: Deliver;

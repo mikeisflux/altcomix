@@ -3,6 +3,7 @@ import { AdminLayout } from './AdminLayout';
 import { CommentsPage, ReportsPage, SeriesPage } from './Catalogue';
 import { Dashboard } from './Dashboard';
 import { EmailQueuePage, EmailTemplatesPage, SuppressionsPage } from './Email';
+import { InboxPage, MailboxesPage } from './Inbox';
 import { CodesPage, MembershipsPage, OrderDetail, OrdersPage, PayoutsPage, SettlementPage } from './Finance';
 import { AuditPage, CronPage, ErrorsPage } from './Logs';
 import { BrandDetail, BrandsPage, UserDetail, UsersPage } from './People';
@@ -43,6 +44,8 @@ export const adminRoutes: RouteObject[] = [
       { path: 'news', element: <NewsPage /> },
       { path: 'news/:id', element: <NewsEditor /> },
       { path: 'feedback', element: <FeedbackPage /> },
+      { path: 'inbox', element: <InboxPage /> },
+      { path: 'inbox/mailboxes', element: <MailboxesPage /> },
       { path: 'email', element: <EmailQueuePage /> },
       { path: 'email/templates', element: <EmailTemplatesPage /> },
       { path: 'email/suppressions', element: <SuppressionsPage /> },

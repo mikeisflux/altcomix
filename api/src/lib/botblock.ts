@@ -174,7 +174,9 @@ export async function botGuard(req: FastifyRequest): Promise<BotVerdict> {
   }
 
   // Fixed-window rate limit. Page images are excluded: one issue is dozens of requests.
-  if (!path.startsWith('/media/') && !path.startsWith('/assets/')) {
+  // So are provider webhooks: they authenticate themselves (signature or secret address), a
+  // provider delivers a burst of mail or events from a handful of addresses, and a 429 makes it retry.
+  if (!path.startsWith('/media/') && !path.startsWith('/assets/') && !path.startsWith('/api/webhooks/')) {
     let r = rate.get(ip);
     if (!r || r.reset < now) {
       r = { n: 0, reset: now + 60_000 };

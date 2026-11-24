@@ -312,5 +312,6 @@ Crowdfunding), COMMUNITY (Forums).
 | 14.1 | `/admin` panel: dashboard, users, brands, series moderation, orders, memberships, payouts, settlement, codes, featured rows, announcements, pages, news, feedback, reports, audit log | done |
 | 14.2 | Integrations editable in `/admin`: Cloudflare R2 storage, SendGrid email, payments, reCAPTCHA, analytics | partial |
 | 14.3 | Email: templates, queue, log, suppression list, unsubscribe | done |
+| 14.3a | Inbound mail: admin mailboxes (support@, dmca@ ...) fed by SendGrid Inbound Parse, read and answered in /admin/inbox, blocked senders, optional automatic reply | done (not yet tried against live SendGrid delivery) |
 | 14.4 | Bot blocker ported from IndieCrowdfund | done |
 | 14.5 | Membership plus direct sales, with per-reader split of membership money | partial |

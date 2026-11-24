@@ -62,8 +62,9 @@ month is overstated until then. `mrr_cents` counts active, non-cancelling
 memberships (annual price / 12).
 
 ### GET /api/admin/badges — admin
-Sidebar counts: `{ reports, payouts, feedback, errors, emails_failed, emails_queued, kind_requests, blocked_ips }`
-(`payouts` = requested, `feedback` = new, `errors` = unresolved, `blocked_ips` = active).
+Sidebar counts: `{ reports, payouts, feedback, errors, emails_failed, emails_queued, kind_requests, blocked_ips, inbox_unread }`
+(`payouts` = requested, `feedback` = new, `errors` = unresolved, `blocked_ips` = active,
+`inbox_unread` = unread inbound email outside archive and spam).
 
 ### GET /api/admin/health — admin
 
@@ -566,6 +567,138 @@ Events are matched by the `email_id` custom arg (SendGrid) / user variable (Mail
 
 ---
 
+## 8a. Inbound mail and admin mailboxes
+
+Mail sent to the site's own addresses (support@, dmca@ ...) arrives through
+the provider's inbound webhook, is filed in a mailbox and is read and answered
+from `/admin/inbox`. Source: `routes/webhooks-inbound.ts`,
+`routes/admin-mailboxes.ts`, `lib/inbound-mail.ts`.
+
+### POST /api/webhooks/email/inbound/:token (called by SendGrid, not by the web app)
+
+SendGrid Inbound Parse does not sign its requests, so the only authentication
+is `:token`: the secret stored (encrypted) in `email.inbound_token`, 32 random
+bytes as base64url (43 characters) when generated here. It is compared in
+constant time before any of the body is read. No CSRF token, no cookies, and
+`/api/webhooks/` is exempt from the per-address rate limit.
+
+- `404 { error: "Not found" }` when the token is wrong or none is set (fail closed).
+- `200 { ok: true, result }` for everything else, because the provider retries
+  any other answer. `result` is `stored`, `duplicate` (Message-ID already
+  stored), `blocked` (sender on the blocked list; the hit is counted),
+  `not_ours` (no envelope recipient on one of the site's domains),
+  `no_sender` or `no_mailbox` (every mailbox is turned off).
+- `400` for a body that cannot be parsed, `500` if the database is down (the provider tries again).
+
+Body: `multipart/form-data` as SendGrid sends it with "POST the raw, full MIME
+message" **off**: `headers`, `to`, `from`, `cc`, `subject`, `text`, `html`,
+`envelope` (JSON `{ to: [], from }`), `charsets` (JSON; each field is decoded
+from the character set named there), `SPF`, `dkim`, `spam_score`,
+`spam_report`, `attachments` (count), `attachment-info` (JSON) and the files
+`attachment1` ... `attachmentN`. Mailgun's names are understood as well
+(`recipient`, `sender`, `body-plain`, `body-html`, `stripped-text`,
+`Message-Id`, `In-Reply-To`, `References`, `message-headers`,
+`X-Mailgun-Sflag`, `X-Mailgun-Sscore`, `attachment-N`), also as
+`application/x-www-form-urlencoded`.
+
+What happens to a message:
+
+- **Recipient**: the SMTP envelope decides, not the `To` header. An active
+  mailbox with exactly that address gets it; otherwise the default (catch-all)
+  mailbox; otherwise the oldest active one. The recipient must be on the host
+  of `APP_URL` (without `www.`), on the domain of the From address in
+  Settings > Email, or on a subdomain of either. If no mailbox exists yet,
+  `support@<recipient domain>` is created as the default.
+- **Attachments**: at most 10 files, 10 MB each, 25 MB together. Anything
+  beyond is left out and the email gets a note saying so. Files are stored
+  under `private/inbound-mail/<email id>/` and are only reachable through the
+  admin download route. Attachments of spam are not kept.
+- **Spam**: `spam_score` of 5 or more (or Mailgun's flag) files the message
+  under spam: no notification, no automatic reply.
+- **Threading**: `In-Reply-To` / `References` matching a stored Message-ID (or
+  the provider id of something sent from a mailbox); otherwise the same
+  mailbox, the same correspondent and the same subject without `Re:` / `Fwd:`.
+- **HTML** is rebuilt server-side from an allowlist of tags and attributes
+  before it is stored (`sanitizeMailHtml`): no scripts, style sheets, event
+  handlers, forms, frames, SVG; links only `http(s):` / `mailto:`; inline
+  styles only from a list of harmless properties and never `url()`; remote
+  images are stored as `<img data-remote-src="...">` with no `src`. The admin
+  shows it only inside `<iframe sandbox="" srcdoc>` with its own
+  `Content-Security-Policy`, and swaps `data-remote-src` to `src` when the
+  admin presses *Show images*.
+- **Notification**: every admin and super admin gets an in-app notification
+  (`kind: "inbox"`, `url: /admin/inbox?open=<id>`). No email is sent to admins.
+- **Automatic reply**: if the mailbox has `auto_reply` text, sent at most once
+  per sender per 24 hours, never to `no-reply` / `mailer-daemon` /
+  `postmaster` / bounce addresses, the site's own mailboxes, or mail carrying
+  `Auto-Submitted` (other than `no`), `Precedence: bulk|list|junk`,
+  `List-Id`, `List-Unsubscribe`, `X-Auto-Response-Suppress` or an empty
+  `Return-Path`. It carries `Auto-Submitted: auto-replied`.
+
+### Mailboxes
+
+Mailbox: `{ id, address, name, is_default, active, auto_reply, created_at, updated_at }`.
+
+| Method & path | Who | Body / query | Response | Audit |
+|---|---|---|---|---|
+| GET `/api/admin/mailboxes` | admin | – | `{ items: [Mailbox & { total, unread }], domains: ["example.com"], inbound_enabled }` | – |
+| POST `/api/admin/mailboxes` | super | `{ address, name, is_default?, active?, auto_reply? }`. The address must be on one of `domains`. The first mailbox becomes the default | `{ ok, mailbox }`; `409` if the address exists | `mailbox.create` |
+| PATCH `/api/admin/mailboxes/:id` | super | any of the same fields. `is_default: true` moves the default here | `{ ok, mailbox }` | `mailbox.update` |
+| DELETE `/api/admin/mailboxes/:id` | super | – | `{ ok, emails_deleted }`: its mail and stored attachments go with it | `mailbox.delete` |
+
+### Inbox
+
+| Method & path | Who | Body / query | Response | Audit |
+|---|---|---|---|---|
+| GET `/api/admin/inbox` | admin | `mailbox` (id), `folder` = `inbox` (default) \| `archived` \| `spam` \| `all`, `unread=1`, `q` (sender, subject, text), `page`, `limit` (30, max 100) | `{ items, total, page, limit, counts: { inbox, unread, archived, spam } }` (counts are for the chosen mailbox). Item: `{ id, mailbox_id, mailbox_name, mailbox_address, from_email, from_name, to_email, subject, snippet, received_at, read_at, archived_at, replied_at, spam, spam_flagged, thread_key, attachment_count }` | – |
+| GET `/api/admin/inbox/:id` | admin | – | `{ email, mailbox, thread, blocked }`. **Marks the whole conversation read.** | – |
+| POST `/api/admin/inbox/:id/read` | admin | `{ read: boolean }` | `{ ok, read }` | – |
+| POST `/api/admin/inbox/:id/archive` | admin | `{ archived: boolean }` (archiving also marks it read) | `{ ok, archived }` | `inbox.archive` / `inbox.unarchive` |
+| POST `/api/admin/inbox/:id/spam` | admin | `{ spam: boolean, block?: "address" \| "domain" }`. With `block`, the sender (or the whole domain) goes on the blocked list and everything already received from them is filed as spam too | `{ ok, spam, also_filed, blocked }` | `inbox.spam` / `inbox.not_spam` |
+| DELETE `/api/admin/inbox/:id` | admin | – | `{ ok }`: the message and its stored attachments are removed | `inbox.delete` |
+| POST `/api/admin/inbox/:id/reply` | admin | `{ body }` (plain text, 1–50,000 characters) | `{ ok, to, id, email_id, status, error }` | `inbox.reply` |
+| POST `/api/admin/inbox/compose` | admin | `{ mailbox_id, to, subject, body }` | `{ ok, id, email_id, status, error }` | `inbox.compose` |
+| GET `/api/admin/inbox/attachments/:id` | admin | – | the file, streamed, always `Content-Disposition: attachment` and `Content-Type: application/octet-stream` | – |
+
+`GET /api/admin/inbox/:id`:
+
+- `email` and each received item of `thread`: `{ type: "received", id, mailbox_id, from_email, from_name, reply_to, to_email, to_header, cc, subject, text_body, html_body, at, read_at, archived_at, replied_at, spam, spam_flagged, spam_score, spf, dkim, notes: [], attachments: [{ id, filename, content_type, size_bytes }] }`.
+  `html_body` is the sanitised HTML (empty if the message had none); `text_body` is always filled.
+- sent items of `thread`: `{ type: "sent", id, kind: "reply" | "new" | "auto_reply", from_email, to_email, subject, text_body, at, inbound_id, status, error, sent_by_name }`
+  where `status` / `error` come from the outbound queue row (`queued`, `sent`, `failed`, `suppressed` ...).
+- `thread` is oldest first. `blocked` is `{ id, kind, value }` when the sender is on the blocked list, else `null`.
+
+Replies and new messages go through the normal outbound queue
+(`lib/email.ts`, visible in the email log with template `mailbox_reply` /
+`mailbox_auto_reply`): From is the mailbox's address and name, `Reply-To` the
+mailbox address, and a reply carries `In-Reply-To: <original Message-ID>` and
+`References: <the original's references> <original Message-ID>`, with the
+original text quoted under the answer. A reply goes to the original's
+`Reply-To` if it had one. The suppression list still applies: the response
+then has `status: "suppressed"` and the reason in `error`, and nothing is sent.
+
+### Blocked senders
+
+| Method & path | Who | Body / query | Response | Audit |
+|---|---|---|---|---|
+| GET `/api/admin/inbox/blocklist` | admin | – | `{ items: [{ id, kind: "address" \| "domain", value, reason, hits, last_hit_at, created_at }] }` | – |
+| POST `/api/admin/inbox/blocklist` | admin | `{ kind, value, reason? }`. A domain entry also covers its subdomains. The site's own domains are refused | `{ ok, entry }` | `inbox.block` |
+| DELETE `/api/admin/inbox/blocklist/:id` | admin | – | `{ ok }` | `inbox.unblock` |
+
+### The webhook address — super
+
+| Method & path | Who | Body / query | Response | Audit |
+|---|---|---|---|---|
+| GET `/api/admin/inbound-mail` | super | – | `{ enabled, url, url_base, domains, mx_host: "mx.sendgrid.net", mx_priority: 10 }`. `url` is the full address **including the secret** (or `null` when none is set): the one place a stored secret is sent to the browser, because it has to be pasted into SendGrid | – |
+| POST `/api/admin/inbound-mail/token` | super | – | same shape plus `{ ok, replaced }`. Generates a new secret; the old address stops working within 15 seconds | `inbound.token` |
+
+The secret can also be set by hand: `PATCH /api/admin/settings` with
+`{ section: "email", data: { inbound_token: "<32-128 characters of A-Z a-z 0-9 - _>" } }`
+(removed with `clear: ["inbound_token"]`, which turns inbound mail off), or
+from the shell with `node --env-file=../.env src/set-inbound-token.ts <token>`.
+
+---
+
 ## 9. Security
 
 ### Overview, blocks, feeds — super
@@ -689,7 +822,11 @@ See `scripts/deploy/crontab.example`.
 `feedback.status`, `settings.update`, `settings.test`, `email.retry`,
 `email.cancel`, `email.retry_failed`, `email.queue_pause`,
 `email.queue_resume`, `email_template.save`, `email_template.reset`,
-`email_suppression.add`, `email_suppression.remove`, `security.block_ip`,
+`email_suppression.add`, `email_suppression.remove`, `mailbox.create`,
+`mailbox.update`, `mailbox.delete`, `inbox.archive`, `inbox.unarchive`,
+`inbox.spam`, `inbox.not_spam`, `inbox.delete`, `inbox.reply`,
+`inbox.compose`, `inbox.block`, `inbox.unblock`, `inbound.token`,
+`security.block_ip`,
 `security.unblock_ip`, `security.2fa_begin`, `security.2fa_enable`,
 `security.2fa_backup_codes`, `security.2fa_disable`, `security.2fa_reset`,
 `error.status`, `error.bulk_status`, `error.bulk_delete`.

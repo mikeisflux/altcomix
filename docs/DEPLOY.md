@@ -135,6 +135,54 @@ after saving. A blank secret field keeps what is stored.
    Register the webhook URL shown on the page with the provider and paste its
    verification key (SendGrid: Signed Event Webhook public key; Mailgun: HTTP
    webhook signing key). Until a key is saved the webhook refuses everything.
+   **Inbound mail** (same tab, optional): lets people write to
+   `support@<domain>`, `dmca@<domain>` and so on, and puts that mail in
+   Admin > Inbox. It uses SendGrid Inbound Parse.
+
+   > Pointing a domain's MX record at SendGrid sends **all** mail for that
+   > domain to this site. If the domain already has mailboxes elsewhere
+   > (Google Workspace, Microsoft 365, the web host), they stop receiving the
+   > moment the record changes. To keep them, receive on a subdomain instead
+   > (for example `mail.<domain>`) and publish addresses on that.
+
+   1. Get the address SendGrid will post to. Either press *Turn on incoming
+      mail* (the server makes a 43-character secret and shows the full
+      address with a copy button), or, if an address has already been handed
+      out, paste its last part into *Secret part of the address* and save.
+      Before anyone can sign in to /admin, the same can be done from the
+      shell:
+
+      ```bash
+      cd /srv/nsfwcomix/api
+      node --env-file=../.env src/set-inbound-token.ts <token>      # 32+ characters: letters, digits, - and _
+      node --env-file=../.env src/set-inbound-token.ts --generate   # or let it make one and print the address
+      ```
+
+      The address is `<APP_URL>/api/webhooks/email/inbound/<secret>`. The
+      secret is the only thing protecting it (SendGrid does not sign these
+      requests): treat it like a password. *Make a new address* replaces it;
+      the old one stops working within 15 seconds.
+   2. SendGrid > Settings > Sender Authentication: authenticate the domain.
+   3. DNS: add an `MX` record for the receiving host with value
+      `mx.sendgrid.net` and priority `10`, and remove other MX records for
+      that host.
+   4. SendGrid > Settings > Inbound Parse > *Add Host & URL*: choose the
+      domain and paste the address as the destination URL. Leave *POST the
+      raw, full MIME message* **unticked**. Tick *Check incoming emails for
+      spam* (mail scored 5 or higher goes to the spam tab).
+   5. Send a test message to `support@<domain>`. A *Support* mailbox is
+      created by itself for the first message; add the others (`dmca@` ...)
+      under Admin > Inbox > Mailboxes. Mail for an address without a mailbox
+      lands in the catch-all mailbox.
+
+   Mail is accepted only for the host in `APP_URL`, the domain of the From
+   address, and their subdomains. Replies go out through the normal email
+   queue from the mailbox's own address, so that domain must be the
+   authenticated one. `scripts/deploy/nginx.conf` has a `location` for the
+   webhook that allows 40 MB bodies (a message with 25 MB of attachments is
+   about 34 MB once encoded) and keeps these requests out of the access log,
+   because the address contains the secret. If a proxy or CDN in front of
+   nginx logs URLs, exclude this path there too.
 4. **Settings > Payments.** Divinity payments: API URL, partner ID, API key,
    webhook secret; *Test connection*; register the webhook URL shown
    (`<APP_URL>/api/webhooks/divinity`) with the processor; then set the
@@ -251,3 +299,11 @@ integration keys.
   caches settings briefly). Blocks and unblocks reach them within a minute.
 - **Email webhooks** are accepted only with a valid provider signature; with
   no key saved they answer 503 and the provider will retry later.
+- **Inbound mail** is authenticated only by the secret in its address, because
+  SendGrid Inbound Parse does not sign requests. Whoever has the address can
+  put mail in the inbox (not read any). Replies thread by `References` and,
+  failing that, by subject and correspondent: SendGrid assigns its own
+  Message-ID to what the site sends, so an answer to a brand-new message
+  written in /admin is matched by subject. Inbound mail has not been tested
+  against real SendGrid delivery, only against requests shaped like its
+  documented format.

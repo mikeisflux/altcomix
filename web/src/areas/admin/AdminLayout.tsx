@@ -1,6 +1,6 @@
 import {
   Activity, BadgeDollarSign, Ban, BookOpen, Bug, CalendarClock, Clock, CreditCard, FileText, Flag, Gauge, Inbox, KeyRound, LayoutTemplate, Mail, MailX,
-  Megaphone, MessageSquare, Newspaper, Receipt, ScrollText, Settings, ShieldCheck, Sparkles, Store, Ticket, Users, Wallet,
+  MailOpen, Megaphone, MessageSquare, Newspaper, Receipt, ScrollText, Settings, ShieldCheck, Sparkles, Store, Ticket, Users, Wallet,
 } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
@@ -10,7 +10,7 @@ import { useSession } from '@/lib/session';
 import { EmptyState, LinkButton, SideNav, cx } from '@/ui';
 import { AskProvider, useAdminQuery } from './shared';
 
-type Badges = { reports: number; payouts: number; feedback: number; errors: number; emails_failed: number; emails_queued: number; kind_requests: number; blocked_ips: number };
+type Badges = { reports: number; payouts: number; feedback: number; errors: number; emails_failed: number; emails_queued: number; kind_requests: number; blocked_ips: number; inbox_unread: number };
 
 function Count({ n, tone = 'accent', label }: { n: number | undefined; tone?: 'accent' | 'danger' | 'neutral'; label: string }) {
   if (!n) return null;
@@ -104,6 +104,7 @@ export function AdminLayout() {
     {
       title: 'Communication',
       items: [
+        item('/admin/inbox', 'Inbox', <MailOpen />, <Count n={b?.inbox_unread} label="unread emails" />),
         item('/admin/email', 'Email queue & log', <Mail />, <Count n={b?.emails_failed} tone="danger" label="failed emails" />, true),
         item('/admin/email/templates', 'Templates', <CreditCard />),
         item('/admin/email/suppressions', 'Suppressions', <MailX />),
