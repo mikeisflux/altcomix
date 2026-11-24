@@ -111,7 +111,7 @@ export function Browse() {
         <div role="radiogroup" aria-label="Price" className="space-y-1">
           {ACCESS.map((a) => (
             <label key={a.value} className="flex min-h-9 cursor-pointer items-center gap-2.5 text-sm">
-              <input type="radio" name="access" className="size-4 accent-[var(--color-accent)]" checked={access === a.value} onChange={() => update({ access: a.value })} />
+              <input type="radio" name="access" className="size-4 accent-accent" checked={access === a.value} onChange={() => update({ access: a.value })} />
               {a.value === 'membership' ? `In ${settings.membership.name}` : a.label}
             </label>
           ))}
