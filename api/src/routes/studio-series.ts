@@ -586,9 +586,11 @@ export default async function (app: FastifyInstance) {
     return { ok: true };
   });
 
-  // ------------------------------------------------------------ embeddable "Read now" button
+  // ------------------------------------------------------------ embeddable widgets: "Read now" button and cover card
 
   const WIDGET_SIZES = { small: { width: 140, height: 40 }, medium: { width: 180, height: 48 }, large: { width: 240, height: 60 } } as const;
+  // The card is 360px at most and shrinks with its container; 172px fits the 2:3 cover plus padding and border.
+  const CARD_SIZE = { width: 360, height: 172 } as const;
 
   app.get('/api/studio/series/:id/widget', async (req) => {
     const s = await requireSeriesMember(req, idParam(req), 'analyst');
@@ -596,23 +598,47 @@ export default async function (app: FastifyInstance) {
       z.object({
         color: z.string().regex(/^#?[0-9a-fA-F]{6}$/, 'Use a colour like 1a1c20').optional(),
         size: z.enum(['small', 'medium', 'large']).optional(),
+        label: z.string().trim().max(40).optional(),
+        theme: z.enum(['light', 'dark']).optional(),
       }),
       req.query,
     );
     const color = (query.color ?? '1a1c20').replace('#', '').toLowerCase();
     const size = query.size ?? 'medium';
+    const theme = query.theme ?? 'light';
+    const label = query.label ?? '';
     const { width, height } = WIDGET_SIZES[size];
-    const url = `${config.appUrl}/widgets/read-now/${s.slug}?color=${color}&size=${size}`;
-    const title = `Read ${s.title} on AltComix`.replace(/"/g, '&quot;').replace(/</g, '&lt;');
+    const attr = (v: string) => v.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+    const slug = encodeURIComponent(s.slug);
+    const url = `${config.appUrl}/widgets/read-now/${slug}?color=${color}&size=${size}${label ? `&label=${encodeURIComponent(label)}` : ''}`;
+    const cardUrl = `${config.appUrl}/widgets/card/${slug}?color=${color}&theme=${theme}`;
+    const site = (await getSetting('site')).name;
+    // The public widget routes only serve series a visitor could open, and never adult ones.
+    const unavailable = s.takedown_at
+      ? 'This series has been taken down, so its widgets show "not available".'
+      : s.visibility === 'draft'
+        ? 'This series is still a draft. The widgets show "not available" until it is public or unlisted.'
+        : s.mature
+          ? 'Widgets are not available for adult series, because they would show on sites that have not asked visitors their age.'
+          : null;
     return {
       color,
       size,
+      theme,
+      label,
       sizes: WIDGET_SIZES,
+      available: unavailable === null,
+      unavailable_reason: unavailable,
       read_now: {
         url,
         width,
         height,
-        html: `<iframe src="${url}" width="${width}" height="${height}" title="${title}" style="border:0;overflow:hidden" scrolling="no" loading="lazy"></iframe>`,
+        html: `<iframe src="${attr(url)}" width="${width}" height="${height}" title="${attr(`Read ${s.title} on ${site}`)}" style="border:0;overflow:hidden" scrolling="no" loading="lazy"></iframe>`,
+      },
+      card: {
+        url: cardUrl,
+        ...CARD_SIZE,
+        html: `<iframe src="${attr(cardUrl)}" width="${CARD_SIZE.width}" height="${CARD_SIZE.height}" title="${attr(`${s.title} on ${site}`)}" style="border:0;max-width:100%;overflow:hidden" scrolling="no" loading="lazy"></iframe>`,
       },
       series_url: `${config.appUrl}/series/${s.slug}`,
     };

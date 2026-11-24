@@ -4,7 +4,7 @@ import { config } from '../config.ts';
 import { exec, one, q, tx } from '../db.ts';
 import type { Row } from '../db.ts';
 import { rateLimit } from '../lib/botblock.ts';
-import { button, escapeHtml, layout, queueEmail, sendTemplate } from '../lib/email.ts';
+import { TEMPLATES, requireConfirmedEmail, sendTemplate } from '../lib/email.ts';
 import { HttpError, audit, badRequest, forbidden, isAdmin, notFound, pageParams, parse, requireUser } from '../lib/http.ts';
 import type { SessionUser } from '../lib/http.ts';
 import { notify } from '../lib/notify.ts';
@@ -30,8 +30,10 @@ export async function tell(userId: string, pref: NotifyPref, kind: string, title
   await notify(userId, kind, title, body, url);
   const u = await one<{ email: string; prefs: Row }>('select email, prefs from users where id = $1 and deleted_at is null and banned_at is null', [userId]);
   if (!u || u.prefs?.notify?.[pref] === false) return;
-  const html = await layout(`<p><strong>${escapeHtml(title)}</strong></p>${body ? `<p>${escapeHtml(body.slice(0, 300))}</p>` : ''}${button('Open', config.appUrl + url)}`, { unsubscribeEmail: u.email });
-  await queueEmail({ to: u.email, subject: title, html, template: `notice_${kind}`, category: 'notification', userId });
+  // `notice_reply` and `notice_mention` are editable templates (lib/email.ts TEMPLATES); other kinds are in-app only.
+  const key = `notice_${kind}`;
+  if (!TEMPLATES[key]) return;
+  await sendTemplate(key, u.email, { title, preview: body.slice(0, 300), url: config.appUrl + url }, { userId });
 }
 
 /** Notify everyone @mentioned in a post (not the author, at most ten). */
@@ -56,7 +58,10 @@ async function canModerate(user: SessionUser | null, seriesId: string | null): P
   return Boolean(await one('select 1 from forum_moderators where series_id = $1 and user_id = $2', [seriesId, user.id]));
 }
 
-const REPORT_TARGETS: Record<string, string> = {
+const REPORT_KINDS = ['series', 'release', 'comment', 'publisher', 'user', 'forum_post', 'forum_thread'] as const;
+const REPORT_TARGETS: Record<(typeof REPORT_KINDS)[number], string> = {
+  forum_post: 'select 1 from forum_posts fp join forum_threads t on t.id = fp.thread_id where fp.id = $1 and fp.deleted_at is null and t.deleted_at is null',
+  forum_thread: 'select 1 from forum_threads where id = $1 and deleted_at is null',
   series: 'select 1 from series where id = $1 and deleted_at is null',
   release: 'select 1 from releases where id = $1 and deleted_at is null',
   comment: 'select 1 from comments where id = $1 and deleted_at is null',
@@ -64,8 +69,9 @@ const REPORT_TARGETS: Record<string, string> = {
   user: 'select 1 from users where id = $1 and deleted_at is null',
 };
 
-async function fileReport(req: FastifyRequest, kind: string, id: string, reason: string, detail: string): Promise<void> {
+async function fileReport(req: FastifyRequest, kind: (typeof REPORT_KINDS)[number], id: string, reason: string, detail: string): Promise<void> {
   const u = requireUser(req);
+  requireConfirmedEmail(u, 'send a report');
   limited(req, 'report', 20, 3600);
   if (!(await one(REPORT_TARGETS[kind], [id]))) throw notFound('That item no longer exists');
   // One open report per person per item is enough to get it looked at.
@@ -113,6 +119,7 @@ export default async function socialRoutes(app: FastifyInstance) {
   app.post('/api/comments', async (req) => {
     const u = requireUser(req);
     const body = parse(z.object({ series_id: z.uuid(), release_id: z.uuid().nullish(), parent_id: z.uuid().nullish(), body: text(2000) }), req.body);
+    requireConfirmedEmail(u, 'post comments');
     limited(req, 'comment', 20, 600);
     const s = await findSeries(body.series_id);
     if (!s) throw notFound('Series not found');
@@ -170,9 +177,9 @@ export default async function socialRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
-  /** Report a series, release, comment, brand (`publisher`) or user to the moderators. */
+  /** Report a series, release, comment, brand (`publisher`), user, forum post or forum thread to the moderators. */
   app.post('/api/reports', async (req) => {
-    const b = parse(reportBody.extend({ target_kind: z.enum(['series', 'release', 'comment', 'publisher', 'user']), target_id: z.uuid() }), req.body);
+    const b = parse(reportBody.extend({ target_kind: z.enum(REPORT_KINDS), target_id: z.uuid() }), req.body);
     await fileReport(req, b.target_kind, b.target_id, b.reason, b.detail);
     return { ok: true };
   });
@@ -239,6 +246,7 @@ export default async function socialRoutes(app: FastifyInstance) {
   app.post('/api/forums/threads', async (req) => {
     const u = requireUser(req);
     const body = parse(z.object({ board: z.string().optional(), series_id: z.uuid().optional(), title: z.string().trim().min(3, 'Give the thread a title').max(140), body: text(10000) }), req.body);
+    requireConfirmedEmail(u, 'start forum threads');
     limited(req, 'thread', 6, 3600);
     const { series, board } = await place(req, body);
     const t = await tx(async (db) => {
@@ -287,6 +295,7 @@ export default async function socialRoutes(app: FastifyInstance) {
   app.post('/api/forums/threads/:id/posts', async (req) => {
     const u = requireUser(req);
     const body = parse(z.object({ body: text(10000) }), req.body);
+    requireConfirmedEmail(u, 'post in the forums');
     limited(req, 'post', 30, 600);
     const { t, mod } = await thread(req, (req.params as { id: string }).id);
     if (t.locked && !mod) throw forbidden('This thread is locked');
@@ -315,6 +324,7 @@ export default async function socialRoutes(app: FastifyInstance) {
   app.patch('/api/forums/posts/:id', async (req) => {
     const u = requireUser(req);
     const body = parse(z.object({ body: text(10000) }), req.body);
+    requireConfirmedEmail(u, 'edit forum posts');
     const { p, t, mod } = await post(req);
     if (p.user_id !== u.id) throw forbidden('You can only edit your own posts');
     if (t.locked && !mod) throw forbidden('This thread is locked');
@@ -361,6 +371,21 @@ export default async function socialRoutes(app: FastifyInstance) {
 
   const other = (c: Row, me: string) => (c.user_a === me ? c.user_b : c.user_a);
 
+  /**
+   * THE rule for "may `from` write to `to`", used by both the conversation
+   * view (`can_reply`) and the send endpoint so they cannot disagree:
+   * the other account must exist and not be banned, and either they accept
+   * direct messages, or they have written in this conversation themselves
+   * (replying to someone who wrote to you is always allowed), or the sender
+   * is platform staff.
+   */
+  const canMessage = async (from: SessionUser, to: Row | null, conversationId: string | null): Promise<{ ok: boolean; reason: string | null }> => {
+    if (!to || to.deleted_at || to.banned_at) return { ok: false, reason: 'This account is no longer here, so the conversation is closed.' };
+    if (to.prefs?.allow_dms !== false || isAdmin(from)) return { ok: true, reason: null };
+    const tookPart = conversationId ? await one('select 1 from messages where conversation_id = $1 and sender_id = $2 limit 1', [conversationId, to.id]) : null;
+    return tookPart ? { ok: true, reason: null } : { ok: false, reason: `${to.display_name || to.username} is not accepting direct messages` };
+  };
+
   app.get('/api/messages/conversations', async (req) => {
     const u = requireUser(req);
     const rows = await q(
@@ -387,9 +412,10 @@ export default async function socialRoutes(app: FastifyInstance) {
     const { limit, offset, page } = pageParams(req.query, 50, 100);
     const rows = await q(`select id, sender_id, body, read_at, created_at from messages where conversation_id = $1 order by created_at desc, id desc limit ${limit} offset ${offset}`, [c.id]);
     await exec('update messages set read_at = now() where conversation_id = $1 and sender_id <> $2 and read_at is null', [c.id, u.id]);
-    const them = await one(`select ${AUTHOR}, u.prefs, u.deleted_at from users u where u.id = $1`, [other(c, u.id)]);
+    const them = await one(`select u.id, ${AUTHOR}, u.prefs, u.deleted_at, u.banned_at from users u where u.id = $1`, [other(c, u.id)]);
+    const may = await canMessage(u, them, c.id);
     return {
-      conversation: { id: c.id, with: them && !them.deleted_at ? await author(them) : null, can_reply: Boolean(them && !them.deleted_at && them.prefs?.allow_dms !== false) },
+      conversation: { id: c.id, with: them && !them.deleted_at ? await author(them) : null, can_reply: may.ok, cannot_reply_reason: may.reason },
       messages: rows.reverse().map((m) => ({ id: m.id, body: m.body, mine: m.sender_id === u.id, read_at: m.read_at, created_at: m.created_at })),
       page, limit,
     };
@@ -399,16 +425,15 @@ export default async function socialRoutes(app: FastifyInstance) {
   app.post('/api/messages', async (req) => {
     const u = requireUser(req);
     const body = parse(z.object({ to: z.string().trim().min(1).max(40), body: text(4000) }), req.body);
-    if (!u.email_verified_at) throw forbidden('Confirm your email address before sending messages');
+    requireConfirmedEmail(u, 'send messages');
     limited(req, 'dm', 40, 3600);
     const to = await one('select id, email, username, display_name, prefs from users where lower(username) = lower($1) and deleted_at is null and banned_at is null', [body.to.replace(/^@/, '')]);
     if (!to) throw notFound('No one with that username');
     if (to.id === u.id) throw badRequest('You cannot message yourself');
     const [a, b] = u.id < to.id ? [u.id, to.id] : [to.id, u.id];
     const existing = await one<{ id: string }>('select id from conversations where user_a = $1 and user_b = $2', [a, b]);
-    // Someone who has turned messages off can still be answered in a conversation they started.
-    const theyStarted = existing ? await one('select 1 from messages where conversation_id = $1 and sender_id = $2 limit 1', [existing.id, to.id]) : null;
-    if (to.prefs?.allow_dms === false && !theyStarted && !isAdmin(u)) throw forbidden(`${to.display_name || to.username} is not accepting direct messages`);
+    const may = await canMessage(u, to, existing?.id ?? null);
+    if (!may.ok) throw forbidden(may.reason ?? 'You cannot message this person');
     const m = await tx(async (db) => {
       const c = await db.query(
         `insert into conversations (user_a, user_b) values ($1,$2) on conflict (user_a, user_b) do update set last_message_at = now() returning id`,

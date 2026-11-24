@@ -169,7 +169,7 @@ export default async function (app: FastifyInstance) {
         const next = new Date(Date.parse(used.oldest) + 7 * 86_400_000);
         throw new HttpError(
           429,
-          `A brand can send ${ANNOUNCEMENTS_PER_WEEK} announcements in any 7 days, and this one has. The next can go out after ${next.toUTCString().replace(':00 GMT', ' UTC').replace(/:\d\d GMT/, ' UTC')}.`,
+          `A brand can send ${ANNOUNCEMENTS_PER_WEEK} announcements in any 7 days, and this one has. The next can go out after ${next.toISOString().slice(0, 16).replace('T', ' ')} UTC.`,
           'announcement_limit',
         );
       }
