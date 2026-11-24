@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { Navigate, useLocation } from 'react-router';
 import type { RouteObject } from 'react-router';
 import { RequireUser } from '@/layout/AppShell';
 import { Codes, Membership, Purchases, Receipt } from './Billing';
@@ -10,6 +11,12 @@ import { Settings } from './Settings';
 
 const signedIn = (page: ReactNode) => <RequireUser>{page}</RequireUser>;
 
+/** Backer-code emails link to /redeem?code=…; the form lives at /account/codes. The query string is kept. */
+function RedeemRedirect() {
+  const { search } = useLocation();
+  return <Navigate to={`/account/codes${search}`} replace />;
+}
+
 /**
  * Signed-in reader pages (library, account, messages) plus the community
  * pages, which anyone can read but only signed-in readers can post in.
@@ -19,6 +26,7 @@ export const accountRoutes: RouteObject[] = [
 
   { path: '/account', element: signedIn(<Settings />) },
   { path: '/account/codes', element: signedIn(<Codes />) },
+  { path: '/redeem', element: signedIn(<RedeemRedirect />) },
   { path: '/account/purchases', element: signedIn(<Purchases />) },
   { path: '/account/purchases/:orderId', element: signedIn(<Receipt />) },
   { path: '/account/membership', element: signedIn(<Membership />) },
