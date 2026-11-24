@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { one, q } from '../db.ts';
 import type { Row } from '../db.ts';
-import { canView, hasMembership, releaseAccess } from '../lib/access.ts';
+import { canView, hasMembership, releaseAccess, hasEntitlement } from '../lib/access.ts';
 import { isAdmin, notFound, pageParams, HttpError } from '../lib/http.ts';
 import { activeDiscounts, bundlePrice, downloadPrice, readOffer, percentOff, seriesPurchase } from '../lib/pricing.ts';
 import { money } from '../lib/payments.ts';
@@ -95,12 +95,18 @@ export async function isBrandMember(userId: string | undefined, publisherId: str
 
 /** 404 / 403 unless this visitor may open the series (and release). Returns whether they are staff of the brand. */
 export async function assertViewable(req: FastifyRequest, series: Row, release: Row | null, opts: { preview?: boolean } = {}): Promise<boolean> {
-  const member = isAdmin(req.user) || (await isBrandMember(req.user?.id, series.publisher_id));
-  if (member) return true;
+  const admin = isAdmin(req.user);
+  const member = admin || (await isBrandMember(req.user?.id, series.publisher_id));
+  if (member) {
+    // A purged title is closed to its own brand too; only platform admins can still open it.
+    const mv = canView(series, release, req.showMature, true, { admin });
+    if (!mv.ok) throw notFound(mv.reason);
+    return true;
+  }
   const pub = await one('select suspended_at, deleted_at from publishers where id = $1', [series.publisher_id]);
   if (!pub || pub.deleted_at || pub.suspended_at) throw notFound('This title is not available');
   if (opts.preview) return false;
-  const v = canView(series, release, req.showMature, false);
+  const v = canView(series, release, req.showMature, false, { entitled: release ? await hasEntitlement(req.user?.id, release.id) : false });
   if (!v.ok) {
     if (v.reason === 'mature') {
       throw new HttpError(403, 'This title is for adults. Confirm you are 18 or older to open it.', 'mature');
@@ -491,7 +497,7 @@ export async function continueReading(req: FastifyRequest, limit: number, finish
   const rows = await q(
     `select rp.position, rp.finished, rp.updated_at as read_at, r.id as release_id, r.number, r.kind, r.title as release_title, r.page_count, r.cover_key as release_cover_key, c.*
        from reading_progress rp join releases r on r.id = rp.release_id and r.deleted_at is null and r.status = 'published'
-       join lateral (${CARD_SELECT} where s.id = rp.series_id and ${listable(req, params).replace(`s.visibility = 'public'`, `s.visibility <> 'draft'`)}) c on true
+       join lateral (${CARD_SELECT} where s.id = rp.series_id and ${listable(req, params).replace(`s.visibility = 'public'`, `s.visibility <> 'draft'`).replace('s.takedown_at is null', `(s.takedown_at is null or (not s.takedown_purge and exists (select 1 from entitlements e where e.user_id = $1 and e.release_id = r.id)))`)}) c on true
       where rp.user_id = $1 and ($2 or not rp.finished) order by rp.updated_at desc limit ${limit}`,
     params,
   );

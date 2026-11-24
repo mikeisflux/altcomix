@@ -223,11 +223,16 @@ export async function banUser(req: FastifyRequest, actor: SessionUser, userId: s
   audit(req, 'user.ban', { kind: 'user', id: userId }, { reason, email: t.email, ...via });
 }
 
-export async function takedownSeries(req: FastifyRequest, seriesId: string, reason: string, via?: Record<string, unknown>): Promise<Row> {
+/**
+ * Take a series out of the store. Readers who bought it keep their copy unless
+ * `purge` is set, which ends access for everyone but platform admins and is
+ * meant for content that cannot legally stay available.
+ */
+export async function takedownSeries(req: FastifyRequest, seriesId: string, reason: string, via?: Record<string, unknown>, purge = false): Promise<Row> {
   const s = await one(
-    `update series set takedown_at = now(), takedown_reason = $2, updated_at = now()
+    `update series set takedown_at = now(), takedown_reason = $2, takedown_purge = $3, updated_at = now()
       where id = $1 and deleted_at is null returning id, title, slug, publisher_id`,
-    [seriesId, reason],
+    [seriesId, reason, purge],
   );
   if (!s) throw notFound('Series not found');
   await exec('delete from featured where series_id = $1', [seriesId]);
@@ -235,10 +240,10 @@ export async function takedownSeries(req: FastifyRequest, seriesId: string, reas
     s.publisher_id,
     'moderation',
     `"${s.title}" has been taken down`,
-    `Our moderation team removed this series from the store. Reason: ${reason} Reply to this email or contact support if you think this is a mistake.`,
+    `Our moderation team removed this series from the store. ${purge ? 'Access has ended for everyone, including readers who bought it.' : 'Readers who already bought it keep their copy.'} Reason: ${reason} Reply to this email or contact support if you think this is a mistake.`,
     `/studio/series/${s.id}`,
   );
-  audit(req, 'series.takedown', { kind: 'series', id: seriesId }, { reason, title: s.title, ...via });
+  audit(req, 'series.takedown', { kind: 'series', id: seriesId }, { reason, purge, title: s.title, ...via });
   return s;
 }
 

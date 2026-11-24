@@ -10,7 +10,7 @@ import { assertViewable, cards, continueReading, findPublisher, findSeries } fro
 
 /** Releases the reader owns for good (bought, redeemed or granted). */
 async function owned(userId: string, opts: { downloads: boolean; limit: number; offset: number }): Promise<{ items: Row[]; total: number }> {
-  const where = `e.user_id = $1 and r.deleted_at is null and s.deleted_at is null and s.takedown_at is null and ($2 = false or e.can_download)`;
+  const where = `e.user_id = $1 and r.deleted_at is null and s.deleted_at is null and (s.takedown_at is null or not s.takedown_purge) and ($2 = false or e.can_download)`;
   const from = `from entitlements e join releases r on r.id = e.release_id join series s on s.id = r.series_id join publishers p on p.id = s.publisher_id where ${where}`;
   const rows = await q(
     `select e.source, e.can_download, e.created_at as acquired_at, e.order_id, r.id as release_id, r.number, r.kind, r.title, r.page_count, r.cover_key as release_cover_key, r.status,

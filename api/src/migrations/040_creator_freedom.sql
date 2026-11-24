@@ -28,7 +28,7 @@ You keep the copyright. Publishing here is non-exclusive: sell the same book any
 
 ## 5. Readers keep what they bought
 
-*[Owner: confirm this is how you want takedowns to work before publishing this line.]* If a title leaves the store, readers who already bought it keep access to their copy.
+If a title leaves the store, readers who already bought it keep access to their copy. The only exception is content that cannot legally stay available.
 
 ## 6. Made by people
 

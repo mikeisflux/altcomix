@@ -1,12 +1,11 @@
-import { createBrowserRouter, isRouteErrorResponse, Link, useRouteError } from 'react-router';
+import { createBrowserRouter, isRouteErrorResponse, Link, useRouteError, useRoutes } from 'react-router';
+import type { RouteObject } from 'react-router';
 import { AppShell, AuthLayout } from '@/layout/AppShell';
 import { Button, LinkButton } from '@/ui';
 import { accountRoutes } from './areas/account/routes';
-import { adminRoutes } from './areas/admin/routes';
 import { authRoutes } from './areas/auth/routes';
 import { readerBareRoutes } from './areas/reader/routes';
 import { storeRoutes } from './areas/store/routes';
-import { studioBareRoutes, studioRoutes } from './areas/studio/routes';
 
 /**
  * Each area owns its own `routes.tsx` and exports route arrays:
@@ -42,15 +41,48 @@ function NotFound() {
   );
 }
 
+/**
+ * Studio and Admin are big and most readers never open them, so each loads as
+ * its own chunk the first time someone visits a path under its prefix. The
+ * area's routes are written with absolute paths; here they are re-based under
+ * `<prefix>/*`.
+ */
+function lazyArea(prefix: string, load: () => Promise<RouteObject[]>): RouteObject {
+  return {
+    path: `${prefix}/*`,
+    lazy: async () => {
+      const routes: RouteObject[] = (await load()).map((r) => {
+        const rest = (r.path ?? '').slice(prefix.length).replace(/^\//, '');
+        if (rest) return { ...r, path: rest } as RouteObject;
+        return r.children ? ({ ...r, path: undefined } as RouteObject) : ({ index: true, element: r.element } as RouteObject);
+      });
+      routes.push({ path: '*', element: <NotFound /> });
+      const Area = () => useRoutes(routes);
+      return { Component: Area };
+    },
+  };
+}
+
 export const router = createBrowserRouter([
   ...readerBareRoutes.map((r) => ({ ...r, errorElement: <RouteError /> })),
-  ...studioBareRoutes.map((r) => ({ ...r, errorElement: <RouteError /> })),
+  {
+    path: '/studio/:brand/series/:series/releases/:release/pages/:page',
+    errorElement: <RouteError />,
+    lazy: async () => ({ element: (await import('./areas/studio/routes')).studioBareRoutes[0].element }),
+  },
   { element: <AuthLayout />, errorElement: <RouteError />, children: authRoutes },
   {
     element: <AppShell />,
     errorElement: <RouteError />,
     children: [
-      { errorElement: <RouteError />, children: [...storeRoutes, ...accountRoutes, ...studioRoutes, ...adminRoutes, { path: '*', element: <NotFound /> }] },
+      { errorElement: <RouteError />, children: [
+          ...storeRoutes,
+          ...accountRoutes,
+          lazyArea('/studio', async () => (await import('./areas/studio/routes')).studioRoutes),
+          lazyArea('/admin', async () => (await import('./areas/admin/routes')).adminRoutes),
+          { path: '*', element: <NotFound /> },
+        ],
+      },
     ],
   },
 ]);

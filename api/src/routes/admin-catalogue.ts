@@ -60,7 +60,7 @@ export default async function adminCatalogueRoutes(app: FastifyInstance) {
       const from = 'from series s join publishers p on p.id = s.publisher_id';
       const total = (await one<{ n: number }>(`select count(*)::int as n ${from} ${w.sql}`, w.values))!.n;
       const items = await q(
-        `select s.id, s.slug, s.title, s.type, s.visibility, s.access_model, s.mature, s.cover_key, s.takedown_at, s.takedown_reason,
+        `select s.id, s.slug, s.title, s.type, s.visibility, s.access_model, s.mature, s.cover_key, s.takedown_at, s.takedown_reason, s.takedown_purge,
                 s.follower_count, s.read_count, s.created_at, s.updated_at, s.publisher_id, p.name as publisher_name, p.slug as publisher_slug,
                 (select count(*) from releases r where r.series_id = s.id and r.deleted_at is null and r.status = 'published')::int as release_count,
                 (select count(*) from reports r where r.target_kind = 'series' and r.target_id = s.id and r.status = 'open')::int as open_reports,
@@ -77,8 +77,8 @@ export default async function adminCatalogueRoutes(app: FastifyInstance) {
     s.post('/api/admin/series/:id/takedown', async (req) => {
       requireAdmin(req);
       const id = idParam(req);
-      const { reason } = parse(z.object({ reason: zReason }), req.body);
-      await takedownSeries(req, id, reason);
+      const { reason, purge } = parse(z.object({ reason: zReason, purge: z.boolean().default(false) }), req.body);
+      await takedownSeries(req, id, reason, undefined, purge);
       return { ok: true };
     });
 
@@ -86,7 +86,7 @@ export default async function adminCatalogueRoutes(app: FastifyInstance) {
       requireAdmin(req);
       const id = idParam(req);
       const sr = await one(
-        `update series set takedown_at = null, takedown_reason = null, updated_at = now()
+        `update series set takedown_at = null, takedown_reason = null, takedown_purge = false, updated_at = now()
           where id = $1 and deleted_at is null and takedown_at is not null returning title, publisher_id`,
         [id],
       );
@@ -167,6 +167,7 @@ export default async function adminCatalogueRoutes(app: FastifyInstance) {
           hide_comment: z.boolean().default(false),
           delete_forum_item: z.boolean().default(false),
           takedown_series: z.boolean().default(false),
+          purge: z.boolean().default(false),
           ban_user: z.boolean().default(false),
           suspend_brand: z.boolean().default(false),
           reason: z.string().trim().max(1000).optional(),
@@ -214,7 +215,7 @@ export default async function adminCatalogueRoutes(app: FastifyInstance) {
             : r.target_kind === 'release' ? (await one<{ series_id: string }>('select series_id from releases where id = $1', [r.target_id]))?.series_id
             : comment?.series_id;
           if (!seriesId) throw badRequest('This report does not point at a series');
-          await takedownSeries(req, seriesId, reason, via);
+          await takedownSeries(req, seriesId, reason, via, body.purge);
           done.push('series_taken_down');
         }
         if (body.ban_user) {

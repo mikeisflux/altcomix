@@ -92,8 +92,10 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.setNotFoundHandler((req, reply) => {
     const path = req.url.split('?')[0];
     if (path.startsWith('/api/') || path.startsWith('/media/')) return reply.code(404).send({ error: 'Not found' });
+    // A missing script or stylesheet must be a real 404, never the app's HTML.
+    if (path.startsWith('/assets/') || /\.[a-z0-9]{2,5}$/i.test(path)) return reply.code(404).type('text/plain').send('Not found');
     // Single-page app: every other path renders the web client.
-    if (existsSync(join(config.webDist, 'index.html'))) return reply.type('text/html').sendFile('index.html', config.webDist);
+    if (existsSync(join(config.webDist, 'index.html'))) return reply.header('cache-control', 'no-cache').type('text/html').sendFile('index.html', config.webDist);
     return reply.code(404).send({ error: 'Web client is not built. Run `npm run build`, or use the Vite dev server.' });
   });
 
@@ -117,7 +119,9 @@ export async function buildApp(): Promise<FastifyInstance> {
   }
 
   if (existsSync(config.webDist)) {
-    await app.register(fastifyStatic, { root: config.webDist, wildcard: false, maxAge: '1h' });
+    // Files are looked up per request, so a new web build is served without restarting the API.
+    await app.register(fastifyStatic, { root: config.webDist, wildcard: true, index: false, maxAge: '1h' });
+    app.get('/', (_req, reply) => reply.header('cache-control', 'no-cache').type('text/html').sendFile('index.html', config.webDist));
   }
 
   return app;

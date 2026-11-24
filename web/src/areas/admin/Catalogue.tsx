@@ -26,6 +26,18 @@ const ruleFields = (detailHint: string): AskField[] => [
   { name: 'detail', label: 'What you found', type: 'textarea', required: true, minLength: 3, hint: detailHint },
 ];
 const ruleReason = (v: R) => `${v.rule}. ${v.detail}`;
+/** Who loses access. Buyers keep their copy unless the content cannot legally stay available. */
+const scopeField: AskField = {
+  name: 'scope',
+  label: 'Who loses access?',
+  type: 'select',
+  required: true,
+  initial: 'store',
+  options: [
+    { value: 'store', label: 'Remove from the store. Readers who bought it keep their copy.' },
+    { value: 'purge', label: 'Remove completely, including for buyers and the brand (illegal content only)' },
+  ],
+};
 
 // ---------------------------------------------------------------- series
 
@@ -41,11 +53,11 @@ export function SeriesPage() {
     const v = await ask({
       title: `Take down "${s.title}"?`,
       body: `The series leaves the store and any featured rows, and the brand owners are told which rule it broke. ${LIMITS_NOTE}`,
-      fields: ruleFields('Sent to the brand owners with the rule, so be specific about where the problem is.'),
+      fields: [...ruleFields('Sent to the brand owners with the rule, so be specific about where the problem is.'), scopeField],
       confirmLabel: 'Take down',
       danger: true,
     });
-    if (v) void run({ key: `td-${s.id}`, fn: () => api(`/api/admin/series/${s.id}/takedown`, { json: { reason: ruleReason(v) } }), ok: 'Series taken down' });
+    if (v) void run({ key: `td-${s.id}`, fn: () => api(`/api/admin/series/${s.id}/takedown`, { json: { reason: ruleReason(v), purge: v.scope === 'purge' } }), ok: 'Series taken down' });
   };
   const restore = async (s: R) => {
     if (await confirm({ title: `Restore "${s.title}"?`, body: 'It becomes visible again and the brand owners are told.', confirmLabel: 'Restore' })) {
@@ -75,7 +87,7 @@ export function SeriesPage() {
             <Link className="hover:text-paper" to={`/admin/brands/${s.publisher_id}`}>{s.publisher_name}</Link> · <span className="capitalize">{s.access_model}</span> · {plural(s.release_count, 'release')} · {number(s.read_count)} reads · updated {ago(s.updated_at)}
           </span>
           <span className="mt-1.5 flex flex-wrap gap-1">
-            {s.takedown_at ? <span title={s.takedown_reason ?? ''}><StatusBadge status="taken down" /></span> : <StatusBadge status={s.visibility} />}
+            {s.takedown_at ? <span title={s.takedown_reason ?? ''}><StatusBadge status={s.takedown_purge ? 'removed completely' : 'taken down'} /></span> : <StatusBadge status={s.visibility} />}
             {s.mature && <Badge tone="info">18+</Badge>}
             {s.open_reports > 0 && <Badge tone="danger">{plural(s.open_reports, 'report')}</Badge>}
             {s.featured_slots.map((slot: string) => <Badge key={slot} tone="accent">{slot.replace('_', ' ')}</Badge>)}
@@ -157,8 +169,8 @@ export function ReportsPage() {
   };
   const step = async (r: R, flags: R, title: string, body: string, label: string, ok: string, needsReason: boolean | 'rule' = true) => {
     if (needsReason === 'rule') {
-      const v = await ask({ title, body: `${body} ${LIMITS_NOTE}`, fields: ruleFields('Sent to the brand owners with the rule, and kept in the audit log.'), confirmLabel: label, danger: true });
-      if (v) void resolve(r, { decision: 'action', ...flags, reason: ruleReason(v) }, ok);
+      const v = await ask({ title, body: `${body} ${LIMITS_NOTE}`, fields: flags.takedown_series ? [...ruleFields('Sent to the brand owners with the rule, and kept in the audit log.'), scopeField] : ruleFields('Sent to the brand owners with the rule, and kept in the audit log.'), confirmLabel: label, danger: true });
+      if (v) void resolve(r, { decision: 'action', ...flags, reason: ruleReason(v), ...(flags.takedown_series ? { purge: v.scope === 'purge' } : {}) }, ok);
     } else if (needsReason) {
       const v = await ask({ title, body, fields: [{ name: 'reason', label: 'Reason', type: 'textarea', required: true, minLength: 3, initial: `Reported: ${r.reason}`, hint: 'Sent to the people affected and kept in the audit log.' }], confirmLabel: label, danger: true });
       if (v) void resolve(r, { decision: 'action', ...flags, reason: v.reason }, ok);
