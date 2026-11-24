@@ -46,7 +46,8 @@ export type Meta = {
 export type PublicSettings = {
   site: { name: string; tagline: string; socials: Record<string, string>; registration_open: boolean; currency: string };
   membership: { name: string; monthly_cents: number; annual_cents: number; trial_days: number; page_credit_cents: number };
-  payments: { provider: string };
+  /** `embed_checkout` false: the owner has switched the in-page payment form off, so every payment is a visit to the checkout page. */
+  payments: { provider: string; embed_checkout?: boolean };
   revenue: { sale_share_bps: number; sub_share_bps: number; tip_share_bps: number; payout_minimum_cents: number };
   password_min_length?: number;
   recaptcha_site_key: string;

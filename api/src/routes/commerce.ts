@@ -12,12 +12,15 @@ import {
   changePaymentMethod, confirmSession, getProvider, handleDivinityEvent, money, startMembership, startOrderPayment, verifyDivinitySignature, walletAdd,
 } from '../lib/payments.ts';
 import type { Origin } from '../lib/payments.ts';
+import { FAILURE_TEXT } from '../lib/payments.ts';
 import { activeDiscounts, applyCode, bundlePrice, codeCovers, downloadPrice, readOffer, seriesPurchase } from '../lib/pricing.ts';
 import type { Line } from '../lib/pricing.ts';
 import { getSetting } from '../lib/settings.ts';
 import { assertViewable, findPublisher, findSeries, isUuid } from './catalog.ts';
 
 const MIN_CARD_CHARGE = 50;
+/** Per reader. The embedded checkout asks every 10 seconds as a backstop, the return page every 2 for a while. */
+const CONFIRMS_PER_10_MIN = 150;
 
 type Draft = Line & { description: string; bundle_id: string | null; meta: Row };
 
@@ -76,8 +79,17 @@ export async function orderItems(orderIds: string[]): Promise<Row[]> {
   );
 }
 
+/**
+ * How the browser will show the hosted checkout page: 'embed' (framed inside
+ * our own page) or 'redirect' (a full-page visit that comes back to the
+ * return URL). The browser decides, because only it knows whether it can type
+ * into a framed card form; anything that does not say gets a redirect.
+ */
+const surfaceSchema = z.enum(['embed', 'redirect'], 'surface must be "embed" or "redirect"').optional();
+
 const basketSchema = z.object({
   items: z.array(itemSchema).min(1, 'Your basket is empty').max(20), code: z.string().trim().max(40).optional(), use_credit: z.boolean().optional(), return_to: z.string().max(300).optional(),
+  surface: surfaceSchema,
 });
 
 /** Only same-site paths are followed after a payment. */
@@ -279,22 +291,30 @@ export default async function commerceRoutes(app: FastifyInstance) {
       }
       return o!.id;
     });
-    const r = await startOrderPayment(orderId);
-    return r.completed ? { completed: true, order_id: orderId, return_to: returnTo } : { url: r.url, order_id: orderId };
+    const r = await startOrderPayment(orderId, body.surface);
+    return r.completed ? { completed: true, order_id: orderId, return_to: returnTo } : { url: r.url, session_id: r.session_id, order_id: orderId, surface: r.surface, amount_cents: r.amount_cents, return_to: returnTo };
   });
+
+  /** pending | paid | refunded, or how an unpaid checkout ended: failed (card not accepted), expired, canceled. */
+  const paymentState = (o: Row): string => (o.status === 'failed' ? (['expired', 'canceled'].includes(o.meta?.failure_state) ? o.meta.failure_state : 'failed') : o.status);
 
   const orderView = async (o: Row) => ({
     id: o.id, status: o.status, total_cents: o.total_cents, credit_cents: o.credit_cents, charged_cents: o.total_cents - o.credit_cents, provider: o.provider,
-    created_at: o.created_at, paid_at: o.paid_at, refunded_at: o.refunded_at, return_to: o.meta?.return_to ?? '/library', failure: o.meta?.failure ?? null,
+    created_at: o.created_at, paid_at: o.paid_at, refunded_at: o.refunded_at, return_to: o.meta?.return_to ?? '/library',
+    payment_state: paymentState(o),
+    // One sentence for the buyer about why it was not paid; null unless the order failed.
+    failure: o.status === 'failed' ? (o.meta?.failure ?? FAILURE_TEXT.failed) : null,
     refunded_cents: o.status === 'refunded' ? o.total_cents - o.credit_cents : (o.refunded_cents ?? 0),
     partial_refunds: ((o.meta?.partial_refunds as Row[] | undefined) ?? []).map((r) => ({ amount_cents: r.amount_cents, reason: r.reason ?? null, at: r.at })),
     items: await orderItems([o.id]),
   });
 
   /**
-   * Order status / receipt. The checkout return page calls this with the
-   * `session_id` the processor appended; a still-pending order is then
-   * confirmed with the processor before answering.
+   * Order status / receipt, and the one place a browser learns how a payment
+   * went. The embedded checkout and the checkout return page both call this
+   * with the order's `session_id`; a still-pending order is then confirmed
+   * with the processor before answering. Asking repeatedly while the buyer is
+   * still paying is expected and changes nothing.
    */
   app.get('/api/orders/:id', async (req) => {
     const u = requireUser(req);
@@ -303,7 +323,7 @@ export default async function commerceRoutes(app: FastifyInstance) {
     if (!o) throw notFound('Order not found');
     const sid = String((req.query as Row)?.session_id ?? '');
     if (o.status === 'pending' && o.provider === 'divinity' && o.provider_ref && (!sid || sid === o.provider_ref)) {
-      if (rateLimit('order-confirm', u.id, 60, 600)) await confirmSession(o.provider_ref, { userId: u.id }).catch((e) => req.log.error(e, 'checkout confirm failed'));
+      if (rateLimit('order-confirm', u.id, CONFIRMS_PER_10_MIN, 600)) await confirmSession(o.provider_ref, { userId: u.id }).catch((e) => req.log.error(e, 'checkout confirm failed'));
       o = (await one('select * from orders where id = $1', [id]))!;
     }
     return { order: await orderView(o) };
@@ -313,7 +333,7 @@ export default async function commerceRoutes(app: FastifyInstance) {
   app.post('/api/checkout/confirm', async (req) => {
     const u = requireUser(req);
     const { session_id } = parse(z.object({ session_id: z.string().min(4).max(200) }), req.body);
-    if (!rateLimit('order-confirm', u.id, 60, 600)) throw new HttpError(429, 'Too many requests. Try again in a few minutes.');
+    if (!rateLimit('order-confirm', u.id, CONFIRMS_PER_10_MIN, 600)) throw new HttpError(429, 'Too many requests. Try again in a few minutes.');
     const r = await confirmSession(session_id, { userId: u.id });
     if (r.kind === 'unknown') throw notFound('Checkout session not found');
     return r;
@@ -357,24 +377,29 @@ export default async function commerceRoutes(app: FastifyInstance) {
     };
   };
 
-  /** Plans + this reader's membership. With `?session_id=` (back from the hosted card page) the session is confirmed first. */
+  /**
+   * Plans + this reader's membership. With `?session_id=` (the embedded card
+   * form asking how it went, or the reader back from the hosted card page)
+   * the session is confirmed first. Safe to repeat: a card is taken in once.
+   */
   app.get('/api/membership', async (req) => {
     const u = requireUser(req);
     const sid = String((req.query as Row)?.session_id ?? '');
     let confirmation = null;
-    if (sid && rateLimit('order-confirm', u.id, 60, 600)) confirmation = await confirmSession(sid, { userId: u.id }).catch(() => null);
-    return { ...(await membershipView(u)), confirmation: confirmation && confirmation.kind === 'membership' ? confirmation.status : null };
+    if (sid && rateLimit('order-confirm', u.id, CONFIRMS_PER_10_MIN, 600)) confirmation = await confirmSession(sid, { userId: u.id }).catch((e) => (req.log.error(e, 'membership confirm failed'), null));
+    const mine = confirmation && confirmation.kind === 'membership' ? confirmation : null;
+    return { ...(await membershipView(u)), confirmation: mine?.status ?? null, confirmation_message: mine?.message ?? null };
   });
 
   app.post('/api/membership/start', async (req) => {
     const u = requireUser(req);
-    const { plan, next } = parse(z.object({ plan: z.enum(['monthly', 'annual']), next: z.string().max(300).optional() }), req.body);
+    const { plan, next, surface } = parse(z.object({ plan: z.enum(['monthly', 'annual']), next: z.string().max(300).optional(), surface: surfaceSchema }), req.body);
     requireConfirmedEmail(u, 'start a membership');
     if (!rateLimit('membership', u.id, 10, 3600)) throw new HttpError(429, 'Too many attempts. Try again later.');
     // Where to send the reader once the membership is confirmed; only same-site paths survive.
     const onward = sameSite(next, '') || null;
-    const r = await startMembership(u, plan, origin(req), onward);
-    return r.completed ? { completed: true, next: onward, ...(await membershipView(u)) } : { url: r.url, status: r.status, next: onward };
+    const r = await startMembership(u, plan, origin(req), onward, surface);
+    return r.completed ? { completed: true, next: onward, ...(await membershipView(u)) } : { url: r.url, session_id: r.session_id, surface: r.surface, status: r.status, next: onward };
   });
 
   /** Stop renewing; access continues until the paid period ends. */
@@ -399,12 +424,13 @@ export default async function commerceRoutes(app: FastifyInstance) {
     return { ok: true, ...(await membershipView(u)) };
   });
 
-  /** Replace the saved card: returns the hosted page to send the reader to. */
+  /** Replace the saved card: returns the hosted card page to show the reader (framed or as a visit, per `surface`). */
   app.post('/api/membership/payment-method', async (req) => {
     const u = requireUser(req);
+    const { surface } = parse(z.object({ surface: surfaceSchema }), req.body ?? {});
     if (!rateLimit('membership', u.id, 10, 3600)) throw new HttpError(429, 'Too many attempts. Try again later.');
-    const r = await changePaymentMethod(u, origin(req));
-    return r.url ? { url: r.url } : { completed: true, ...(await membershipView(u)) };
+    const r = await changePaymentMethod(u, origin(req), surface);
+    return r.url ? { url: r.url, session_id: r.session_id, surface: r.surface } : { completed: true, ...(await membershipView(u)) };
   });
 
   // ---------------------------------------------------------------- codes

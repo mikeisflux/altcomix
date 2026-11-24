@@ -10,6 +10,8 @@ import { useSession } from '@/lib/session';
 import { Badge, Button, Card, CardHeader, DefList, EmptyState, ErrorState, Field, Input, LinkButton, NavTabs, Notice, PageHeader, PageLoader, Pagination, Stat, Table, toast, useConfirm } from '@/ui';
 import type { Column } from '@/ui';
 import { useCheckout } from '../store/Checkout';
+import { membershipCheck, useCheckoutSurface, useSecureCheckout } from '../store/SecureCheckout';
+import type { CheckoutSurface } from '../store/SecureCheckout';
 import { ListSkeleton, safePath, useTitle } from './shared';
 
 function BillingTabs() {
@@ -476,7 +478,10 @@ type MembershipView = {
   plans: { name: string; monthly_cents: number; annual_cents: number; trial_days: number };
   provider: string;
   subscription: Subscription | null;
+  /** How the card session named in `?session_id=` ended: active | updated | pending | declined | failed | expired | canceled. */
   confirmation?: string | null;
+  /** Why it did not go through, in words for the member. */
+  confirmation_message?: string | null;
 };
 
 type Payment = {
@@ -574,10 +579,31 @@ export function Membership() {
     },
     onError: (e) => toast.error(errorMessage(e)),
   });
+  const surface = useCheckoutSurface();
+  const secure = useSecureCheckout();
   const card = useMutation({
-    mutationFn: () => api<{ url?: string; completed?: boolean } & Partial<MembershipView>>('/api/membership/payment-method', { method: 'POST' }),
+    mutationFn: () => api<{ url?: string; session_id?: string; surface?: CheckoutSurface; completed?: boolean } & Partial<MembershipView>>('/api/membership/payment-method', { json: { surface } }),
     onSuccess: async (r) => {
-      if (r.url) return void window.location.assign(r.url);
+      if (r.url && r.session_id) {
+        const sub = membership.data?.subscription;
+        const overdue = sub?.status === 'past_due';
+        const name = membership.data?.plans.name ?? 'Membership';
+        secure.open({
+          session: { url: r.url, session_id: r.session_id, surface: r.surface ?? 'redirect' },
+          lines: [{ label: `${name} payment method`, detail: 'Replaces the card we have on file' }],
+          note: overdue
+            ? `Your overdue payment${sub ? ` of ${moneyExact(sub.price_cents, currency)}` : ''} is collected from the new card straight away.`
+            : 'Nothing is charged now. The new card is used from your next renewal.',
+          check: membershipCheck(r.session_id),
+          onPaid: () => void toast.success('Payment method updated'),
+          success: {
+            title: 'Payment method updated',
+            body: overdue ? 'Your new card is saved and the overdue payment went through. Your membership is active again.' : 'Your new card is saved and will be used from your next renewal.',
+          },
+          onRetry: () => card.mutate(),
+        });
+        return;
+      }
       await qc.invalidateQueries({ queryKey: ['membership'] });
       toast.success('Payment method updated');
     },
@@ -593,8 +619,9 @@ export function Membership() {
     const returned = conf === 'active' ? <Notice tone="ok">Welcome aboard. Your membership is active.</Notice>
       : conf === 'updated' ? <Notice tone="ok">Your new payment method is saved.</Notice>
       : conf === 'pending' ? <Notice tone="info" action={<Button size="sm" className="h-10" onClick={() => membership.refetch()}>Check again</Button>}>Your card details are still being confirmed. This usually takes a few seconds.</Notice>
-      : conf === 'declined' || conf === 'failed' ? <Notice tone="danger">The card was not accepted, so nothing was charged and nothing changed. You can try again with another card.</Notice>
-      : cancelled ? <Notice tone="info" action={onward ? <LinkButton to={onward} size="sm" className="h-10">Go back</LinkButton> : undefined}>You left the card page before finishing, so nothing was charged and nothing changed.</Notice>
+      : conf === 'declined' || conf === 'failed' ? <Notice tone="danger">{membership.data.confirmation_message ?? 'The card was not accepted, so nothing was charged and nothing changed.'} You can try again with another card.</Notice>
+      : conf === 'expired' ? <Notice tone="info">The secure checkout timed out before you finished, so nothing was charged and nothing changed.</Notice>
+      : cancelled || conf === 'canceled' ? <Notice tone="info" action={onward ? <LinkButton to={onward} size="sm" className="h-10">Go back</LinkButton> : undefined}>You left the secure checkout before finishing, so nothing was charged and nothing changed.</Notice>
       : null;
     const live = sub && ((member && sub.status === 'active') || sub.status === 'past_due');
     if (!live || !sub) {
@@ -697,6 +724,7 @@ export function Membership() {
 
   return (
     <div className="mx-auto max-w-4xl">
+      {secure.dialog}
       <PageHeader title="Membership" description="Your plan, when it renews and how to change it." />
       <BillingTabs />
       {body}

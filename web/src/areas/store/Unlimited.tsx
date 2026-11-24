@@ -6,6 +6,8 @@ import { api, errorMessage } from '@/lib/api';
 import { date, money, percent } from '@/lib/format';
 import { useSession } from '@/lib/session';
 import { Badge, Button, Card, ErrorState, LinkButton, Notice, cx, toast } from '@/ui';
+import { membershipCheck, useCheckoutSurface, useSecureCheckout } from './SecureCheckout';
+import type { CheckoutSurface } from './SecureCheckout';
 import { CoverCard } from './cards';
 import type { SeriesCard } from './cards';
 import { ConfirmEmailPrompt, SHELF_ITEM, SectionLink, Shelf, isEmailUnverified, safeNext, useLoginLink, useTitle } from './shared';
@@ -20,7 +22,7 @@ type Membership = {
     payment_problem: { attempts: number; next_attempt_at: string | null; message: string | null } | null;
   } | null;
 };
-type StartResult = { completed?: boolean; url?: string; status?: string; next?: string | null };
+type StartResult = { completed?: boolean; url?: string; session_id?: string; surface?: CheckoutSurface; status?: string; next?: string | null };
 
 export function Unlimited() {
   const { user, settings, currency, refresh } = useSession();
@@ -40,13 +42,35 @@ export function Unlimited() {
   });
 
   const [unverified, setUnverified] = useState<string | null>(null);
+  const surface = useCheckoutSurface();
+  const secure = useSecureCheckout();
   const start = useMutation({
-    // `next` goes with the request so the hosted card page can bring the reader back to where they were.
-    mutationFn: () => api<StartResult>('/api/membership/start', { json: { plan, next: safeNext(next, '') || undefined } }),
+    // `next` goes with the request so a reader who pays on the checkout page is brought back to where they were.
+    mutationFn: () => api<StartResult>('/api/membership/start', { json: { plan, next: safeNext(next, '') || undefined, surface } }),
     onMutate: () => setUnverified(null),
     onSuccess: async (r) => {
-      if (r.url) {
-        window.location.assign(r.url);
+      if (r.url && r.session_id) {
+        const yearly = plan === 'annual';
+        const price = money(yearly ? m.annual_cents : m.monthly_cents, currency);
+        const every = yearly ? 'year' : 'month';
+        const onward = safeNext(r.next ?? next, '/browse?access=membership');
+        secure.open({
+          session: { url: r.url, session_id: r.session_id, surface: r.surface ?? 'redirect' },
+          lines: [{ label: m.name, detail: `${yearly ? 'Yearly' : 'Monthly'} plan, renews until you cancel`, amount: `${price} a ${every}` }],
+          totals: [{ label: m.trial_days > 0 ? `Due today (${m.trial_days} days free first)` : 'Due today', amount: m.trial_days > 0 ? money(0, currency) : price }],
+          payLabel: m.trial_days > 0 ? undefined : price,
+          note: m.trial_days > 0
+            ? `Your card is saved now and first charged ${price} when your ${m.trial_days} free days end, then every ${every} until you cancel.`
+            : `Your card is saved and charged ${price} now, then every ${every} until you cancel. Cancel in two clicks from your account.`,
+          check: membershipCheck(r.session_id),
+          onPaid: () => void toast.success(`Welcome to ${m.name}`),
+          success: {
+            title: `Welcome to ${m.name}`,
+            body: 'Your membership is active. Everything in the membership catalogue is open to you now.',
+            action: { label: next ? 'Back to reading' : 'Browse the catalogue', to: onward },
+          },
+          onRetry: () => start.mutate(),
+        });
         return;
       }
       await refresh();
@@ -69,6 +93,7 @@ export function Unlimited() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-12">
+      {secure.dialog}
       <header className="relative -mx-4 -mt-6 overflow-hidden border-b border-line bg-gradient-to-br from-accent-soft via-ink to-ink px-4 py-12 text-center sm:-mx-6 sm:px-6 sm:py-16 lg:-mx-8 lg:px-8">
         <div className="mx-auto max-w-2xl">
           <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-2xl bg-accent text-accent-ink"><Sparkles className="size-6" aria-hidden /></div>

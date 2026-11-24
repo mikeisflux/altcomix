@@ -81,6 +81,9 @@ export const SETTINGS = {
       divinity_webhook_secret: '',
       // Logo shown on the hosted checkout page (absolute URL).
       divinity_checkout_logo_url: '',
+      // Show the hosted checkout framed inside our own pages (desktop browsers). The processor has to
+      // allow this site to frame its checkout page first; off = every buyer is sent to the page instead.
+      divinity_embed_checkout: true as boolean,
     },
     secret: ['divinity_api_key', 'divinity_webhook_secret'],
   },
@@ -175,7 +178,7 @@ export async function publicSettings(): Promise<Record<string, unknown>> {
   return {
     site: { name: site.name, tagline: site.tagline, socials: site.socials, registration_open: site.registration_open, currency: site.currency },
     membership,
-    payments: { provider: payments.provider },
+    payments: { provider: payments.provider, embed_checkout: payments.divinity_embed_checkout !== false },
     // Creator shares are public: they are the pitch.
     revenue: { sale_share_bps: revenue.sale_share_bps, sub_share_bps: revenue.sub_share_bps, tip_share_bps: revenue.tip_share_bps, payout_minimum_cents: revenue.payout_minimum_cents },
     // Only handed out while the check is on, so the forms know whether to run it.

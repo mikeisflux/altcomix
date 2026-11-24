@@ -17,7 +17,10 @@ import { getSetting } from './settings.ts';
  *             only: the reader enters their card on the processor's page and
  *             NSFWComix never sees, logs or stores card data. Memberships save
  *             a payment method token (pm_...) through a SETUP-mode hosted
- *             checkout and are charged off-session each period.
+ *             checkout and are charged off-session each period. The hosted
+ *             page is shown one of two ways (`Surface`): framed inside our
+ *             own page ('embed') or as a full-page visit that comes back to
+ *             our return URL ('redirect').
  *   sandbox   Completes instantly with no processor so the whole flow can be
  *             exercised in development. Refused when NODE_ENV=production.
  *
@@ -114,15 +117,21 @@ export function verifyDivinitySignature(rawBody: string, header: string, secret:
 // ------------------------------------------------------------------ providers
 
 export type Origin = { ip: string | null; userAgent: string | null };
-type SessionState = { status: 'pending' | 'complete' | 'failed' | 'expired' | 'canceled'; mode: 'payment' | 'setup'; paymentRef: string | null; paymentMethod: string | null };
+/**
+ * How the reader's browser shows the hosted checkout page. The browser
+ * chooses (it knows whether it can type into a framed card form); the server
+ * only has to create the session to match.
+ */
+export type Surface = 'embed' | 'redirect';
+type SessionState = { status: 'pending' | 'complete' | 'failed' | 'expired' | 'canceled'; mode: 'payment' | 'setup'; paymentRef: string | null; paymentMethod: string | null; message: string | null };
 type ChargeResult = { outcome: 'paid' | 'declined' | 'uncertain'; paymentRef: string | null; error: string | null; code: string | null };
 
 export type PaymentProvider = {
   name: 'sandbox' | 'divinity';
   /** Begin paying for an order. `url` null means the provider settled it on the spot. */
-  startOrder(a: { orderId: string; next?: string | null; userId: string; email: string; amountCents: number; currency: string; description: string; origin: Origin }): Promise<{ ref: string; url: string | null; state: SessionState['status'] }>;
+  startOrder(a: { orderId: string; next?: string | null; userId: string; email: string; amountCents: number; currency: string; description: string; origin: Origin; surface?: Surface }): Promise<{ ref: string; url: string | null; state: SessionState['status'] }>;
   /** Begin saving a payment method. `token` set means no redirect is needed. */
-  startSetup(a: { key: string; next?: string | null; userId: string; email: string; description: string; origin: Origin }): Promise<{ ref: string; url: string | null; token: string | null }>;
+  startSetup(a: { key: string; next?: string | null; userId: string; email: string; description: string; origin: Origin; surface?: Surface }): Promise<{ ref: string; url: string | null; token: string | null }>;
   getSession(ref: string): Promise<SessionState | null>;
   /** Charge a saved payment method off-session. `attempt` starts at 1. */
   charge(a: { chargeId: string; userId: string; token: string; amountCents: number; currency: string; attempt: number; description: string; origin: Origin }): Promise<ChargeResult>;
@@ -174,15 +183,82 @@ function originFields(o: Origin): Row {
   return out;
 }
 
+/**
+ * Buyers are never told which company moves the money: anything the processor
+ * wrote that ends up in front of them has its own name (and its card
+ * network's) replaced.
+ */
+export function whiteLabel(text: string): string {
+  return text.replace(/\b(divinity\s*coin|divinity(\s+payments)?|stripe)\b/gi, 'the payment processor').replace(/\s+/g, ' ').trim();
+}
+
+/** What a decline code means, in words the cardholder can act on. */
+const DECLINES: Record<string, string> = {
+  insufficient_funds: 'The card does not have enough available funds. Try another card or contact your bank.',
+  do_not_honor: 'Your bank declined the payment without giving a reason. Contact your bank to approve it, or try another card.',
+  generic_decline: 'Your bank declined the payment. Try another card or contact your bank.',
+  card_declined: 'The card was declined. Try another card or contact your bank.',
+  expired_card: 'The card has expired. Use a different card.',
+  incorrect_cvc: 'The security code (CVC) did not match the card. Check it and try again.',
+  invalid_cvc: 'The security code (CVC) is not valid. Check it and try again.',
+  incorrect_number: 'The card number is not right. Check it and try again.',
+  invalid_number: 'The card number is not valid. Check it and try again.',
+  invalid_expiry_month: 'The expiry month on the card is not valid.',
+  invalid_expiry_year: 'The expiry year on the card is not valid.',
+  lost_card: 'This card cannot be used. Use a different card.',
+  stolen_card: 'This card cannot be used. Use a different card.',
+  pickup_card: 'This card cannot be used. Use a different card.',
+  restricted_card: 'The card has restrictions that stopped the payment. Use a different card or contact your bank.',
+  processing_error: 'Your bank reported a processing error. Try again in a moment, or use a different card.',
+  card_velocity_exceeded: 'The card has reached its limit for now. Wait a while and try again, or use a different card.',
+  card_not_supported: 'This kind of card is not supported. Try a different card.',
+  currency_not_supported: 'The card cannot be charged in this currency. Try a different card.',
+  fraudulent: 'Your bank blocked the payment. Contact your bank to approve it, or use a different card.',
+  authentication_required: 'Your bank needs you to confirm this payment. Try again and complete the verification step.',
+  call_issuer: 'Your bank needs to approve this payment. Contact them, or use a different card.',
+  transaction_not_allowed: 'Your bank does not allow this kind of payment on the card. Use a different card.',
+};
+
+/**
+ * One sentence for the buyer from whatever the processor said about a
+ * declined payment: the precise decline code first, then the general code,
+ * then its own text; null when it said nothing usable.
+ */
+export function declineMessage(d: Row): string | null {
+  for (const c of [d.declineCode, d.decline_code, d.code, d.errorCode]) if (typeof c === 'string' && DECLINES[c]) return DECLINES[c];
+  for (const t of [d.failureMessage, d.declineReason, d.failureReason, d.lastPaymentError, d.error, d.message]) {
+    const text = typeof t === 'string' ? t : t && typeof t === 'object' && typeof (t as Row).message === 'string' ? ((t as Row).message as string) : '';
+    if (text.trim()) return whiteLabel(text).slice(0, 240);
+  }
+  return null;
+}
+
 function sessionState(s: Row): SessionState | null {
   if (!s || typeof s.status !== 'string') return null;
+  const status = s.status.toLowerCase() as SessionState['status'];
   return {
-    status: s.status.toLowerCase() as SessionState['status'],
+    status,
     mode: String(s.mode ?? 'payment').toLowerCase() === 'setup' ? 'setup' : 'payment',
     paymentRef: typeof s.paymentIntentId === 'string' ? s.paymentIntentId : null,
     paymentMethod: typeof s.paymentMethodId === 'string' ? s.paymentMethodId : null,
+    // Only a session that ended badly has a reason worth repeating.
+    message: status === 'failed' ? declineMessage({ ...s, message: null }) : null,
   };
 }
+
+/**
+ * The surface a session is really created for. The owner can switch the
+ * embedded checkout off (Admin → Settings → Payments) until the processor
+ * allows this site to frame its page; every session is then a redirect,
+ * whatever the browser asked for.
+ */
+export async function resolveSurface(asked: Surface | null | undefined): Promise<Surface> {
+  if (asked !== 'embed') return 'redirect';
+  return (await getSetting('payments')).divinity_embed_checkout === false ? 'redirect' : 'embed';
+}
+
+const startFailed = (r: DcResponse) =>
+  new HttpError(502, `We could not start the checkout: ${whiteLabel(r.error ?? 'the payment processor returned an incomplete answer').replace(/[.\s]+$/, '')}. You have not been charged.`, 'checkout_unavailable');
 
 const divinity: PaymentProvider = {
   name: 'divinity',
@@ -203,10 +279,13 @@ const divinity: PaymentProvider = {
       expiresInMinutes: 60,
       // One session per order, however often the reader retries or reloads.
       idempotencyKey: a.orderId,
+      // Framed in our own page: the processor must not navigate the browser away when the
+      // session ends. Its page tells ours instead (postMessage) and our page carries on.
+      ...(a.surface === 'embed' ? { disableAutoRedirect: true } : {}),
       ...(s.divinity_checkout_logo_url ? { partnerLogoUrl: s.divinity_checkout_logo_url } : {}),
       ...originFields(a.origin),
     });
-    if (!r.ok || !r.data.sessionId || !r.data.checkoutUrl) throw new HttpError(502, `We could not start the checkout: ${r.error ?? 'the payment processor returned an incomplete answer'}. You have not been charged.`, 'checkout_unavailable');
+    if (!r.ok || !r.data.sessionId || !r.data.checkoutUrl) throw startFailed(r);
     return { ref: String(r.data.sessionId), url: String(r.data.checkoutUrl), state: r.data.status === 'complete' ? 'complete' : 'pending' };
   },
   async startSetup(a) {
@@ -221,10 +300,11 @@ const divinity: PaymentProvider = {
       description: a.description.slice(0, 200),
       expiresInMinutes: 60,
       idempotencyKey: `setup-${a.key}`,
+      ...(a.surface === 'embed' ? { disableAutoRedirect: true } : {}),
       ...(s.divinity_checkout_logo_url ? { partnerLogoUrl: s.divinity_checkout_logo_url } : {}),
       ...originFields(a.origin),
     });
-    if (!r.ok || !r.data.sessionId || !r.data.checkoutUrl) throw new HttpError(502, `We could not start the checkout: ${r.error ?? 'the payment processor returned an incomplete answer'}. You have not been charged.`, 'checkout_unavailable');
+    if (!r.ok || !r.data.sessionId || !r.data.checkoutUrl) throw startFailed(r);
     return { ref: String(r.data.sessionId), url: String(r.data.checkoutUrl), token: null };
   },
   async getSession(ref) {
@@ -318,13 +398,15 @@ export { walletAdd };
 
 // ------------------------------------------------------------------ orders
 
-export type OrderResult = { completed: boolean; order_id: string; status: string; url?: string };
+export type OrderResult = { completed: boolean; order_id: string; status: string; url?: string; session_id?: string; surface?: Surface; amount_cents?: number };
 
 /**
  * Take a freshly created `pending` order to the provider. Orders fully
  * covered by store credit (or free after a code) complete without one.
+ * `surface` is how the reader's browser will show the hosted page; the
+ * answer carries the one the session was really created for.
  */
-export async function startOrderPayment(orderId: string): Promise<OrderResult> {
+export async function startOrderPayment(orderId: string, surface: Surface = 'redirect'): Promise<OrderResult> {
   const o = await one('select o.*, u.email from orders o join users u on u.id = o.user_id where o.id = $1', [orderId]);
   if (!o) throw new HttpError(404, 'Order not found');
   const charge = o.total_cents - o.credit_cents;
@@ -338,14 +420,15 @@ export async function startOrderPayment(orderId: string): Promise<OrderResult> {
     const p = await getProvider(o.provider);
     const items = await q<{ description: string }>('select description from order_items where order_id = $1 order by id', [orderId]);
     const description = items.length === 1 ? items[0].description : `${site.name} order (${items.length} items)`;
-    const s = await p.startOrder({ orderId, next: typeof o.meta?.return_to === 'string' ? o.meta.return_to : null, userId: o.user_id, email: o.email, amountCents: charge, currency: site.currency, description, origin: { ip: o.ip, userAgent: o.user_agent } });
+    const shown = await resolveSurface(surface);
+    const s = await p.startOrder({ orderId, next: typeof o.meta?.return_to === 'string' ? o.meta.return_to : null, userId: o.user_id, email: o.email, amountCents: charge, currency: site.currency, description, origin: { ip: o.ip, userAgent: o.user_agent }, surface: shown });
     await exec('update orders set provider_ref = $2 where id = $1', [orderId, s.ref]);
     if (s.state === 'complete') {
       await completeOrder(orderId);
       await captureOrder(orderId);
       return { completed: true, order_id: orderId, status: 'paid' };
     }
-    return { completed: false, order_id: orderId, status: 'pending', url: s.url ?? undefined };
+    return { completed: false, order_id: orderId, status: 'pending', url: s.url ?? undefined, session_id: s.ref, surface: shown, amount_cents: charge };
   } catch (e) {
     await failOrder(orderId, (e as Error).message);
     throw e;
@@ -468,13 +551,26 @@ export async function completeOrder(orderId: string, opts: { paymentRef?: string
   return true;
 }
 
-/** A checkout that will not be paid: mark it and hand any reserved store credit back. */
-export async function failOrder(orderId: string, reason: string): Promise<boolean> {
+export type FailureState = 'failed' | 'expired' | 'canceled';
+
+/** What to tell a buyer whose checkout ended without a payment, when the processor gave no reason of its own. */
+export const FAILURE_TEXT: Record<FailureState, string> = {
+  failed: 'The card was not accepted, so nothing was charged.',
+  expired: 'The checkout timed out before it was paid, so nothing was charged.',
+  canceled: 'The checkout was cancelled before it was paid, so nothing was charged.',
+};
+
+/**
+ * A checkout that will not be paid: mark it and hand any reserved store
+ * credit back. `reason` is shown to the buyer (`orders.meta.failure`);
+ * `state` records how the checkout ended (`orders.meta.failure_state`).
+ */
+export async function failOrder(orderId: string, reason: string, state: FailureState = 'failed'): Promise<boolean> {
   return tx(async (db) => {
     const o = await one('select * from orders where id = $1 for update', [orderId], db);
     if (!o || o.status !== 'pending') return false;
     if (o.credit_cents > 0) await walletAdd(db, o.user_id, 'refund', o.credit_cents, 0, `Store credit returned from unpaid order ${orderId.slice(-8)}`);
-    await db.query(`update orders set status = 'failed', meta = meta || $2::jsonb where id = $1`, [orderId, JSON.stringify({ failure: reason.slice(0, 300), credit_restored: o.credit_cents > 0 })]);
+    await db.query(`update orders set status = 'failed', meta = meta || $2::jsonb where id = $1`, [orderId, JSON.stringify({ failure: reason.slice(0, 300), failure_state: state, credit_restored: o.credit_cents > 0 })]);
     return true;
   });
 }
@@ -734,7 +830,7 @@ export async function attemptCharge(chargeId: string): Promise<'paid' | 'decline
   if (r.outcome === 'uncertain') {
     await exec(
       `update subscription_charges set uncertain = true, last_error = $2, next_attempt_at = now() + interval '${UNCERTAIN_RETRY_MIN} minutes' where id = $1 and status = 'pending'`,
-      [chargeId, (r.error ?? 'No answer from the payment processor').slice(0, 300)],
+      [chargeId, whiteLabel(r.error ?? 'No answer from the payment processor').slice(0, 300)],
     );
     return 'uncertain';
   }
@@ -747,6 +843,8 @@ export async function recordDecline(chargeId: string, error: string, paymentRef:
   const out = await tx(async (db) => {
     const c = await one('select * from subscription_charges where id = $1 for update', [chargeId], db);
     if (!c || c.status !== 'pending') return null;
+    // The member reads this on their membership page and in the "could not renew" email.
+    error = whiteLabel(error);
     // The synchronous answer and the payment.failed webhook describe the same attempt: count it once.
     if (paymentRef && c.payment_ref === paymentRef) return null;
     const sub = await one('select * from subscriptions where id = $1 for update', [c.subscription_id], db);
@@ -797,9 +895,9 @@ export async function activateMembership(subId: string, token: string): Promise<
   return r === 'paid' ? 'active' : r === 'declined' ? 'declined' : 'pending';
 }
 
-export type MembershipStart = { completed: boolean; status: string; url?: string };
+export type MembershipStart = { completed: boolean; status: string; url?: string; session_id?: string; surface?: Surface };
 
-export async function startMembership(user: { id: string; email: string }, plan: 'monthly' | 'annual', origin: Origin, next: string | null = null): Promise<MembershipStart> {
+export async function startMembership(user: { id: string; email: string }, plan: 'monthly' | 'annual', origin: Origin, next: string | null = null, surface: Surface = 'redirect'): Promise<MembershipStart> {
   const live = await one(`select 1 from subscriptions where user_id = $1 and status in ('active','past_due') and current_period_end > now() limit 1`, [user.id]);
   if (live) throw conflict('You already have an active membership');
   const p = await getProvider();
@@ -812,27 +910,29 @@ export async function startMembership(user: { id: string; email: string }, plan:
      values ($1,$2,'pending',$3,$4, now(), now(), $5, $6) returning id`,
     [user.id, plan, p.name, price, origin.ip, origin.userAgent?.slice(0, 512) ?? null],
   );
-  const s = await p.startSetup({ key: sub!.id, next: next && /^\/(?!\/)[^\\\s]*$/.test(next) ? next : null, userId: user.id, email: user.email, description: `${mem.name} (${plan})`, origin });
+  const shown = await resolveSurface(surface);
+  const s = await p.startSetup({ key: sub!.id, next: next && /^\/(?!\/)[^\\\s]*$/.test(next) ? next : null, userId: user.id, email: user.email, description: `${mem.name} (${plan})`, origin, surface: shown });
   await exec('update subscriptions set setup_ref = $2, provider_ref = $2 where id = $1', [sub!.id, s.ref]);
   if (s.token) {
     const r = await activateMembership(sub!.id, s.token);
     if (r === 'declined') throw new HttpError(402, 'Your card was declined, so the membership was not started.');
     return { completed: r === 'active', status: r };
   }
-  return { completed: false, status: 'pending', url: s.url ?? undefined };
+  return { completed: false, status: 'pending', url: s.url ?? undefined, session_id: s.ref, surface: shown };
 }
 
 /** Replace the saved payment method on an existing membership (returns a hosted setup URL, or null for sandbox). */
-export async function changePaymentMethod(user: { id: string; email: string }, origin: Origin): Promise<{ url: string | null }> {
+export async function changePaymentMethod(user: { id: string; email: string }, origin: Origin, surface: Surface = 'redirect'): Promise<{ url: string | null; session_id: string; surface: Surface }> {
   const sub = await one(`select * from subscriptions where user_id = $1 and status in ('active','past_due') order by created_at desc limit 1`, [user.id]);
   if (!sub) throw new HttpError(404, 'You do not have a membership to update');
   if (sub.provider !== 'divinity' && sub.provider !== 'sandbox') throw conflict('This membership came from a code and has no payment method');
   const p = await getProvider(sub.provider);
   const mem = await getSetting('membership');
-  const s = await p.startSetup({ key: `${sub.id}-${Date.now()}`, userId: user.id, email: user.email, description: `${mem.name} payment method`, origin });
+  const shown = await resolveSurface(surface);
+  const s = await p.startSetup({ key: `${sub.id}-${Date.now()}`, userId: user.id, email: user.email, description: `${mem.name} payment method`, origin, surface: shown });
   await exec('update subscriptions set setup_ref = $2, origin_ip = $3, origin_user_agent = $4 where id = $1', [sub.id, s.ref, origin.ip, origin.userAgent?.slice(0, 512) ?? null]);
   if (s.token) await savedMethodArrived(sub.id, s.token);
-  return { url: s.url };
+  return { url: s.url, session_id: s.ref, surface: shown };
 }
 
 async function savedMethodArrived(subId: string, token: string): Promise<string> {
@@ -882,43 +982,91 @@ export async function refundCharge(chargeId: string, reason = 'Refunded by suppo
 
 // ------------------------------------------------------------------ hosted checkout: return + webhooks
 
-export type Confirmation = { kind: 'order' | 'membership' | 'unknown'; status: 'paid' | 'active' | 'pending' | 'failed' | 'declined' | 'updated'; order_id?: string };
+export type Confirmation = {
+  kind: 'order' | 'membership' | 'unknown';
+  status: 'paid' | 'active' | 'updated' | 'pending' | 'declined' | 'failed' | 'expired' | 'canceled';
+  order_id?: string;
+  /** Why it did not go through, for the buyer. Only with declined / failed / expired / canceled. */
+  message?: string;
+};
+
+/**
+ * Where a membership stands for a SETUP session whose card has already been
+ * taken in, read from our own rows. Asking again must never charge again, so
+ * every repeat of a confirmation ends here instead of in `savedMethodArrived`.
+ */
+async function setupOutcome(subId: string, sessionId: string): Promise<Confirmation> {
+  const s = await one<{ status: string; provider_ref: string | null }>('select status, provider_ref from subscriptions where id = $1', [subId]);
+  if (!s) return { kind: 'membership', status: 'failed', message: FAILURE_TEXT.failed };
+  // The session that started this membership, as opposed to a later change of card.
+  const started = s.provider_ref === sessionId;
+  if (s.status === 'active') return { kind: 'membership', status: started ? 'active' : 'updated' };
+  if (s.status === 'pending') return { kind: 'membership', status: 'pending' };
+  const c = await one<{ status: string; uncertain: boolean; last_error: string | null }>(
+    'select status, uncertain, last_error from subscription_charges where subscription_id = $1 order by created_at desc limit 1',
+    [subId],
+  );
+  const declined: Confirmation = { kind: 'membership', status: 'declined', message: declineMessage({ error: c?.last_error }) ?? 'The card was declined. Try another card or contact your bank.' };
+  if (s.status === 'past_due') return c?.uncertain ? { kind: 'membership', status: 'pending' } : declined;
+  // Ended: a first payment that was declined, or a membership that has simply run out since.
+  const everPaid = await one(`select 1 from subscription_charges where subscription_id = $1 and status in ('paid','refunded') limit 1`, [subId]);
+  return started && !everPaid ? declined : { kind: 'membership', status: 'failed', message: FAILURE_TEXT.failed };
+}
 
 /**
  * Settle what we know about a hosted checkout session. Called when the
- * reader lands back on our site with ?session_id=cs_..., from `checkout.*`
- * webhooks (which pass the state they carry) and from the reconciliation job.
+ * reader's browser asks how a payment went (the embedded checkout as soon as
+ * the processor's page says it is done and on a timer as a backstop; the
+ * return page after a redirect), from `checkout.*` webhooks (which pass the
+ * state they carry) and from the reconciliation job.
+ *
+ * Safe to call as often as anyone likes: a session still open changes
+ * nothing, and one that has ended is applied exactly once.
  */
 export async function confirmSession(sessionId: string, opts: { userId?: string; state?: SessionState } = {}): Promise<Confirmation> {
-  const order = await one(`select id, user_id, status, provider from orders where provider = 'divinity' and provider_ref = $1`, [sessionId]);
-  const sub = order ? null : await one(`select id, user_id, status, provider from subscriptions where setup_ref = $1`, [sessionId]);
+  const order = await one(`select id, user_id, status, provider, meta from orders where provider = 'divinity' and provider_ref = $1`, [sessionId]);
+  const sub = order ? null : await one(`select id, user_id, status, provider, payment_method_token from subscriptions where setup_ref = $1`, [sessionId]);
   const owner = order ?? sub;
   if (!owner || (opts.userId && owner.user_id !== opts.userId)) return { kind: 'unknown', status: 'failed' };
   const state = opts.state ?? (await (await getProvider('divinity')).getSession(sessionId));
 
   if (order) {
+    const ended = (): Confirmation => {
+      const how = (['failed', 'expired', 'canceled'] as const).find((x) => x === order.meta?.failure_state) ?? 'failed';
+      return { kind: 'order', status: how, order_id: order.id, message: typeof order.meta?.failure === 'string' ? order.meta.failure : FAILURE_TEXT[how] };
+    };
     if (order.status === 'paid') return { kind: 'order', status: 'paid', order_id: order.id };
-    if (!state) return { kind: 'order', status: order.status === 'failed' ? 'failed' : 'pending', order_id: order.id };
+    if (!state) return order.status === 'failed' ? ended() : { kind: 'order', status: 'pending', order_id: order.id };
     if (state.status === 'complete') {
       await completeOrder(order.id, { paymentRef: state.paymentRef });
       // The hold appears once the processor has finished its own bookkeeping; the job retries if this is early.
       await captureOrder(order.id).catch(() => false);
       return { kind: 'order', status: 'paid', order_id: order.id };
     }
-    if (state.status === 'pending') return { kind: 'order', status: 'pending', order_id: order.id };
-    await failOrder(order.id, `Checkout ${state.status}`);
-    return { kind: 'order', status: 'failed', order_id: order.id };
+    if (state.status === 'pending') return order.status === 'failed' ? ended() : { kind: 'order', status: 'pending', order_id: order.id };
+    if (order.status === 'failed') return ended();
+    const how: FailureState = state.status === 'expired' || state.status === 'canceled' ? state.status : 'failed';
+    // A decline reason reaches us on the session itself or, earlier, on a payment.failed webhook.
+    const message = how === 'failed' ? (state.message ?? (typeof order.meta?.last_decline === 'string' ? order.meta.last_decline : null) ?? FAILURE_TEXT.failed) : FAILURE_TEXT[how];
+    await failOrder(order.id, message, how);
+    return { kind: 'order', status: how, order_id: order.id, message };
   }
 
   if (!state) return { kind: 'membership', status: 'pending' };
   if (state.status === 'complete' && state.paymentMethod) {
+    // This card was already taken in (an earlier call, or the webhook): report, do not act again.
+    if (sub!.status !== 'pending' && sub!.payment_method_token === state.paymentMethod) return setupOutcome(sub!.id, sessionId);
     const r = await savedMethodArrived(sub!.id, state.paymentMethod);
-    const status = r === 'active' || r === 'paid' ? 'active' : r === 'declined' ? 'declined' : r === 'updated' ? 'updated' : r === 'skipped' ? ((await one(`select 1 from subscriptions where id = $1 and status = 'active'`, [sub!.id])) ? 'active' : 'pending') : 'pending';
-    return { kind: 'membership', status };
+    if (r === 'active' || r === 'paid') return { kind: 'membership', status: 'active' };
+    if (r === 'updated') return { kind: 'membership', status: 'updated' };
+    return setupOutcome(sub!.id, sessionId);
   }
   if (state.status === 'pending' || state.status === 'complete') return { kind: 'membership', status: 'pending' };
-  await exec(`delete from subscriptions where id = $1 and status = 'pending'`, [sub!.id]);
-  return { kind: 'membership', status: 'failed' };
+  const how: FailureState = state.status === 'expired' || state.status === 'canceled' ? state.status : 'failed';
+  // A membership that never got its card stays out of sight (and out of the reconciliation job) until the
+  // reader starts again or the daily clean-up removes it. Kept, so asking again gets the same answer.
+  await exec(`update subscriptions set canceled_at = coalesce(canceled_at, now()) where id = $1 and status = 'pending'`, [sub!.id]);
+  return { kind: 'membership', status: how, message: (how === 'failed' ? state.message : null) ?? FAILURE_TEXT[how] };
 }
 
 const isUuid = (s: unknown): s is string => typeof s === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
@@ -988,7 +1136,12 @@ export async function handleDivinityEvent(evt: { event?: string; data?: Row }): 
       if (data.pledgeAlreadyPaid === true) return say('Abandoned attempt on a paid order; ignored');
       const { order, charge } = await locate(data);
       // On the hosted page the reader can simply try another card; the order only fails with its session.
-      if (order) return say('Order left open; the checkout session decides');
+      // The reason is kept: should the session end without a payment, it is what the buyer is told.
+      if (order) {
+        const why = evt.event === 'payment.failed' ? declineMessage(data) : null;
+        if (why) await exec(`update orders set meta = meta || $2::jsonb where id = $1 and status = 'pending'`, [order.id, JSON.stringify({ last_decline: why })]);
+        return say('Order left open; the checkout session decides');
+      }
       if (charge && charge.status === 'pending') {
         // Second signal for a decline whose synchronous answer we may have lost.
         const pi = typeof data.paymentIntentId === 'string' ? data.paymentIntentId : null;

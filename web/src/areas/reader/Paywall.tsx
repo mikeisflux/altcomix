@@ -1,6 +1,7 @@
 import { Lock, Sparkles, Ticket } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router';
+import { useOrderPayment } from '@/areas/store/Checkout';
 import { ConfirmEmailPrompt } from '@/areas/store/shared';
 import { ApiError, api, errorMessage } from '@/lib/api';
 import { money } from '@/lib/format';
@@ -17,20 +18,28 @@ export function Paywall({ manifest, page, onUnlocked, compact }: { manifest: Man
   const [unverified, setUnverified] = useState<string | null>(null);
   const { offers, release, series, access } = manifest;
   const next = encodeURIComponent(loc.pathname + loc.search);
+  const payment = useOrderPayment();
 
   const checkout = async (kind: 'release' | 'series') => {
     setBusy(kind);
-    try {
-      const r = await api<{ url?: string; completed?: boolean }>('/api/checkout', {
-        json: { items: [{ kind, id: kind === 'release' ? release.id : series.id }], return_to: loc.pathname },
-      });
-      if (r.url) {
-        window.location.assign(r.url);
-        return;
-      }
+    const unlocked = () => {
       toast.success('Unlocked. Enjoy!');
-      await refresh();
       onUnlocked();
+    };
+    try {
+      const outcome = await payment.pay(
+        { items: [{ kind, id: kind === 'release' ? release.id : series.id }], return_to: loc.pathname },
+        {
+          lines: [kind === 'release' ? { label: release.title, detail: series.title } : { label: series.title, detail: 'Every release in the series' }],
+          // The reader behind this panel reloads the page in place, so they carry on where they stopped.
+          onPaid: unlocked,
+          success: { title: 'Unlocked', body: `${kind === 'release' ? release.title : series.title} is yours to read for good. Close this to keep reading.` },
+        },
+      );
+      if (outcome === 'completed') {
+        await refresh();
+        unlocked();
+      }
     } catch (e) {
       if (e instanceof ApiError && e.code === 'email_unverified') setUnverified(e.message);
       else toast.error(errorMessage(e));
@@ -57,6 +66,7 @@ export function Paywall({ manifest, page, onUnlocked, compact }: { manifest: Man
 
   return (
     <div className={compact ? 'mx-auto w-full max-w-md p-5' : 'mx-auto flex h-full w-full max-w-md flex-col justify-center p-5'}>
+      {payment.dialog}
       <div className="rounded-2xl border border-line-strong bg-surface p-6 text-center shadow-pop">
         <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-full bg-accent-soft text-accent-hover"><Lock className="size-5" /></div>
         <h2 className="text-xl font-bold">Keep reading {release.title}</h2>

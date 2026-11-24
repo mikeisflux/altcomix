@@ -7,7 +7,7 @@ import { api, errorMessage } from '@/lib/api';
 import { date, money, moneyExact } from '@/lib/format';
 import { useSession } from '@/lib/session';
 import { Badge, Button, Card, ErrorState, Field, Input, LinkButton, MoneyInput, Segmented, Skeleton, Textarea, toast } from '@/ui';
-import { CreditChoice, startCheckout } from './Checkout';
+import { CreditChoice, useOrderPayment } from './Checkout';
 import { ConfirmEmailPrompt, isEmailUnverified, useLoginLink, useTitle } from './shared';
 
 type Bought = { id: string; code: string; amount_cents: number; balance_cents: number; recipient_email: string | null; message: string | null; redeemed: boolean; created_at: string };
@@ -30,6 +30,8 @@ export function GiftCards() {
   const [error, setError] = useState<string | null>(null);
   const [unverified, setUnverified] = useState<string | null>(null);
 
+  const payment = useOrderPayment();
+
   const mine = useQuery({ queryKey: ['gift-cards', user?.id], queryFn: () => api<{ bought: Bought[] }>('/api/account/gift-cards'), enabled: Boolean(user) });
 
   const cents = amount ?? 0;
@@ -42,17 +44,28 @@ export function GiftCards() {
     setBusy(true);
     setError(null);
     setUnverified(null);
-    try {
-      const completed = await startCheckout({
-        items: [{ kind: 'gift_card', amount_cents: cents, recipient_email: email.trim() || undefined, message: message.trim() || undefined }],
-        use_credit: credit > 0, return_to: '/gift-cards',
-      });
-      if (!completed) return;
-      await refresh();
-      await qc.invalidateQueries({ queryKey: ['gift-cards'] });
-      toast.success(email.trim() ? `Gift card sent to ${email.trim()}` : 'Gift card bought. The code is below.');
+    const to = email.trim();
+    const bought = () => {
+      toast.success(to ? `Gift card sent to ${to}` : 'Gift card bought. The code is below.');
       setEmail('');
       setMessage('');
+    };
+    try {
+      const outcome = await payment.pay(
+        { items: [{ kind: 'gift_card', amount_cents: cents, recipient_email: to || undefined, message: message.trim() || undefined }], use_credit: credit > 0, return_to: '/gift-cards' },
+        {
+          lines: [{ label: `Gift card ${money(cents, currency)}`, detail: to ? `Emailed to ${to}` : 'The code is shown to you to pass on', price_cents: cents }],
+          credit_cents: credit,
+          onPaid: bought,
+          success: { body: to ? `We have emailed the gift card to ${to}. It is also listed on this page.` : 'Your gift card code is on this page, ready to copy and pass on.' },
+        },
+      );
+      // 'paying': the secure payment dialog has taken over and reports back through `onPaid`.
+      if (outcome === 'completed') {
+        await refresh();
+        await qc.invalidateQueries({ queryKey: ['gift-cards'] });
+        bought();
+      }
     } catch (err) {
       if (isEmailUnverified(err)) setUnverified(errorMessage(err));
       else setError(errorMessage(err));
@@ -71,6 +84,7 @@ export function GiftCards() {
 
   return (
     <div className="mx-auto max-w-5xl">
+      {payment.dialog}
       <header className="mb-6">
         <h1 className="text-2xl font-bold sm:text-3xl">Gift cards</h1>
         <p className="mt-1.5 max-w-2xl text-muted">Give someone store credit to spend on any comic, bundle or tip. Credit never expires.</p>

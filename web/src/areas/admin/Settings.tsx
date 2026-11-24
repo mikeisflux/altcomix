@@ -357,7 +357,7 @@ function EmailTab({ value, secrets, info }: TabProps) {
 function Payments({ value, secrets, info }: TabProps) {
   const s = useSection('payments', value, secrets);
   const f = s.form;
-  const save = () => s.save({ provider: f.provider, divinity_api_url: f.divinity_api_url.trim(), divinity_partner_id: f.divinity_partner_id.trim(), divinity_checkout_logo_url: f.divinity_checkout_logo_url.trim() });
+  const save = () => s.save({ provider: f.provider, divinity_api_url: f.divinity_api_url.trim(), divinity_partner_id: f.divinity_partner_id.trim(), divinity_checkout_logo_url: f.divinity_checkout_logo_url.trim(), divinity_embed_checkout: f.divinity_embed_checkout !== false });
   return (
     <>
       <FormSection title="Provider" description="How readers pay for releases, credits, gift cards and membership.">
@@ -378,6 +378,22 @@ function Payments({ value, secrets, info }: TabProps) {
               <Input type="url" value={f.divinity_checkout_logo_url} placeholder="https://" onChange={(e) => s.set({ divinity_checkout_logo_url: e.target.value })} />
             </Field>
             <TestButton path="/api/admin/settings/test/divinity" body={s.testForm(['divinity_api_url', 'divinity_partner_id', 'divinity_api_key'])} note="Tests the values typed above with a harmless lookup. No payment is made." />
+          </FormSection>
+          <FormSection title="Embedded checkout" description="Readers on desktop pay inside a dialog on this site, with Divinity's card form framed in it, and never visibly leave. iPhones, iPads and in-app browsers are always sent to the checkout page instead, because they cannot type into a framed card form.">
+            <Switch
+              checked={f.divinity_embed_checkout !== false}
+              onChange={(divinity_embed_checkout) => s.set({ divinity_embed_checkout })}
+              label="Show the card form inside this site"
+              description="Turn this off to send every reader to Divinity's checkout page and back (redirect only)."
+            />
+            <CopyField
+              label="This site's origin"
+              value={window.location.origin}
+              hint="Divinity has to allow this site to frame its checkout page: its CHECKOUT_FRAME_ANCESTORS setting must include this exact origin. Ask Divinity to add it."
+            />
+            <Notice tone="warn">
+              Until Divinity has added that origin, desktop readers would see an empty frame where the card form should be. Keep the switch off until they confirm it, then make one test purchase on a desktop browser.
+            </Notice>
           </FormSection>
           <FormSection title="Payment confirmations" description="Divinity calls this address when a payment succeeds, fails or is refunded.">
             <CopyField label="Webhook URL to register with Divinity payments" value={info.webhooks.divinity} />

@@ -73,6 +73,7 @@ const SCHEMAS: Record<SettingKey, z.ZodObject> = {
     divinity_api_key: str(500),
     divinity_webhook_secret: str(500),
     divinity_checkout_logo_url: httpsUrlOrBlank,
+    divinity_embed_checkout: z.boolean(),
   }),
   security: z.object({
     recaptcha_site_key: str(200),

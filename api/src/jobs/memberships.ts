@@ -74,7 +74,7 @@ export async function runMembershipCycle(): Promise<Record<string, number>> {
   const sessions = await q<{ ref: string }>(
     `select provider_ref as ref from orders where provider = 'divinity' and status = 'pending' and provider_ref is not null and created_at < now() - interval '10 minutes'
      union all
-     select setup_ref from subscriptions where provider = 'divinity' and status = 'pending' and setup_ref is not null and created_at < now() - interval '10 minutes'
+     select setup_ref from subscriptions where provider = 'divinity' and status = 'pending' and setup_ref is not null and canceled_at is null and created_at < now() - interval '10 minutes'
      limit 100`,
   );
   for (const s of sessions) if (await safe('reconcile', () => confirmSession(s.ref))) n.reconciled++;

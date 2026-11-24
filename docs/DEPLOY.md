@@ -140,6 +140,18 @@ after saving. A blank secret field keeps what is stored.
    (`<APP_URL>/api/webhooks/divinity`) with the processor; then set the
    provider to Divinity. The sandbox provider cannot be selected in
    production, and the Health page warns while no processor is configured.
+   **Embedded checkout:** desktop readers pay inside a dialog on this site
+   with the processor's card form framed in it. The processor only lets
+   allow-listed sites frame that page: ask Divinity to add this site's exact
+   origin (shown, copyable, under *Embedded checkout* on the same tab) to its
+   `CHECKOUT_FRAME_ANCESTORS` setting. Until they have, desktop readers get an
+   empty frame, so turn *Show the card form inside this site* off (everyone is
+   then sent to the checkout page and back) and switch it on once Divinity
+   confirms. Nothing this site sends blocks the frame: there is no
+   Content-Security-Policy, and the `X-Frame-Options` / `Permissions-Policy`
+   headers in `scripts/deploy/nginx.conf` only govern who may frame *us* and
+   the camera, microphone and location features. If a Content-Security-Policy
+   is ever added, it needs `frame-src` for the processor's origin.
 5. **Settings > Security.** reCAPTCHA keys (optional), rate limit.
 6. **Pages.** The footer pages (terms, privacy, content policy and so on) ship
    as first drafts marked *Draft*, with the parts only you can answer in

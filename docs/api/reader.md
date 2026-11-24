@@ -551,10 +551,10 @@ OrderLine = { "id", "kind", "description", "price_cents",
 | GET | `/api/orders/:id[?session_id=cs_...]` | user (owner) | Order status / receipt |
 | POST | `/api/checkout/confirm` | user | Confirm any hosted session `{ session_id }` |
 | GET | `/api/membership[?session_id=cs_...]` | user | Plans + my membership |
-| POST | `/api/membership/start` | user (confirmed email) | `{ "plan": "monthly"|"annual", "next"?: "/same-site/path" }` |
+| POST | `/api/membership/start` | user (confirmed email) | `{ "plan": "monthly"|"annual", "next"?: "/same-site/path", "surface"?: "embed"|"redirect" }` |
 | POST | `/api/membership/cancel` | user | Stop renewing |
 | POST | `/api/membership/resume` | user | Undo a cancel |
-| POST | `/api/membership/payment-method` | user | Replace the saved card |
+| POST | `/api/membership/payment-method` | user | Replace the saved card: `{ "surface"?: "embed"|"redirect" }` |
 | POST | `/api/codes/redeem` | user | `{ "code" }` |
 | POST | `/api/pages/:id/unlock` | user | Spend one page credit |
 | POST | `/api/webhooks/divinity` | signature | Processor webhooks |
@@ -574,13 +574,58 @@ OrderLine = { "id", "kind", "description", "price_cents",
   ],
   "code"?: "SAVE-20",          // a discount promo code
   "use_credit"?: true,         // spend store credit first
-  "return_to"?: "/read/<id>"   // same-site path to land on afterwards; anything else becomes /library
+  "return_to"?: "/read/<id>",  // same-site path to land on afterwards; anything else becomes /library
+  "surface"?: "embed"          // how the browser will show the card form: "embed" | "redirect" (default "redirect")
 }
 ```
 
-Response: `{ "url": "https://…", "order_id" }` when the reader must be sent to
-the hosted checkout, or `{ "completed": true, "order_id", "return_to" }` when
-nothing more is needed (sandbox, or fully covered by store credit / a 100% code).
+Response when a card payment is needed:
+
+```jsonc
+{
+  "url": "https://…/checkout/cs_…",   // the processor's hosted card form for this order
+  "session_id": "cs_…",               // what the form's messages carry, and what the confirm calls take
+  "order_id": "<uuid>",
+  "surface": "embed" | "redirect",    // what the session was really created for (see below): act on this, not on what was asked
+  "amount_cents": 484,                // what the card will be charged (total − store credit)
+  "return_to": "/read/<id>"
+}
+```
+
+or `{ "completed": true, "order_id", "return_to" }` when nothing more is needed
+(sandbox, or fully covered by store credit / a 100% code).
+
+### The two checkout surfaces
+
+The card form is the processor's hosted page. It is never restyled and card
+data never touches this site. The browser chooses how it is shown and says so
+with `surface` on `POST /api/checkout`, `POST /api/membership/start` and
+`POST /api/membership/payment-method` (anything else is a 400; leaving it out
+means `redirect`):
+
+- **`embed`**: the page is framed inside our own dialog
+  (`web/src/areas/store/SecureCheckout.tsx`). The session is created with
+  `disableAutoRedirect: true`, so the processor does not navigate the browser
+  away when it finishes; its page posts window messages to ours instead
+  (`{ namespace: "divinitycoin-checkout", type: "ready" | "resize" | "complete",
+  sessionId, height?, status?, disableAutoRedirect? }`). The web app accepts
+  them only from the origin of `url`, from the frame it created, for this
+  `session_id`. A `complete` message only means "ask now": the status it
+  carries is ignored and the outcome always comes from the confirm endpoints
+  below, which the web app also polls (after 30 seconds, then every 10) in
+  case the message never arrives.
+- **`redirect`**: the whole browser visits `url`; the processor sends it back
+  to `/checkout/return?order=<orderId>&next=<return_to>&session_id=cs_...`
+  (cancel: `...&cancelled=1`) or, for a membership card,
+  `/account/membership?session_id=cs_...`. Used for iPhones, iPads (including
+  iPadOS that reports itself as a Mac) and in-app browsers, which cannot type
+  into a framed card form (`web/src/areas/store/checkoutSurface.ts`).
+
+The answer's `surface` is `redirect` whatever was asked when the owner has
+switched the embedded checkout off (`settings.payments.divinity_embed_checkout`,
+exposed to the web app as `settings.payments.embed_checkout` in
+`GET /api/bootstrap`). For the frame to load at all, the processor must list
+this site's origin in its `CHECKOUT_FRAME_ANCESTORS` setting.
 
 A tip's `id` is the brand's slug or id (what the store's tip dialog sends); a
 series slug or id is also accepted and tips the brand that publishes it (a brand
@@ -626,26 +671,43 @@ already owned; 404 gone. It does not require a confirmed email. Limits: 120
 quotes per 10 minutes, 40 quotes with a code per hour (kept apart from the
 15 real code attempts per hour at checkout).
 
-After the hosted checkout the processor sends the reader to
-`/checkout/return?order=<orderId>&next=<return_to>&session_id=cs_...`
-(cancel: `...&cancelled=1`). That page calls:
+The embedded checkout (on `complete`, and on its timer) and the
+`/checkout/return` page (after a redirect) both call:
 
 ### GET /api/orders/:id
 
-`?session_id=` is optional; a still-pending Divinity order is confirmed with
-the processor before answering, so polling this endpoint is enough.
+The single source of truth for how a payment went. `?session_id=` is optional;
+a still-pending Divinity order is confirmed with the processor before
+answering, so polling this endpoint is enough. Calling it again and again while
+the buyer is still paying is expected: an open session changes nothing, and a
+finished one is applied exactly once (150 confirmations per reader per 10
+minutes; beyond that the stored state is returned without asking the processor).
 
 ```jsonc
 { "order": { "id", "status": "pending"|"paid"|"failed"|"refunded", "total_cents", "credit_cents",
              "charged_cents", "provider", "created_at", "paid_at", "refunded_at",
-             "return_to", "failure": string|null,
+             "return_to",
+             "payment_state": "pending"|"paid"|"failed"|"expired"|"canceled"|"refunded",
+                                                     // `failed` = the card was not accepted; `expired` = the session timed out;
+                                                     // `canceled` = the checkout was cancelled. All three have status "failed".
+             "failure": string|null,                 // one sentence for the buyer, never null when the order failed: the bank's
+                                                     // decline reason when the processor gave one ("The card does not have enough
+                                                     // available funds. …"), else a plain "nothing was charged" line
              "refunded_cents",                       // back on the card so far (whole charge when refunded)
              "partial_refunds": [ { "amount_cents", "reason", "at" } ],
              "items": [ OrderLine ] } }              // OrderLine as under Account → Orders
 ```
 
 `POST /api/checkout/confirm { session_id }` does the same for any session and
-returns `{ kind: "order"|"membership", status, order_id? }`.
+returns `{ kind: "order"|"membership", status, order_id?, message? }`
+(`status`: `paid` | `pending` | `failed` | `expired` | `canceled` for an order;
+`active` | `updated` | `pending` | `declined` | `failed` | `expired` | `canceled`
+for a membership card; `message` is the buyer-readable reason, present on the
+unsuccessful ones).
+
+Closing the embedded checkout part-way leaves the order `pending` (reserved
+store credit stays reserved); it is settled by the processor's webhook or the
+reconciliation job, and fails with its credit returned when the session expires.
 
 ### What a paid order grants
 
@@ -719,12 +781,23 @@ A page credit pays the creators `page_credit_cents × sale share` when it is spe
     "renews_at": iso | null, "has_payment_method": bool, "from_code": bool,
     "payment_problem": null | { "attempts", "next_attempt_at", "message" }
   },
-  "confirmation": null | "active"|"pending"|"declined"|"failed"|"updated"   // only with ?session_id=
+  // only with ?session_id= (null when the session is not this reader's):
+  "confirmation": null | "active"|"updated"|"pending"|"declined"|"failed"|"expired"|"canceled",
+  "confirmation_message": null | "The card was declined. …"   // with declined / failed / expired / canceled
 }
 ```
 
-- `POST /api/membership/start` → `{ "url", "status": "pending", "next" }` (send the reader
-  to the hosted card page; it returns them to `/account/membership?session_id=cs_...`,
+`?session_id=` confirms that card session with the processor first: `active`
+(a membership started), `updated` (a new card saved; an overdue payment was
+collected from it), `pending` (the reader has not finished, or the payment is
+still in flight), `declined` (card saved but the payment was refused),
+`failed` / `expired` / `canceled` (no card was saved). It is the membership
+counterpart of `GET /api/orders/:id` and just as safe to repeat: a saved card
+is taken in once, so asking again never charges again.
+
+- `POST /api/membership/start` → `{ "url", "session_id", "surface", "status": "pending", "next" }`
+  (show the hosted card form per `surface`, see "The two checkout surfaces"; after a
+  redirect it returns the reader to `/account/membership?session_id=cs_...`,
   and that page calls `GET /api/membership?session_id=...`), or
   `{ "completed": true, "next", ...membership }` in the sandbox. 409 already a member,
   402 the first payment was declined, 403 `email_unverified`.
@@ -737,7 +810,8 @@ A page credit pays the creators `page_credit_cents × sale share` when it is spe
 - `cancel` → access continues to `current_period_end`, no further charges
   (a `past_due` membership ends at once). `resume` undoes it while the period
   is still running. Both return `{ ok, ...membership }`.
-- `payment-method` → `{ url }` (hosted page) or `{ completed: true, ... }` in the sandbox.
+- `payment-method` → `{ "url", "session_id", "surface" }` (hosted card form, shown per
+  `surface`; confirm with `GET /api/membership?session_id=`) or `{ completed: true, ... }` in the sandbox.
   A new card on a past-due membership is charged straight away.
 
 How billing works: the hosted checkout runs in SETUP mode and gives NSFWComix an

@@ -10,7 +10,7 @@ import {
   Avatar, Badge, Button, Card, Checkbox, EmptyState, ErrorState, Field, IconButton, Input, LinkButton, MenuItem, Modal, MoneyInput, PageLoader, Pagination, Popover, ProgressBar,
   Segmented, Skeleton, Textarea, cx, toast,
 } from '@/ui';
-import { CreditChoice, startCheckout } from './Checkout';
+import { CreditChoice, useOrderPayment } from './Checkout';
 import { CoverCard, CoverGrid } from './cards';
 import type { SeriesCard } from './cards';
 import { ConfirmEmailPrompt, ReportDialog, isEmailUnverified, sharePage, useLoginLink, useTitle } from './shared';
@@ -64,6 +64,7 @@ function TipDialog({ open, onClose, brand, onPaid }: { open: boolean; onClose: (
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [unverified, setUnverified] = useState<string | null>(null);
+  const payment = useOrderPayment();
 
   useEffect(() => {
     if (open) {
@@ -83,17 +84,27 @@ function TipDialog({ open, onClose, brand, onPaid }: { open: boolean; onClose: (
     setBusy(true);
     setError(null);
     setUnverified(null);
-    try {
-      const completed = await startCheckout({
-        // The tip's id is the brand's slug (the API also takes a brand id, or a series slug / id).
-        items: [{ kind: 'tip', id: brand.slug, amount_cents: cents, message: message.trim() || undefined, show_amount: showAmount }],
-        use_credit: credit > 0, return_to: loc.pathname,
-      });
-      if (!completed) return;
-      await refresh();
+    const sent = () => {
       toast.success(`Thank you. Your tip is on its way to ${brand.name}.`);
       setMessage('');
       onPaid();
+    };
+    try {
+      const outcome = await payment.pay(
+        // The tip's id is the brand's slug (the API also takes a brand id, or a series slug / id).
+        { items: [{ kind: 'tip', id: brand.slug, amount_cents: cents, message: message.trim() || undefined, show_amount: showAmount }], use_credit: credit > 0, return_to: loc.pathname },
+        {
+          lines: [{ label: `Tip for ${brand.name}`, detail: 'A one-off thank-you', price_cents: cents }],
+          credit_cents: credit,
+          onPaid: sent,
+          success: { title: 'Tip sent', body: `Thank you. Your tip is on its way to ${brand.name}, and a receipt is in your purchases.` },
+        },
+      );
+      // 'paying': this dialog steps aside for the secure payment dialog, which reports back through `onPaid`.
+      if (outcome === 'completed') {
+        await refresh();
+        sent();
+      }
       onClose();
     } catch (err) {
       if (isEmailUnverified(err)) setUnverified(errorMessage(err));
@@ -103,56 +114,59 @@ function TipDialog({ open, onClose, brand, onPaid }: { open: boolean; onClose: (
   };
 
   return (
-    <Modal
-      open={open}
-      onClose={busy ? () => {} : onClose}
-      title={`Tip ${brand.name}`}
-      size="sm"
-      footer={
-        user ? (
-          <>
-            <Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
-            <Button type="submit" form="tip-form" variant="primary" loading={busy} disabled={Boolean(problem) || !user.email_verified}>Send {cents >= 100 ? moneyExact(cents - credit, currency) : 'tip'}</Button>
-          </>
-        ) : (
-          <LinkButton to={login} variant="primary">Sign in to tip</LinkButton>
-        )
-      }
-    >
-      {user ? (
-        <form id="tip-form" onSubmit={send} className="space-y-4">
-          <p className="text-sm text-muted">A tip is a one-off thank-you. Nearly all of it goes straight to {brand.name}.</p>
-          <div>
-            <div className="mb-1.5 text-[13px] font-medium">Amount</div>
-            <Segmented
-              value={custom ? 'custom' : String(amount)}
-              onChange={(v) => {
-                if (v === 'custom') setCustom(true);
-                else {
-                  setCustom(false);
-                  setAmount(Number(v));
-                }
-              }}
-              options={[...PRESETS.map((p) => ({ value: String(p), label: money(p, currency) })), { value: 'custom', label: 'Other' }]}
-            />
-          </div>
-          {custom && (
-            <Field label="Your amount" error={amount !== null && problem ? problem : null}>
-              <MoneyInput cents={amount} onChange={setAmount} />
+    <>
+      <Modal
+        open={open}
+        onClose={busy ? () => {} : onClose}
+        title={`Tip ${brand.name}`}
+        size="sm"
+        footer={
+          user ? (
+            <>
+              <Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
+              <Button type="submit" form="tip-form" variant="primary" loading={busy} disabled={Boolean(problem) || !user.email_verified}>Send {cents >= 100 ? moneyExact(cents - credit, currency) : 'tip'}</Button>
+            </>
+          ) : (
+            <LinkButton to={login} variant="primary">Sign in to tip</LinkButton>
+          )
+        }
+      >
+        {user ? (
+          <form id="tip-form" onSubmit={send} className="space-y-4">
+            <p className="text-sm text-muted">A tip is a one-off thank-you. Nearly all of it goes straight to {brand.name}.</p>
+            <div>
+              <div className="mb-1.5 text-[13px] font-medium">Amount</div>
+              <Segmented
+                value={custom ? 'custom' : String(amount)}
+                onChange={(v) => {
+                  if (v === 'custom') setCustom(true);
+                  else {
+                    setCustom(false);
+                    setAmount(Number(v));
+                  }
+                }}
+                options={[...PRESETS.map((p) => ({ value: String(p), label: money(p, currency) })), { value: 'custom', label: 'Other' }]}
+              />
+            </div>
+            {custom && (
+              <Field label="Your amount" error={amount !== null && problem ? problem : null}>
+                <MoneyInput cents={amount} onChange={setAmount} />
+              </Field>
+            )}
+            <Field label="Message" optional hint={`Shown on ${brand.name}'s page next to your name.`}>
+              <Textarea value={message} onChange={(e) => setMessage(e.target.value)} maxLength={500} className="min-h-20" />
             </Field>
-          )}
-          <Field label="Message" optional hint={`Shown on ${brand.name}'s page next to your name.`}>
-            <Textarea value={message} onChange={(e) => setMessage(e.target.value)} maxLength={500} className="min-h-20" />
-          </Field>
-          <Checkbox checked={showAmount} onChange={setShowAmount} label="Show the amount publicly" description="Untick to show only your name and message." />
-          <CreditChoice total={cents} checked={useCredit} onChange={setUseCredit} />
-          {(unverified || !user.email_verified) && <ConfirmEmailPrompt message={unverified ?? 'Confirm your email to send tips. We sent a link to your address when you signed up.'} onConfirmed={() => setUnverified(null)} />}
-          {error && <ErrorState message={error} />}
-        </form>
-      ) : (
-        <p className="text-sm text-muted">Tips come from an account so the creator can see who to thank, and so you get a receipt.</p>
-      )}
-    </Modal>
+            <Checkbox checked={showAmount} onChange={setShowAmount} label="Show the amount publicly" description="Untick to show only your name and message." />
+            <CreditChoice total={cents} checked={useCredit} onChange={setUseCredit} />
+            {(unverified || !user.email_verified) && <ConfirmEmailPrompt message={unverified ?? 'Confirm your email to send tips. We sent a link to your address when you signed up.'} onConfirmed={() => setUnverified(null)} />}
+            {error && <ErrorState message={error} />}
+          </form>
+        ) : (
+          <p className="text-sm text-muted">Tips come from an account so the creator can see who to thank, and so you get a receipt.</p>
+        )}
+      </Modal>
+      {payment.dialog}
+    </>
   );
 }
 

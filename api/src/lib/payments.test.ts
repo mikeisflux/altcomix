@@ -37,7 +37,8 @@ const fake = createServer((req, res) => {
       const b = call.body;
       if (call.action === 'create-checkout-session') {
         const id = `cs_${RUN}_${nextId++}`;
-        sessions.set(id, { sessionId: id, status: 'pending', mode: b.mode, amount: b.amount ?? null, pledgeId: b.pledgeId ?? null, paymentIntentId: b.mode === 'payment' ? `pi_${id}` : null, paymentMethodId: null });
+        // `disableAutoRedirect` is kept only so tests can see what the session was created with; the real processor does not echo it here.
+        sessions.set(id, { sessionId: id, status: 'pending', mode: b.mode, amount: b.amount ?? null, pledgeId: b.pledgeId ?? null, paymentIntentId: b.mode === 'payment' ? `pi_${id}` : null, paymentMethodId: null, disableAutoRedirect: b.disableAutoRedirect === true });
         out = { body: { success: true, sessionId: id, checkoutUrl: `https://pay.example/checkout/${id}`, expiresAt: new Date(Date.now() + 3600e3).toISOString() } };
       } else if (call.action === 'get-checkout-session') {
         const s = sessions.get(b.sessionId);
@@ -123,8 +124,11 @@ test('hosted checkout: request shape, then return page + webhooks converge on on
   const r = await pay.startOrderPayment(id);
   assert.equal(r.completed, false);
   assert.match(r.url!, /^https:\/\/pay\.example\/checkout\/cs_/);
+  // nothing said about the surface: a full-page visit, and the processor is left to send the reader back itself
+  assert.equal(r.surface, 'redirect');
 
   const [c] = of('create-checkout-session');
+  assert.equal(r.session_id, (await order(id))!.provider_ref);
   assert.equal(c.headers.authorization, 'Bearer dc_live_testkey');
   assert.equal(c.headers['x-partner-id'], 'partner_nsfwcomix');
   assert.equal(c.headers['content-type'], 'application/json');
@@ -196,6 +200,141 @@ test('the webhook alone completes an order when the reader never comes back', as
   // the late return-page confirmation is a no-op
   assert.equal((await pay.confirmSession(ref, { userId: reader.id })).status, 'paid');
   assert.equal(await ledgerRows(id), 2);
+});
+
+test('embedded checkout: the session is created with disableAutoRedirect, and only when the embed is asked for and allowed', async () => {
+  const id = await newOrder(reader.id);
+  const r = await pay.startOrderPayment(id, 'embed');
+  assert.deepEqual([r.completed, r.surface, r.session_id], [false, 'embed', (await order(id))!.provider_ref]);
+  const [c] = of('create-checkout-session');
+  assert.equal(c.body.disableAutoRedirect, true, 'or the processor navigates the whole browser away when the payment completes');
+  // the embed still gets everything the hosted page shows or falls back on
+  assert.equal(c.body.partnerLogoUrl, 'https://nsfwcomix.example/logo.png');
+  assert.equal(c.body.description, 'Test release');
+  assert.match(c.body.returnUrl, new RegExp(`/checkout/return\\?order=${id}`));
+  assert.match(c.body.cancelUrl, new RegExp(`/checkout/return\\?order=${id}&cancelled=1$`));
+  assert.deepEqual(Object.keys(c.body).sort(), ['amount', 'cancelUrl', 'currency', 'customerIpAddress', 'customerUserAgent', 'description', 'disableAutoRedirect', 'email', 'expiresInMinutes', 'idempotencyKey', 'mode', 'partnerLogoUrl', 'platformUserId', 'pledgeId', 'projectId', 'returnUrl']);
+
+  // a redirect session never carries the flag: the processor's own return trip is how that reader gets back
+  calls.length = 0;
+  const plain = await pay.startOrderPayment(await newOrder((await f.user()).id), 'redirect');
+  assert.equal(plain.surface, 'redirect');
+  assert.ok(!('disableAutoRedirect' in of('create-checkout-session')[0].body));
+
+  // membership card (SETUP) and a change of card follow the same rule
+  calls.length = 0;
+  const m = await pay.startMembership(reader, 'monthly', { ip: '198.51.100.7', userAgent: 'UA' }, null, 'embed');
+  assert.deepEqual([m.surface, m.session_id], ['embed', (await sub(reader.id))!.setup_ref]);
+  assert.deepEqual([of('create-checkout-session')[0].body.mode, of('create-checkout-session')[0].body.disableAutoRedirect], ['setup', true]);
+
+  // the owner has switched the embed off: every session is a redirect whatever the browser asked for
+  await setSetting('payments', { divinity_embed_checkout: false }, null);
+  try {
+    calls.length = 0;
+    const forced = await pay.startOrderPayment(await newOrder((await f.user()).id), 'embed');
+    assert.equal(forced.surface, 'redirect');
+    assert.ok(!('disableAutoRedirect' in of('create-checkout-session')[0].body));
+    const other = await f.user();
+    assert.equal((await pay.startMembership(other, 'monthly', { ip: null, userAgent: null }, null, 'embed')).surface, 'redirect');
+  } finally {
+    await setSetting('payments', { divinity_embed_checkout: true }, null);
+  }
+});
+
+test('asking how a checkout went is safe to repeat while it is open, and says how it ended with a reason the buyer can read', async () => {
+  const id = await newOrder(reader.id);
+  const { session_id: ref } = await pay.startOrderPayment(id, 'embed');
+  // the embedded page polls while the buyer is still typing: nothing moves
+  for (let i = 0; i < 5; i++) assert.deepEqual(await pay.confirmSession(ref!, { userId: reader.id }), { kind: 'order', status: 'pending', order_id: id });
+  assert.equal((await order(id))!.status, 'pending');
+  assert.equal(await ledgerRows(id), 0);
+
+  // a decline on the hosted page leaves the order open but its reason is kept
+  await pay.handleDivinityEvent({ event: 'payment.failed', data: { paymentIntentId: 'pi_x', pledgeId: id, code: 'card_declined', declineCode: 'insufficient_funds', error: 'Your card has insufficient funds.' } });
+  assert.equal((await order(id))!.status, 'pending');
+  Object.assign(sessions.get(ref!)!, { status: 'failed' });
+  const failed = await pay.confirmSession(ref!, { userId: reader.id });
+  assert.deepEqual([failed.status, failed.message], ['failed', 'The card does not have enough available funds. Try another card or contact your bank.']);
+  // and the same answer every time after
+  assert.deepEqual(await pay.confirmSession(ref!, { userId: reader.id }), failed);
+  const o = await order(id);
+  assert.deepEqual([o!.status, o!.meta.failure_state, o!.meta.failure], ['failed', 'failed', failed.message]);
+
+  for (const how of ['expired', 'canceled'] as const) {
+    const other = await f.user();
+    const oid = await newOrder(other.id);
+    const s = await pay.startOrderPayment(oid);
+    Object.assign(sessions.get(s.session_id!)!, { status: how });
+    const r = await pay.confirmSession(s.session_id!, { userId: other.id });
+    assert.equal(r.status, how);
+    assert.match(r.message!, how === 'expired' ? /timed out before it was paid, so nothing was charged/ : /cancelled before it was paid, so nothing was charged/);
+    assert.equal((await order(oid))!.meta.failure_state, how);
+  }
+
+  // the processor's own name never reaches a buyer, whatever it writes
+  assert.equal(pay.declineMessage({ error: 'Stripe could not verify this card with DivinityCoin.' }), 'the payment processor could not verify this card with the payment processor.');
+  assert.equal(pay.declineMessage({ code: 'something_new' }), null);
+  const down = await newOrder((await f.user()).id);
+  respond = (c) => (c.action === 'create-checkout-session' ? { status: 400, body: { error: 'Divinity Payments partner account is suspended.' } } : undefined);
+  await assert.rejects(pay.startOrderPayment(down), (e: Error) => !/divinity|stripe/i.test(e.message) && /We could not start the checkout: the payment processor partner account is suspended\. You have not been charged\./.test(e.message));
+});
+
+test('a membership card is taken in once however often the browser asks; a session that ends unpaid says how', async () => {
+  // start, card saved, first payment declined: every repeat says "declined" and nothing is charged again
+  await pay.startMembership(reader, 'monthly', { ip: '198.51.100.7', userAgent: 'UA' }, null, 'embed');
+  let s = await sub(reader.id);
+  Object.assign(sessions.get(s!.setup_ref)!, { status: 'complete', paymentMethodId: 'pm_bad' });
+  respond = (c) => (c.action === 'charge-saved-payment-method' ? { status: 402, body: { success: false, status: 'requires_payment_method', error: 'Your card was declined.', code: 'card_declined', paymentIntentId: 'pi_declined_once' } } : undefined);
+  const first = await pay.confirmSession(s!.setup_ref, { userId: reader.id });
+  assert.deepEqual([first.status, first.message], ['declined', 'Your card was declined.']);
+  for (let i = 0; i < 3; i++) assert.deepEqual(await pay.confirmSession(s!.setup_ref, { userId: reader.id }), first);
+  assert.equal(of('charge-saved-payment-method').length, 1);
+
+  // a member changes card while a renewal is overdue: the new card is tried once, repeats only report
+  const other = await f.user();
+  reader = other;
+  respond = () => undefined;
+  const m = await member();
+  await lapse(m.id);
+  respond = (c) => (c.action === 'charge-saved-payment-method' ? { status: 402, body: { success: false, status: 'requires_payment_method', error: 'Your card was declined.', code: 'card_declined' } } : undefined);
+  await runMembershipCycle();
+  assert.equal((await sub(other.id))!.status, 'past_due');
+  calls.length = 0;
+  const change = await pay.changePaymentMethod(other, { ip: null, userAgent: null }, 'embed');
+  assert.deepEqual([change.surface, of('create-checkout-session')[0].body.disableAutoRedirect], ['embed', true]);
+  assert.equal((await pay.confirmSession(change.session_id, { userId: other.id })).status, 'pending');
+  Object.assign(sessions.get(change.session_id)!, { status: 'complete', paymentMethodId: 'pm_new_bad' });
+  assert.equal((await pay.confirmSession(change.session_id, { userId: other.id })).status, 'declined');
+  for (let i = 0; i < 3; i++) assert.equal((await pay.confirmSession(change.session_id, { userId: other.id })).status, 'declined');
+  assert.equal(of('charge-saved-payment-method').length, 1, 'the new card was tried exactly once');
+  assert.equal((await charges(m.id)).at(-1)!.attempts, 2);
+
+  // a good card on a healthy membership: saved, and "updated" every time it is asked about
+  const third = await f.user();
+  reader = third;
+  respond = () => undefined;
+  await member();
+  const again = await pay.changePaymentMethod(third, { ip: null, userAgent: null });
+  Object.assign(sessions.get(again.session_id)!, { status: 'complete', paymentMethodId: 'pm_new_good' });
+  assert.equal((await pay.confirmSession(again.session_id, { userId: third.id })).status, 'updated');
+  assert.equal((await pay.confirmSession(again.session_id, { userId: third.id })).status, 'updated');
+  assert.equal((await sub(third.id))!.payment_method_token, 'pm_new_good');
+  assert.equal(of('charge-saved-payment-method').length, 0);
+  // the session that started the membership is no longer the one on file, so it can never put the old card back
+  assert.equal((await pay.confirmSession((await sub(third.id))!.provider_ref, { userId: third.id })).kind, 'unknown');
+  assert.equal((await sub(third.id))!.payment_method_token, 'pm_new_good');
+
+  // a card form that timed out: reported as such on every ask, the half-made membership stays out of sight and out of the job
+  const fourth = await f.user();
+  const start = await pay.startMembership(fourth, 'annual', { ip: null, userAgent: null }, null, 'embed');
+  Object.assign(sessions.get(start.session_id!)!, { status: 'expired' });
+  for (let i = 0; i < 2; i++) {
+    const r = await pay.confirmSession(start.session_id!, { userId: fourth.id });
+    assert.deepEqual([r.kind, r.status], ['membership', 'expired']);
+    assert.match(r.message!, /timed out/);
+  }
+  s = await sub(fourth.id);
+  assert.deepEqual([s!.status, Boolean(s!.canceled_at)], ['pending', true]);
 });
 
 test('an existing session is reused for the same order (idempotency key) and a completed one cannot charge twice', async () => {

@@ -1,12 +1,14 @@
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, CircleAlert, Wallet } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { api, errorMessage } from '@/lib/api';
 import { moneyExact } from '@/lib/format';
 import { useSession } from '@/lib/session';
 import { Button, Card, Checkbox, ErrorState, Field, Input, LinkButton, Modal, Notice, Spinner, cx, toast } from '@/ui';
+import { orderCheck, useCheckoutSurface, useSecureCheckout } from './SecureCheckout';
+import type { CheckoutSurface } from './SecureCheckout';
 import { ConfirmEmailPrompt, isEmailUnverified, safeNext, useLoginLink, useTitle } from './shared';
 
 /** One basket line exactly as POST /api/checkout accepts it. */
@@ -21,16 +23,66 @@ export type CheckoutLine = { item: CheckoutItem; label: string; detail?: string;
 
 export type CheckoutRequest = { lines: CheckoutLine[]; returnTo: string; allowCode?: boolean };
 
-type CheckoutResponse = { url?: string; completed?: boolean; order_id: string; return_to?: string };
+/** POST /api/checkout: either the order is already complete (sandbox, or fully covered by store credit) or a card payment is needed. */
+type CheckoutResponse =
+  | { completed: true; order_id: string; return_to?: string }
+  | { completed?: false; url: string; session_id: string; surface: CheckoutSurface; amount_cents: number; order_id: string; return_to?: string };
 
-/** Start paying. Resolves `true` when the order is already complete, `false` when the browser is leaving for the card page. */
-export async function startCheckout(body: { items: CheckoutItem[]; code?: string; use_credit?: boolean; return_to: string }): Promise<boolean> {
-  const r = await api<CheckoutResponse>('/api/checkout', { json: body });
-  if (r.url) {
-    window.location.assign(r.url);
-    return false;
-  }
-  return true;
+export type CheckoutBody = { items: CheckoutItem[]; code?: string; use_credit?: boolean; return_to: string };
+
+/** How a card payment for an order is presented in the secure payment dialog. */
+export type OrderDisplay = {
+  /** What is being bought. A price is shown beside a line only when given. */
+  lines: { label: string; detail?: string; price_cents?: number }[];
+  /** Store credit going towards it, shown as its own row. */
+  credit_cents?: number;
+  /** Runs once the payment is confirmed (the session and all queries are already refreshed). */
+  onPaid?: () => void | Promise<void>;
+  /** What the dialog says once paid. */
+  success?: { title?: string; body?: ReactNode };
+  /** Offered when the payment does not go through. */
+  onRetry?: () => void;
+  /** The payment dialog has closed, paid or not. */
+  onClosed?: () => void;
+};
+
+/**
+ * Every store purchase starts here: the checkout dialog, tips, gift cards,
+ * page-credit packs and the reader paywall. `pay` creates the order and
+ * resolves 'completed' when nothing more is needed (the caller then shows its
+ * own success), or 'paying' once the secure payment dialog has taken over;
+ * `display.onPaid` runs when that payment is confirmed. Render `dialog` once.
+ */
+export function useOrderPayment() {
+  const { currency } = useSession();
+  const surface = useCheckoutSurface();
+  const secure = useSecureCheckout();
+  const { open } = secure;
+  const pay = useCallback(async (body: CheckoutBody, display: OrderDisplay): Promise<'completed' | 'paying'> => {
+    const r = await api<CheckoutResponse>('/api/checkout', { json: { ...body, surface } });
+    if (r.completed) return 'completed';
+    const due = moneyExact(r.amount_cents, currency);
+    const names = display.lines.map((l) => l.label).join(', ');
+    open({
+      session: { url: r.url, session_id: r.session_id, surface: r.surface },
+      lines: display.lines.map((l) => ({ label: l.label, detail: l.detail, amount: l.price_cents != null ? moneyExact(l.price_cents, currency) : undefined })),
+      totals: [
+        ...(display.credit_cents ? [{ label: 'Store credit', amount: `−${moneyExact(display.credit_cents, currency)}` }] : []),
+        { label: 'To pay', amount: due },
+      ],
+      payLabel: due,
+      check: orderCheck(r.order_id, r.session_id),
+      onPaid: display.onPaid,
+      success: {
+        title: display.success?.title ?? 'Payment complete',
+        body: display.success?.body ?? `${names} ${display.lines.length === 1 ? 'is' : 'are'} yours. A receipt is in your purchases.`,
+      },
+      onRetry: display.onRetry,
+      onClosed: display.onClosed,
+    });
+    return 'paying';
+  }, [surface, currency, open]);
+  return { pay, dialog: secure.dialog, paying: secure.active };
 }
 
 /** "Use my store credit" row; renders nothing when the reader has none. */
@@ -95,9 +147,13 @@ export function CheckoutDialog({ request, onClose, onPaid }: { request: Checkout
   const [error, setError] = useState<string | null>(null);
   const [unverified, setUnverified] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  // The secure payment dialog has taken over from this one.
+  const [paying, setPaying] = useState(false);
+  const payment = useOrderPayment();
 
   useEffect(() => {
     if (request) {
+      setPaying(false);
       setUseCredit(true);
       setCode('');
       setApplied('');
@@ -115,7 +171,7 @@ export function CheckoutDialog({ request, onClose, onPaid }: { request: Checkout
   const quote = useQuery({
     queryKey: ['checkout-quote', items, applied, useCredit],
     queryFn: ({ signal }) => fetchQuote({ items, code: applied || undefined, use_credit: useCredit }, signal),
-    enabled: Boolean(request && user && !done),
+    enabled: Boolean(request && user && !done && !paying),
     retry: false,
     staleTime: 0,
     gcTime: 0,
@@ -149,8 +205,23 @@ export function CheckoutDialog({ request, onClose, onPaid }: { request: Checkout
     setError(null);
     setUnverified(null);
     try {
-      const completed = await startCheckout({ items, code: applied || undefined, use_credit: useCredit && q.credit_applied_cents > 0, return_to: request.returnTo });
-      if (!completed) return; // leaving for the card page
+      const outcome = await payment.pay(
+        { items, code: applied || undefined, use_credit: useCredit && q.credit_applied_cents > 0, return_to: request.returnTo },
+        {
+          // Same order as the items sent, so line i of the quote prices line i here.
+          lines: lines.map((l, i) => ({ label: l.label, detail: l.detail, price_cents: q.lines[i]?.price_cents ?? l.price_cents })),
+          credit_cents: q.credit_applied_cents,
+          onPaid: () => onPaid?.(),
+          // Back to this dialog for another go; the failed order is finished with and a new one is made.
+          onRetry: () => setPaying(false),
+          onClosed: onClose,
+        },
+      );
+      if (outcome === 'paying') {
+        setPaying(true);
+        setBusy(false);
+        return;
+      }
       await refresh();
       await qc.invalidateQueries();
       setDone(true);
@@ -174,100 +245,103 @@ export function CheckoutDialog({ request, onClose, onPaid }: { request: Checkout
   );
 
   return (
-    <Modal open={Boolean(request)} onClose={busy ? () => {} : onClose} title={done ? 'Thank you' : 'Confirm your purchase'} size="sm" footer={footer}>
-      {done ? (
-        <div className="flex flex-col items-center gap-3 py-4 text-center">
-          <CheckCircle2 className="size-10 text-ok" aria-hidden />
-          <p className="font-semibold">Payment complete</p>
-          <p className="text-sm text-muted">{lines.map((l) => l.label).join(', ')} {lines.length === 1 ? 'is' : 'are'} yours. A receipt is in your purchases.</p>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          <ul className="divide-y divide-line rounded-xl border border-line">
-            {lines.map((l, i) => {
-              // Same order as the items sent, so line i of the quote prices line i here.
-              const ql = q?.lines[i];
-              const price = ql ? ql.price_cents : l.price_cents;
-              const list = ql ? ql.list_price_cents : l.list_price_cents;
-              return (
-                <li key={i} className="flex items-start justify-between gap-3 px-3.5 py-3 text-sm">
-                  <span className="min-w-0">
-                    <span className="block font-medium">{l.label}</span>
-                    {l.detail && <span className="block text-xs text-muted">{l.detail}</span>}
-                  </span>
-                  <span className="shrink-0 text-right tabular-nums">
-                    {list != null && list > price && <s className="mr-1.5 text-muted">{moneyExact(list, currency)}</s>}
-                    {moneyExact(price, currency)}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
+    <>
+      <Modal open={Boolean(request) && !paying} onClose={busy ? () => {} : onClose} title={done ? 'Thank you' : 'Confirm your purchase'} size="sm" footer={footer}>
+        {done ? (
+          <div className="flex flex-col items-center gap-3 py-4 text-center">
+            <CheckCircle2 className="size-10 text-ok" aria-hidden />
+            <p className="font-semibold">Payment complete</p>
+            <p className="text-sm text-muted">{lines.map((l) => l.label).join(', ')} {lines.length === 1 ? 'is' : 'are'} yours. A receipt is in your purchases.</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <ul className="divide-y divide-line rounded-xl border border-line">
+              {lines.map((l, i) => {
+                // Same order as the items sent, so line i of the quote prices line i here.
+                const ql = q?.lines[i];
+                const price = ql ? ql.price_cents : l.price_cents;
+                const list = ql ? ql.list_price_cents : l.list_price_cents;
+                return (
+                  <li key={i} className="flex items-start justify-between gap-3 px-3.5 py-3 text-sm">
+                    <span className="min-w-0">
+                      <span className="block font-medium">{l.label}</span>
+                      {l.detail && <span className="block text-xs text-muted">{l.detail}</span>}
+                    </span>
+                    <span className="shrink-0 text-right tabular-nums">
+                      {list != null && list > price && <s className="mr-1.5 text-muted">{moneyExact(list, currency)}</s>}
+                      {moneyExact(price, currency)}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
 
-          {user && q && q.credit_available_cents > 0 && (
-            <div className="rounded-xl border border-line bg-ink px-3.5 py-3">
-              <Checkbox
-                checked={useCredit}
-                onChange={setUseCredit}
-                label={<span className="inline-flex items-center gap-1.5"><Wallet className="size-4 text-muted" aria-hidden /> Use store credit</span>}
-                description={`You have ${moneyExact(q.credit_available_cents, currency)}. ${moneyExact(Math.min(q.credit_available_cents, q.total_cents), currency)} would go towards this.`}
-              />
-            </div>
-          )}
-
-          {request?.allowCode !== false && user && (
-            q?.code ? (
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-ok/30 bg-ok-soft px-3.5 py-2.5 text-sm">
-                <span className="min-w-0 text-ok"><span className="font-mono font-semibold">{q.code.code}</span> applied: {q.code.percent_off}% off</span>
-                <button type="button" className="link min-h-10 text-sm" onClick={() => { setApplied(''); setCode(''); }}>Remove</button>
+            {user && q && q.credit_available_cents > 0 && (
+              <div className="rounded-xl border border-line bg-ink px-3.5 py-3">
+                <Checkbox
+                  checked={useCredit}
+                  onChange={setUseCredit}
+                  label={<span className="inline-flex items-center gap-1.5"><Wallet className="size-4 text-muted" aria-hidden /> Use store credit</span>}
+                  description={`You have ${moneyExact(q.credit_available_cents, currency)}. ${moneyExact(Math.min(q.credit_available_cents, q.total_cents), currency)} would go towards this.`}
+                />
               </div>
-            ) : showCode ? (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  applyCode();
-                }}
-              >
-                <div className="flex items-end gap-2">
-                  <Field label="Promo code" className="min-w-0 flex-1">
-                    <Input value={code} onChange={(e) => { setCode(e.target.value.toUpperCase()); setCodeError(null); }} autoFocus autoComplete="off" maxLength={40} placeholder="Enter a discount code" aria-invalid={Boolean(codeError)} aria-describedby="promo-code-note" />
-                  </Field>
-                  <Button type="submit" loading={Boolean(applied) && quote.isFetching} disabled={!code.trim()}>Apply</Button>
-                </div>
-                <p id="promo-code-note" className={cx('mt-1.5 text-xs', codeError ? 'text-danger' : 'text-faint')} role={codeError ? 'alert' : undefined}>
-                  {codeError ?? 'Apply it to see the new total before you pay.'}
-                </p>
-              </form>
-            ) : (
-              <button type="button" className="link min-h-10 text-sm" onClick={() => setShowCode(true)}>Have a promo code?</button>
-            )
-          )}
-
-          <dl className={cx('space-y-1.5 border-t border-line pt-3 text-sm transition-opacity', checking && q && 'opacity-60')} aria-live="polite" aria-busy={checking}>
-            {q ? (
-              <>
-                {(q.discounts.sale_cents > 0 || q.discounts.code_cents > 0) && <Row label="List price" value={moneyExact(q.list_price_cents, currency)} muted />}
-                {q.discounts.sale_cents > 0 && <Row label="Sale discount" value={`−${moneyExact(q.discounts.sale_cents, currency)}`} />}
-                {q.discounts.code_cents > 0 && <Row label={`Promo code ${q.code?.code ?? ''}`} value={`−${moneyExact(q.discounts.code_cents, currency)}`} />}
-                {q.credit_applied_cents > 0 && <Row label="Total" value={moneyExact(q.total_cents, currency)} />}
-                {q.credit_applied_cents > 0 && <Row label="Store credit" value={`−${moneyExact(q.credit_applied_cents, currency)}`} />}
-                <Row strong label="To pay" value={moneyExact(q.amount_due_cents, currency)} />
-              </>
-            ) : user && !quote.isError ? (
-              <div className="flex items-center gap-2 text-muted"><Spinner className="size-4" /> Checking the price…</div>
-            ) : (
-              <Row strong label="Total" value={moneyExact(fallbackTotal, currency)} />
             )}
-          </dl>
 
-          {!user && <Notice tone="info">Sign in or create a free account to buy. Purchases are kept in your library.</Notice>}
-          {q?.problem && <Notice tone="warn">{q.problem.message}</Notice>}
-          {(needsEmail || unverified) && <ConfirmEmailPrompt message={unverified ?? 'Confirm your email to buy things. We sent a link to your address when you signed up.'} onConfirmed={() => setUnverified(null)} />}
-          {!applied && quote.isError && <ErrorState message={errorMessage(quote.error)} retry={() => void quote.refetch()} />}
-          {error && <ErrorState message={error} />}
-        </div>
-      )}
-    </Modal>
+            {request?.allowCode !== false && user && (
+              q?.code ? (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-ok/30 bg-ok-soft px-3.5 py-2.5 text-sm">
+                  <span className="min-w-0 text-ok"><span className="font-mono font-semibold">{q.code.code}</span> applied: {q.code.percent_off}% off</span>
+                  <button type="button" className="link min-h-10 text-sm" onClick={() => { setApplied(''); setCode(''); }}>Remove</button>
+                </div>
+              ) : showCode ? (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    applyCode();
+                  }}
+                >
+                  <div className="flex items-end gap-2">
+                    <Field label="Promo code" className="min-w-0 flex-1">
+                      <Input value={code} onChange={(e) => { setCode(e.target.value.toUpperCase()); setCodeError(null); }} autoFocus autoComplete="off" maxLength={40} placeholder="Enter a discount code" aria-invalid={Boolean(codeError)} aria-describedby="promo-code-note" />
+                    </Field>
+                    <Button type="submit" loading={Boolean(applied) && quote.isFetching} disabled={!code.trim()}>Apply</Button>
+                  </div>
+                  <p id="promo-code-note" className={cx('mt-1.5 text-xs', codeError ? 'text-danger' : 'text-faint')} role={codeError ? 'alert' : undefined}>
+                    {codeError ?? 'Apply it to see the new total before you pay.'}
+                  </p>
+                </form>
+              ) : (
+                <button type="button" className="link min-h-10 text-sm" onClick={() => setShowCode(true)}>Have a promo code?</button>
+              )
+            )}
+
+            <dl className={cx('space-y-1.5 border-t border-line pt-3 text-sm transition-opacity', checking && q && 'opacity-60')} aria-live="polite" aria-busy={checking}>
+              {q ? (
+                <>
+                  {(q.discounts.sale_cents > 0 || q.discounts.code_cents > 0) && <Row label="List price" value={moneyExact(q.list_price_cents, currency)} muted />}
+                  {q.discounts.sale_cents > 0 && <Row label="Sale discount" value={`−${moneyExact(q.discounts.sale_cents, currency)}`} />}
+                  {q.discounts.code_cents > 0 && <Row label={`Promo code ${q.code?.code ?? ''}`} value={`−${moneyExact(q.discounts.code_cents, currency)}`} />}
+                  {q.credit_applied_cents > 0 && <Row label="Total" value={moneyExact(q.total_cents, currency)} />}
+                  {q.credit_applied_cents > 0 && <Row label="Store credit" value={`−${moneyExact(q.credit_applied_cents, currency)}`} />}
+                  <Row strong label="To pay" value={moneyExact(q.amount_due_cents, currency)} />
+                </>
+              ) : user && !quote.isError ? (
+                <div className="flex items-center gap-2 text-muted"><Spinner className="size-4" /> Checking the price…</div>
+              ) : (
+                <Row strong label="Total" value={moneyExact(fallbackTotal, currency)} />
+              )}
+            </dl>
+
+            {!user && <Notice tone="info">Sign in or create a free account to buy. Purchases are kept in your library.</Notice>}
+            {q?.problem && <Notice tone="warn">{q.problem.message}</Notice>}
+            {(needsEmail || unverified) && <ConfirmEmailPrompt message={unverified ?? 'Confirm your email to buy things. We sent a link to your address when you signed up.'} onConfirmed={() => setUnverified(null)} />}
+            {!applied && quote.isError && <ErrorState message={errorMessage(quote.error)} retry={() => void quote.refetch()} />}
+            {error && <ErrorState message={error} />}
+          </div>
+        )}
+      </Modal>
+      {payment.dialog}
+    </>
   );
 }
 
@@ -283,6 +357,8 @@ export function useCheckout(onPaid?: () => void) {
 type Order = {
   id: string;
   status: 'pending' | 'paid' | 'failed' | 'refunded';
+  /** pending | paid | refunded, or how an unpaid checkout ended: failed | expired | canceled. */
+  payment_state: string;
   total_cents: number;
   credit_cents: number;
   charged_cents: number;
@@ -293,7 +369,7 @@ type Order = {
 
 const MAX_POLLS = 40;
 
-/** Where the card page sends the reader back to: wait for the order to settle, then move on. */
+/** Where the secure checkout page sends the reader back to (redirect surface): wait for the order to settle, then move on. */
 export function CheckoutReturn() {
   useTitle('Checkout');
   const { user, currency, refresh } = useSession();
@@ -395,7 +471,7 @@ export function CheckoutReturn() {
     body = (
       <>
         <CircleAlert className="size-12 text-danger" aria-hidden />
-        <h1 className="text-2xl font-bold">The payment did not go through</h1>
+        <h1 className="text-2xl font-bold">{order.payment_state === 'expired' ? 'The checkout timed out' : order.payment_state === 'canceled' ? 'Checkout cancelled' : 'The payment did not go through'}</h1>
         <p className="text-muted">{order.failure ?? 'Your card was not charged.'} Any store credit you used is back in your account.</p>
         <LinkButton to={next} variant="primary">Go back and try again</LinkButton>
       </>
@@ -411,7 +487,7 @@ export function CheckoutReturn() {
     body = (
       <>
         <h1 className="text-2xl font-bold">Checkout cancelled</h1>
-        <p className="text-muted">You left the card page before paying, so nothing was charged.</p>
+        <p className="text-muted">You left the secure checkout before paying, so nothing was charged.</p>
         <LinkButton to={next} variant="primary">Go back</LinkButton>
       </>
     );

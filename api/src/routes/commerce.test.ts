@@ -364,6 +364,106 @@ test('the Divinity webhook endpoint verifies the signature over the raw body', a
   assert.equal((await send(signDivinityPayload(other, 'whsec_routes'), other)).statusCode, 200);
 });
 
+test('hosted checkout over HTTP: the browser names its surface, gets the session back, and can ask how it went as often as it likes', async () => {
+  // A local stand-in for the processor's partner API, just enough for a session to be created and read.
+  const { createServer } = await import('node:http');
+  const sessions = new Map<string, Record<string, any>>();
+  const created: Record<string, any>[] = [];
+  const fake = createServer((req, res) => {
+    let raw = '';
+    req.on('data', (c) => (raw += c));
+    req.on('end', () => {
+      const action = new URL(req.url!, 'http://x').searchParams.get('action');
+      const b = raw ? JSON.parse(raw) : {};
+      let out: unknown = { success: true };
+      if (action === 'create-checkout-session') {
+        created.push(b);
+        const id = `cs_http_${Date.now().toString(36)}_${created.length}`;
+        sessions.set(id, { sessionId: id, status: 'pending', mode: b.mode, paymentIntentId: b.mode === 'payment' ? `pi_${id}` : null, paymentMethodId: null });
+        out = { success: true, sessionId: id, checkoutUrl: `https://pay.example/checkout/${id}`, expiresAt: new Date(Date.now() + 3600e3).toISOString() };
+      } else if (action === 'get-checkout-session') out = { success: true, session: sessions.get(b.sessionId) };
+      else if (action === 'charge-saved-payment-method') out = { success: true, status: 'succeeded', paymentIntentId: `pi_${b.pledgeId}` };
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(out));
+    });
+  });
+  await new Promise<void>((r) => fake.listen(0, '127.0.0.1', r));
+  await setSetting('payments', { provider: 'divinity', divinity_api_url: `http://127.0.0.1:${(fake.address() as { port: number }).port}/internal`, divinity_partner_id: 'partner_routes', divinity_api_key: 'dc_routes' }, null);
+  try {
+    const { user, c } = await signedIn();
+    const item = { items: [{ kind: 'release', id: r2.id }], return_to: `/read/${r2.id}` };
+
+    const bad = await c.post('/api/checkout', { ...item, surface: 'popup' });
+    assert.equal(bad.status, 400);
+    assert.match(bad.json.error, /surface must be "embed" or "redirect"/);
+    assert.equal(created.length, 0, 'nothing was started');
+
+    // embedded: the session is told not to navigate the browser, and everything the dialog needs comes back
+    const start = await c.post('/api/checkout', { ...item, surface: 'embed' });
+    assert.equal(start.status, 200, start.res.payload);
+    assert.deepEqual(Object.keys(start.json).sort(), ['amount_cents', 'order_id', 'return_to', 'session_id', 'surface', 'url']);
+    assert.deepEqual([start.json.surface, start.json.amount_cents, start.json.return_to], ['embed', 199, `/read/${r2.id}`]);
+    assert.equal(start.json.url, `https://pay.example/checkout/${start.json.session_id}`);
+    assert.equal(created[0].disableAutoRedirect, true);
+
+    // while the buyer is still typing, every ask says "pending" and changes nothing
+    const ask = () => c.get(`/api/orders/${start.json.order_id}?session_id=${start.json.session_id}`);
+    for (let i = 0; i < 4; i++) {
+      const o = (await ask()).json.order;
+      assert.deepEqual([o.status, o.payment_state, o.failure], ['pending', 'pending', null]);
+    }
+    assert.equal((await one('select count(*)::int as n from entitlements where user_id = $1', [user.id]))!.n, 0);
+    // someone else's session id confirms nothing
+    assert.equal((await c.get(`/api/orders/${start.json.order_id}?session_id=cs_not_mine`)).json.order.status, 'pending');
+
+    // the card is refused and the session ends: a state and a sentence for the buyer, the same on every ask
+    sessions.get(start.json.session_id)!.status = 'failed';
+    for (let i = 0; i < 2; i++) {
+      const o = (await ask()).json.order;
+      assert.deepEqual([o.status, o.payment_state, o.failure], ['failed', 'failed', 'The card was not accepted, so nothing was charged.']);
+    }
+
+    // no surface named: a redirect session, which the processor sends back itself; paid, then paid on every ask
+    const plain = await c.post('/api/checkout', item);
+    assert.equal(plain.json.surface, 'redirect');
+    assert.ok(!('disableAutoRedirect' in created[1]));
+    sessions.get(plain.json.session_id)!.status = 'complete';
+    for (let i = 0; i < 3; i++) {
+      const o = (await c.get(`/api/orders/${plain.json.order_id}?session_id=${plain.json.session_id}`)).json.order;
+      assert.deepEqual([o.status, o.payment_state, o.failure], ['paid', 'paid', null]);
+    }
+    assert.equal((await one('select count(*)::int as n from ledger where order_id = $1', [plain.json.order_id]))!.n, 2, 'granted and credited once');
+
+    // membership card, embedded
+    assert.equal((await c.post('/api/membership/start', { plan: 'monthly', surface: 'iframe' })).status, 400);
+    const m = await c.post('/api/membership/start', { plan: 'monthly', surface: 'embed' });
+    assert.deepEqual([m.json.surface, m.json.status, typeof m.json.session_id, created.at(-1)!.mode, created.at(-1)!.disableAutoRedirect], ['embed', 'pending', 'string', 'setup', true]);
+    const mine = () => c.get(`/api/membership?session_id=${m.json.session_id}`);
+    assert.deepEqual([(await mine()).json.confirmation, (await mine()).json.confirmation_message], ['pending', null]);
+    Object.assign(sessions.get(m.json.session_id)!, { status: 'complete', paymentMethodId: 'pm_http' });
+    for (let i = 0; i < 3; i++) assert.deepEqual([(await mine()).json.confirmation, (await mine()).json.member], ['active', true]);
+    assert.equal((await one('select count(*)::int as n from subscription_charges where user_id = $1', [user.id]))!.n, 1, 'charged once however often it was asked');
+
+    // a new card for that membership, also embedded
+    const card = await c.post('/api/membership/payment-method', { surface: 'embed' });
+    assert.deepEqual([card.json.surface, created.at(-1)!.disableAutoRedirect], ['embed', true]);
+    sessions.get(card.json.session_id)!.status = 'expired';
+    const gone = (await c.get(`/api/membership?session_id=${card.json.session_id}`)).json;
+    assert.deepEqual([gone.confirmation, gone.member], ['expired', true]);
+    assert.match(gone.confirmation_message, /timed out before it was paid/);
+
+    // the public settings tell the web app whether it may embed at all
+    assert.equal((await c.get('/api/bootstrap')).json.settings.payments.embed_checkout, true);
+    await setSetting('payments', { divinity_embed_checkout: false }, null);
+    assert.equal((await c.get('/api/bootstrap')).json.settings.payments.embed_checkout, false);
+    const other = await signedIn();
+    assert.equal((await other.c.post('/api/checkout', { ...item, surface: 'embed' })).json.surface, 'redirect');
+  } finally {
+    await setSetting('payments', { provider: 'sandbox', divinity_embed_checkout: true }, null);
+    fake.close();
+  }
+});
+
 test('catalogue: search with prefix fallback, filters, visibility rules, series page and brand page', async () => {
   const Z = `Zq${Date.now().toString(36)}x`; // a word no earlier run has used (the test database is kept between runs)
   const hidden = await f.series(brand.id, { title: `${Z} Nights Uncut`, mature: true, access_model: 'free' });

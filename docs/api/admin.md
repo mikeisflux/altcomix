@@ -442,7 +442,8 @@ The seeded text is a first draft marked as such, for the owner to review.
     "email": { "provider": "log", "sendgrid_api_key": { "set": false }, "sendgrid_webhook_key": { "set": false }, "mailgun_api_key": { "set": false },
                "mailgun_domain": "", "mailgun_webhook_signing_key": { "set": false }, "from_email": "", "from_name": "", "reply_to": "", "queue_paused": false },
     "payments": { "provider": "sandbox", "divinity_api_url": "", "divinity_partner_id": "", "divinity_api_key": { "set": false },
-                  "divinity_webhook_secret": { "set": false }, "divinity_checkout_logo_url": "" },
+                  "divinity_webhook_secret": { "set": false }, "divinity_checkout_logo_url": "",
+                  "divinity_embed_checkout": true },   // false = redirect-only checkout (public as settings.payments.embed_checkout)
     "security": { "recaptcha_site_key": "", "recaptcha_secret_key": { "set": false }, "recaptcha_enabled": false, "bot_blocker_enabled": true,
                   "rate_limit_per_minute": 240, "admin_2fa_required": false, "max_login_attempts": 8, "password_min_length": 10 },
     "analytics": { "ga_measurement_id": "", "sentry_dsn": "" }
