@@ -15,7 +15,7 @@ export type Series = {
   banner_url: string | null; access_model: 'blocked' | 'free' | 'premium'; in_subscription: boolean; free_preview: FreePreview; paywall_expires_days: number | null;
   default_price_cents: number | null; allow_comments: boolean; update_frequency: string | null; website: string | null; pub_year: number | null;
   crowdfunding: Crowdfunding | null; forum_enabled: boolean; forum_description: string; favorite_count: number; follower_count: number; read_count: number;
-  takedown: { at: string; reason: string } | null;
+  takedown: { at: string; reason: string; purge: boolean } | null;
 };
 export type Edition = { language: string; title: string; description: string; access_model: 'blocked' | 'free' | 'premium' | null };
 export type CountryRule = { id: string; country: string; language: string | null; rule: 'blocked' | 'free' | 'premium'; enabled: boolean };
@@ -94,7 +94,7 @@ export function SeriesEditor() {
                 </div>
               </div>
             </header>
-            {s.takedown && <div className="mb-4"><Notice tone="danger">AltComix has taken this series down{s.takedown.reason ? `: ${s.takedown.reason}` : ''}. Readers cannot open it. Contact support to resolve this.</Notice></div>}
+            {s.takedown && <div className="mb-4"><Notice tone="danger">AltComix has taken this series down{s.takedown.reason ? `: ${s.takedown.reason}` : ''}. {s.takedown.purge ? 'It has been removed completely: nobody can open it, including readers who bought it, and its files cannot be downloaded from the Studio.' : 'It is hidden from the store, search and your brand page. Readers who already own a release can still read it from their library.'} Contact support to resolve this.</Notice></div>}
             {!s.cover_url && <div className="mb-4"><Notice tone="info">No cover yet. Upload one, or add a release: its first page becomes the cover automatically.</Notice></div>}
             <NavTabs tabs={[{ to: base, label: 'Releases', end: true }, { to: `${base}/details`, label: 'Details' }, { to: `${base}/paywall`, label: 'Paywall' }, { to: `${base}/advanced`, label: 'Advanced' }]} />
             <Outlet context={{ detail: d, series: s, brand, role, base } satisfies Ctx} />

@@ -114,7 +114,7 @@ async function seriesView(s: Row) {
     default_price_cents: s.default_price_cents, allow_comments: s.allow_comments, update_frequency: s.update_frequency, website: s.website,
     pub_year: s.pub_year, crowdfunding: s.crowdfunding, forum_enabled: s.forum_enabled, forum_description: s.forum_description,
     favorite_count: s.favorite_count, follower_count: s.follower_count, read_count: s.read_count,
-    takedown: s.takedown_at ? { at: s.takedown_at, reason: s.takedown_reason } : null,
+    takedown: s.takedown_at ? { at: s.takedown_at, reason: s.takedown_reason, purge: Boolean(s.takedown_purge) } : null,
     created_at: s.created_at, updated_at: s.updated_at,
   };
 }

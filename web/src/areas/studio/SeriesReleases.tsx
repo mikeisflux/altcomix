@@ -3,13 +3,13 @@ import { LayoutGrid, List, Loader2, Plus, UploadCloud } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { api, errorMessage, upload } from '@/lib/api';
+import { api, upload } from '@/lib/api';
 import { money } from '@/lib/format';
 import { languageLabel, useSession } from '@/lib/session';
 import { Badge, Button, Checkbox, EmptyState, Field, FormRow, IconButton, Input, Modal, ProgressBar, Select, Table, cx, toast } from '@/ui';
 import { releasesKey, seriesKey, useReleases, useSeries } from './SeriesEditor';
 import type { Release, ReleaseList, Series } from './SeriesEditor';
-import { Cover, Q, STATUS_TONE, can, cap, useAct } from './shared';
+import { Cover, Q, STATUS_TONE, can, cap, studioError, useAct } from './shared';
 
 export function accessBadge(series: Pick<Series, 'access_model' | 'default_price_cents'>, r: Pick<Release, 'force_free' | 'price_cents' | 'free_at'>) {
   if (series.access_model === 'blocked') return <Badge tone="danger">Blocked</Badge>;
@@ -57,7 +57,7 @@ function NewReleaseDialog({ open, onClose, data, language, files }: { open: bool
       toast.success(`${t} created`);
       nav(`${base}/releases/${r.release.id}`);
     } catch (err) {
-      toast.error(errorMessage(err));
+      studioError(err);
     } finally {
       setBusy(false);
     }
@@ -156,7 +156,7 @@ export function SeriesReleases() {
       toast.success(`${r.release.title} created. Your pages are being processed.`);
       nav(`${base}/releases/${r.release.id}`);
     } catch (err) {
-      toast.error(errorMessage(err));
+      studioError(err);
       await qc.invalidateQueries({ queryKey: releasesKey(series.id) });
     } finally {
       setDropBusy(null);

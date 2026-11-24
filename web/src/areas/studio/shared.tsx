@@ -1,12 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { QueryKey, UseQueryResult } from '@tanstack/react-query';
-import { Check, Copy, ImageOff, Lock, LogIn, Upload } from 'lucide-react';
+import { Check, Copy, ImageOff, Lock, LogIn, MailCheck, ShieldCheck, Upload } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, Outlet, useLocation, useOutletContext, useParams } from 'react-router';
-import { api, errorMessage } from '@/lib/api';
+import { ApiError, api, errorMessage } from '@/lib/api';
 import { useSession } from '@/lib/session';
-import { Button, EmptyState, ErrorState, LinkButton, NavTabs, PageLoader, cx, toast } from '@/ui';
+import { Button, EmptyState, ErrorState, LinkButton, Modal, NavTabs, Notice, PageLoader, cx, toast } from '@/ui';
 
 export type Role = 'owner' | 'admin' | 'editor' | 'analyst';
 const RANK: Record<Role, number> = { analyst: 1, editor: 2, admin: 3, owner: 4 };
@@ -24,6 +24,8 @@ export type StudioBrand = {
   timezone: string | null; primary_language: string; ga_tracking_id: string | null; membership_note: string; tips_enabled: boolean;
   monthly_goal_cents: number | null; verified: boolean; suspended: boolean; suspend_reason: string | null; payout_configured: boolean;
   created_at: string; role: Role; series_count: number; member_count: number;
+  /** Only on the brand opened in the Studio (by-slug): a platform admin who is not on the team. */
+  viewing_as_admin?: boolean; follower_count?: number;
 };
 
 export function useBrands(enabled = true) {
@@ -54,8 +56,69 @@ export function useAct<V = void, R = unknown>(fn: (v: V) => Promise<R>, opts: { 
       for (const key of opts.invalidate ?? []) await qc.invalidateQueries({ queryKey: key });
       opts.onDone?.(r, v);
     },
+    onError: (e) => studioError(e),
+  });
+}
+
+// ---------------------------------------------------------------- confirmed email
+
+/** Publishing actions answer 403 `email_unverified` until the account's email is confirmed. */
+export const isUnverified = (e: unknown) => e instanceof ApiError && e.code === 'email_unverified';
+
+let openVerifyPrompt: (() => void) | null = null;
+
+/** Show a failed Studio action: the confirm-your-email prompt when that is the reason, the server's message otherwise. */
+export function studioError(e: unknown): void {
+  if (isUnverified(e) && openVerifyPrompt) openVerifyPrompt();
+  else toast.error(errorMessage(e));
+}
+
+export function useResendVerification() {
+  const [sent, setSent] = useState(false);
+  const resend = useMutation({
+    mutationFn: () => api('/api/auth/resend-verification', { method: 'POST' }),
+    onSuccess: () => { setSent(true); toast.success('Confirmation email sent. Check your inbox.'); },
     onError: (e) => toast.error(errorMessage(e)),
   });
+  return { sent, resend };
+}
+
+/** Mounted once per Studio screen; opened by `studioError` when the API asks for a confirmed email. */
+export function VerifyEmailPrompt() {
+  const { user, refresh } = useSession();
+  const [open, setOpen] = useState(false);
+  const { sent, resend } = useResendVerification();
+  useEffect(() => {
+    openVerifyPrompt = () => setOpen(true);
+    return () => { openVerifyPrompt = null; };
+  }, []);
+  return (
+    <Modal
+      open={open}
+      onClose={() => setOpen(false)}
+      size="sm"
+      title="Confirm your email to publish"
+      footer={<><Button variant="ghost" onClick={() => { void refresh(); setOpen(false); }}>{sent ? 'I have confirmed it' : 'Not now'}</Button><Button variant="primary" icon={<MailCheck className="size-4" />} loading={resend.isPending} onClick={() => resend.mutate()}>{sent ? 'Send it again' : 'Resend confirmation email'}</Button></>}
+    >
+      <div className="space-y-3 text-sm text-muted">
+        <p>Publishing, emailing readers and requesting payouts need a confirmed email address, so readers and our team can always reach the person behind a brand. Nothing you were working on has been lost.</p>
+        <p>We sent a confirmation link to <strong className="text-paper">{user?.email}</strong> when you signed up. Open it, then try again here.{sent && ' A new link is on its way.'}</p>
+        <p>You can keep drafting, uploading and editing in the meantime.</p>
+      </div>
+    </Modal>
+  );
+}
+
+/** Heads-up shown in the Studio before someone with an unconfirmed email runs into the wall. */
+export function UnverifiedNotice() {
+  const { user } = useSession();
+  const { sent, resend } = useResendVerification();
+  if (!user || user.email_verified) return null;
+  return (
+    <Notice tone="warn" action={<Button size="sm" loading={resend.isPending} onClick={() => resend.mutate()}>{sent ? 'Send it again' : 'Resend confirmation email'}</Button>}>
+      Confirm your email to publish. Creating a brand, publishing, emailing readers and requesting payouts unlock once you open the link we sent to {user.email}. Drafting, uploading and editing stay open.
+    </Notice>
+  );
 }
 
 export function SignInNeeded({ what = 'the Studio' }: { what?: string }) {
@@ -78,19 +141,39 @@ export function NoAccess() {
 
 type BrandCtx = { brand: StudioBrand; role: Role };
 
-/** Layout route: signed in and a member of `:brand`, or a clear explanation. */
+export const brandKey = (slug: string | undefined) => ['studio', 'brands', 'by-slug', slug];
+
+/**
+ * Layout route: signed in and allowed into `:brand`, or a clear explanation.
+ * Members get their own role; a platform admin who is not on the team gets
+ * owner-level controls and a notice saying so.
+ */
 export function BrandGuard() {
   const { user } = useSession();
   const { brand: slug } = useParams();
-  const brands = useBrands(Boolean(user));
+  // Under ['studio','brands'], so everything that invalidates the brand list refreshes this too.
+  const q = useQuery({
+    queryKey: brandKey(slug),
+    queryFn: () => api<{ brand: StudioBrand }>(`/api/studio/brands/by-slug/${encodeURIComponent(slug ?? '')}`),
+    enabled: Boolean(user && slug),
+    retry: false,
+  });
   if (!user) return <SignInNeeded />;
+  if (q.isError && q.data === undefined) {
+    const status = (q.error as ApiError).status;
+    if (status === 403) return <NoAccess />;
+    if (status === 404) return <EmptyState icon={<Lock />} title="There is no brand at this address" action={<LinkButton to="/studio" variant="primary">Go to your brands</LinkButton>}>The brand may have been renamed or deleted. Check the link, or pick a brand from your list.</EmptyState>;
+  }
   return (
-    <Q query={brands}>
-      {(d) => {
-        const brand = d.brands.find((b) => b.slug === slug);
-        if (!brand) return <NoAccess />;
-        return <Outlet context={{ brand, role: brand.role } satisfies BrandCtx} />;
-      }}
+    <Q query={q}>
+      {(d) => (
+        <>
+          <AdminViewNotice brand={d.brand} />
+          <div className="mb-4 empty:hidden"><UnverifiedNotice /></div>
+          <Outlet context={{ brand: d.brand, role: d.brand.role } satisfies BrandCtx} />
+          <VerifyEmailPrompt />
+        </>
+      )}
     </Q>
   );
 }
@@ -109,6 +192,7 @@ export function BrandPage({ title, children, actions }: { title: string; childre
     { to: `${base}/analytics`, label: 'Analytics' },
     ...(can(role, 'admin') ? [{ to: `${base}/earnings`, label: 'Earnings' }] : []),
     ...(can(role, 'editor') ? [{ to: `${base}/codes`, label: 'Codes' }, { to: `${base}/store`, label: 'Bundles and sales' }] : []),
+    ...(can(role, 'admin') ? [{ to: `${base}/marketing`, label: 'Marketing' }] : []),
     { to: `${base}/settings`, label: 'Settings' },
   ];
   return (
@@ -119,7 +203,7 @@ export function BrandPage({ title, children, actions }: { title: string; childre
           <div className="min-w-0">
             <h1 className="truncate text-xl font-bold sm:text-2xl">{brand.name}</h1>
             <p className="text-xs text-muted">
-              <Link to="/studio" className="hover:text-paper">Studio</Link> · {brand.kind === 'publisher' ? 'Publisher' : 'Creator'} · your role: {role}
+              <Link to="/studio" className="hover:text-paper">Studio</Link> · {brand.kind === 'publisher' ? 'Publisher' : 'Creator'} · {brand.viewing_as_admin ? 'platform admin' : `your role: ${role}`}
             </p>
           </div>
         </div>
@@ -128,6 +212,18 @@ export function BrandPage({ title, children, actions }: { title: string; childre
       {brand.suspended && <div className="mb-4"><ErrorState message={`This brand is suspended${brand.suspend_reason ? `: ${brand.suspend_reason}` : ''}. Its comics are hidden from readers until support lifts the suspension.`} /></div>}
       <NavTabs tabs={tabs} />
       {children}
+    </div>
+  );
+}
+
+/** Shown on every Studio screen of a brand a platform admin has opened without being on its team. */
+export function AdminViewNotice({ brand }: { brand: StudioBrand }) {
+  if (!brand.viewing_as_admin) return null;
+  return (
+    <div className="mb-4">
+      <Notice tone="warn">
+        <span className="flex items-start gap-2.5"><ShieldCheck className="mt-0.5 size-4 shrink-0" aria-hidden /><span><strong>Viewing as platform admin.</strong> You are not on the {brand.name} team. You have owner-level controls here, and what you change is recorded in the audit log under your name.</span></span>
+      </Notice>
     </div>
   );
 }

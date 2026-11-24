@@ -13,7 +13,7 @@ import {
 import { CreditChoice, startCheckout } from './Checkout';
 import { CoverCard, CoverGrid } from './cards';
 import type { SeriesCard } from './cards';
-import { ReportDialog, sharePage, useLoginLink, useTitle } from './shared';
+import { ConfirmEmailPrompt, ReportDialog, isEmailUnverified, sharePage, useLoginLink, useTitle } from './shared';
 
 type BrandData = {
   brand: {
@@ -63,10 +63,12 @@ function TipDialog({ open, onClose, brand, onPaid }: { open: boolean; onClose: (
   const [useCredit, setUseCredit] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [unverified, setUnverified] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
       setError(null);
+      setUnverified(null);
       setBusy(false);
     }
   }, [open]);
@@ -80,8 +82,10 @@ function TipDialog({ open, onClose, brand, onPaid }: { open: boolean; onClose: (
     if (problem) return setError(problem);
     setBusy(true);
     setError(null);
+    setUnverified(null);
     try {
       const completed = await startCheckout({
+        // The tip's id is the brand's slug (the API also takes a brand id, or a series slug / id).
         items: [{ kind: 'tip', id: brand.slug, amount_cents: cents, message: message.trim() || undefined, show_amount: showAmount }],
         use_credit: credit > 0, return_to: loc.pathname,
       });
@@ -92,7 +96,8 @@ function TipDialog({ open, onClose, brand, onPaid }: { open: boolean; onClose: (
       onPaid();
       onClose();
     } catch (err) {
-      setError(errorMessage(err));
+      if (isEmailUnverified(err)) setUnverified(errorMessage(err));
+      else setError(errorMessage(err));
     }
     setBusy(false);
   };
@@ -107,7 +112,7 @@ function TipDialog({ open, onClose, brand, onPaid }: { open: boolean; onClose: (
         user ? (
           <>
             <Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
-            <Button type="submit" form="tip-form" variant="primary" loading={busy} disabled={Boolean(problem)}>Send {cents >= 100 ? moneyExact(cents - credit, currency) : 'tip'}</Button>
+            <Button type="submit" form="tip-form" variant="primary" loading={busy} disabled={Boolean(problem) || !user.email_verified}>Send {cents >= 100 ? moneyExact(cents - credit, currency) : 'tip'}</Button>
           </>
         ) : (
           <LinkButton to={login} variant="primary">Sign in to tip</LinkButton>
@@ -141,6 +146,7 @@ function TipDialog({ open, onClose, brand, onPaid }: { open: boolean; onClose: (
           </Field>
           <Checkbox checked={showAmount} onChange={setShowAmount} label="Show the amount publicly" description="Untick to show only your name and message." />
           <CreditChoice total={cents} checked={useCredit} onChange={setUseCredit} />
+          {(unverified || !user.email_verified) && <ConfirmEmailPrompt message={unverified ?? 'Confirm your email to send tips. We sent a link to your address when you signed up.'} onConfirmed={() => setUnverified(null)} />}
           {error && <ErrorState message={error} />}
         </form>
       ) : (

@@ -8,11 +8,12 @@ import { ago, date } from '@/lib/format';
 import { useSession } from '@/lib/session';
 import { Avatar, Button, EmptyState, ErrorState, Field, IconButton, Input, LinkButton, Modal, Notice, Spinner, Textarea, cx, toast } from '@/ui';
 import { ListSkeleton, PlainText, useTitle } from './shared';
+import { ConfirmEmailPrompt, isEmailUnverified } from '../store/shared';
 import type { Person } from './shared';
 
 type Conversation = { id: string; with: Person | null; last_message: { body: string; mine: boolean }; last_message_at: string; unread: number };
 type Message = { id: string; body: string; mine: boolean; read_at: string | null; created_at: string };
-type ThreadData = { conversation: { id: string; with: Person | null; can_reply: boolean }; messages: Message[]; page: number; limit: number };
+type ThreadData = { conversation: { id: string; with: Person | null; can_reply: boolean; cannot_reply_reason: string | null }; messages: Message[]; page: number; limit: number };
 type Sent = { conversation_id: string; message: Message };
 
 const PAGE = 50;
@@ -32,6 +33,7 @@ function NewConversation({ initialTo, onClose, onSent }: { initialTo: string; on
   const [body, setBody] = useState('');
   const { user } = useSession();
   const [error, setError] = useState<string | null>(null);
+  const [unverified, setUnverified] = useState<string | null>(null);
   const send = useMutation({
     mutationFn: () => api<Sent>('/api/messages', { json: { to: to.trim(), body } }),
     onMutate: () => setError(null),
@@ -40,7 +42,8 @@ function NewConversation({ initialTo, onClose, onSent }: { initialTo: string; on
       onSent();
       nav(`/messages/${r.conversation_id}`, { replace: Boolean(initialTo) });
     },
-    onError: (e) => setError(errorMessage(e)),
+    // An unconfirmed email is shown as the resend prompt below, not as a raw error.
+    onError: (e) => (isEmailUnverified(e) ? setUnverified(errorMessage(e)) : setError(errorMessage(e))),
   });
   return (
     <Modal
@@ -64,7 +67,7 @@ function NewConversation({ initialTo, onClose, onSent }: { initialTo: string; on
         }}
       >
         {error && <ErrorState message={error} />}
-        {user && !user.email_verified && <Notice tone="warn">Confirm your email address before sending messages. The link is in the email we sent to {user.email}.</Notice>}
+        {(unverified || (user && !user.email_verified)) && <ConfirmEmailPrompt message={unverified ?? `Confirm your email to send messages. We sent a link to ${user?.email ?? 'your address'} when you signed up.`} onConfirmed={() => setUnverified(null)} />}
         <Field label="To" hint="Their username, as shown on their profile.">
           <Input value={to} onChange={(e) => setTo(e.target.value)} placeholder="username" autoCapitalize="off" autoComplete="off" spellCheck={false} maxLength={40} required autoFocus={!initialTo} />
         </Field>
@@ -142,6 +145,7 @@ function ThreadView({ id }: { id: string }) {
   const [noMore, setNoMore] = useState(false);
   const [draft, setDraft] = useState('');
   const [blocked, setBlocked] = useState<string | null>(null);
+  const [unverified, setUnverified] = useState<string | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
 
@@ -193,14 +197,19 @@ function ThreadView({ id }: { id: string }) {
     onSuccess: (r) => {
       setDraft('');
       setBlocked(null);
+      setUnverified(null);
       stick.current = true;
       qc.setQueryData<ThreadData>(['messages', 'thread', id], (old) => (old ? { ...old, messages: [...old.messages.filter((m) => m.id !== r.message.id), r.message] } : old));
       void qc.invalidateQueries({ queryKey: ['messages', 'list'] });
     },
     onError: (e) => {
-      // "Not accepting direct messages", unconfirmed email and rate limits all arrive as readable sentences.
-      if (e instanceof ApiError && e.status === 403) setBlocked(e.message);
-      else toast.error(errorMessage(e));
+      // An unconfirmed email gets the resend prompt; "not accepting direct messages" arrives as a readable sentence.
+      if (isEmailUnverified(e)) setUnverified(errorMessage(e));
+      else if (e instanceof ApiError && e.status === 403) {
+        setBlocked(e.message);
+        // The other person may have just turned messages off: re-read whether replying is still possible.
+        void qc.invalidateQueries({ queryKey: ['messages', 'thread', id] });
+      } else toast.error(errorMessage(e));
     },
   });
   const submit = () => {
@@ -227,7 +236,9 @@ function ThreadView({ id }: { id: string }) {
       </div>
     );
   }
-  const canReply = thread.data.conversation.can_reply && Boolean(them);
+  // The server decides with the same rule it applies when a message is sent, so the composer never offers a reply it would refuse.
+  const canReply = thread.data.conversation.can_reply;
+  const needsEmail = Boolean(unverified) || Boolean(user && !user.email_verified);
   const hasOlder = !noMore && recent.length >= PAGE;
 
   return (
@@ -284,7 +295,11 @@ function ThreadView({ id }: { id: string }) {
       <div className="border-t border-line p-3">
         {!canReply ? (
           <Notice tone="warn">
-            {them ? `${them.name} is not accepting direct messages, so you cannot reply here.` : 'This account was deleted, so the conversation is closed.'}
+            {!them
+              ? 'This account was deleted, so the conversation is closed.'
+              : thread.data.conversation.cannot_reply_reason
+                ? `${thread.data.conversation.cannot_reply_reason} and has not written in this conversation, so you cannot message them here.`
+                : `You cannot message ${them.name} here.`}
           </Notice>
         ) : (
           <form
@@ -295,7 +310,8 @@ function ThreadView({ id }: { id: string }) {
             }}
           >
             <div className="min-w-0 flex-1">
-              {(blocked || (user && !user.email_verified)) && <div className="mb-2"><Notice tone="warn">{blocked ?? 'Confirm your email address before sending messages.'}</Notice></div>}
+              {needsEmail && <div className="mb-2"><ConfirmEmailPrompt message={unverified ?? 'Confirm your email to send messages. We sent a link to your address when you signed up.'} onConfirmed={() => setUnverified(null)} /></div>}
+              {blocked && !needsEmail && <div className="mb-2"><Notice tone="warn">{blocked}</Notice></div>}
               <label className="sr-only" htmlFor="composer">Message {them?.name}</label>
               <textarea
                 id="composer"

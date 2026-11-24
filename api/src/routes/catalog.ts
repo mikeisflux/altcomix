@@ -344,7 +344,7 @@ export default async function catalogRoutes(app: FastifyInstance) {
       const owned = a.unlock === 'purchase' || a.unlock === 'code';
       const status =
         a.model === 'blocked' && a.unlock !== 'owner' ? 'blocked' :
-        a.unlock === 'owner' ? 'owner' : owned ? 'owned' : a.lockedPages === 0 && a.unlock !== 'subscription' ? 'free' : a.unlock === 'subscription' ? 'membership' : a.freePages > 0 ? 'preview' : 'locked';
+        a.unlock === 'owner' ? 'owner' : owned ? 'owned' : a.releaseFree || (a.lockedPages === 0 && a.unlock !== 'subscription') ? 'free' : a.unlock === 'subscription' ? 'membership' : a.freePages > 0 ? 'preview' : 'locked';
       const pr = progress.find((p) => p.release_id === r.id);
       return {
         id: r.id, number: r.number, kind: r.kind, language: r.language, title: r.title, synopsis: r.synopsis, mature: r.mature, status: r.status,

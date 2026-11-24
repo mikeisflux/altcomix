@@ -362,6 +362,7 @@ export function FrameEditor(props: Props) {
 
   // Drag-to-reorder in the frame list.
   const [dragRow, setDragRow] = useState<number | null>(null);
+  const [overRow, setOverRow] = useState<number | null>(null);
   const reorder = (from: number, to: number) => {
     if (from === to) return;
     const next = [...frames];
@@ -398,14 +399,36 @@ export function FrameEditor(props: Props) {
           {frames.map((_, i) => (
             <li
               key={i}
-              draggable
-              onDragStart={() => setDragRow(i)}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={() => {
+              draggable={!readOnly}
+              onDragStart={(e) => {
+                // Firefox only starts a drag that carries data.
+                e.dataTransfer.setData('text/plain', String(i));
+                e.dataTransfer.effectAllowed = 'move';
+                setDragRow(i);
+              }}
+              onDragOver={(e) => {
+                if (dragRow === null) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                if (overRow !== i) setOverRow(i);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
                 if (dragRow !== null) reorder(dragRow, i);
                 setDragRow(null);
+                setOverRow(null);
               }}
-              className={cx('flex items-center gap-1.5 rounded-lg border px-1.5 py-1 text-sm', selected === i ? 'border-accent bg-accent-soft' : 'border-transparent hover:bg-hover')}
+              onDragEnd={() => {
+                setDragRow(null);
+                setOverRow(null);
+              }}
+              // The line shows where the dragged frame will land: above when moving it earlier, below when moving it later.
+              className={cx(
+                'flex items-center gap-1.5 rounded-lg border px-1.5 py-1 text-sm',
+                selected === i ? 'border-accent bg-accent-soft' : 'border-transparent hover:bg-hover',
+                dragRow === i && 'opacity-50',
+                dragRow !== null && overRow === i && dragRow !== i && (dragRow > i ? 'shadow-[0_-2px_0_0_var(--color-accent)]' : 'shadow-[0_2px_0_0_var(--color-accent)]'),
+              )}
             >
               <GripVertical className="size-4 shrink-0 cursor-grab text-faint" aria-hidden />
               <button className="flex-1 text-left" onClick={() => { setSelected(i); setTool('select'); }}>Frame {i + 1}</button>

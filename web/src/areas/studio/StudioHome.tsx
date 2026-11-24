@@ -7,7 +7,7 @@ import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { Avatar, Badge, Button, Card, EmptyState, ErrorState, Field, FormRow, Input, LinkButton, Modal, Notice, PageHeader, PageLoader, Segmented, Textarea } from '@/ui';
 import { errorMessage } from '@/lib/api';
-import { Q, SignInNeeded, useAct, useBrands, useTitle, Group } from './shared';
+import { Q, SignInNeeded, UnverifiedNotice, VerifyEmailPrompt, isUnverified, useAct, useBrands, useTitle, Group } from './shared';
 import type { StudioBrand } from './shared';
 
 function Pitch() {
@@ -58,7 +58,7 @@ export function CreateBrandForm({ onDone }: { onDone: (b: StudioBrand) => void }
   const submit = (e: FormEvent) => {
     e.preventDefault();
     setError(null);
-    create.mutate(undefined, { onError: (err) => setError(errorMessage(err)) });
+    create.mutate(undefined, { onError: (err) => !isUnverified(err) && setError(errorMessage(err)) });
   };
   const shownSlug = slug ?? slugify(name);
   return (
@@ -115,7 +115,13 @@ export function StudioHome() {
   const { user } = useSession();
   const brands = useBrands(Boolean(user));
   if (!user) return <Pitch />;
-  return <Q query={brands}>{(d) => <BrandList brands={d.brands} />}</Q>;
+  return (
+    <>
+      <div className="mb-4 empty:hidden"><UnverifiedNotice /></div>
+      <Q query={brands}>{(d) => <BrandList brands={d.brands} />}</Q>
+      <VerifyEmailPrompt />
+    </>
+  );
 }
 
 type Invite = { brand: { id: string; name: string; slug: string; avatar_url: string | null }; role: string; email: string; expires_at: string; for_you: boolean };

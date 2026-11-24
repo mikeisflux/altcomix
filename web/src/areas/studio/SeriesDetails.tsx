@@ -2,13 +2,13 @@ import { useQueryClient } from '@tanstack/react-query';
 import { FolderOpen, Link2, Tags, Users } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
-import { api, errorMessage } from '@/lib/api';
+import { api } from '@/lib/api';
 import { languageLabel, useSession } from '@/lib/session';
 import { Badge, Button, Checkbox, EmptyState, Field, FormRow, IconButton, Input, Modal, MultiSelect, Notice, Select, Switch, TagInput, Textarea, cx, toast } from '@/ui';
 import { ContributorsEditor } from './Contributors';
 import { releasesKey, seriesKey, useReleases, useSeries } from './SeriesEditor';
 import type { Edition, Release, ReleaseList, Series } from './SeriesEditor';
-import { Cover, Q, STATUS_TONE, Section, can, cap, changed, useAct, useDraft, Group } from './shared';
+import { Cover, Q, STATUS_TONE, Section, can, cap, changed, studioError, useAct, useDraft, Group } from './shared';
 
 type Meta = Pick<Series, 'title' | 'description' | 'genre' | 'themes' | 'eras' | 'audiences' | 'art_styles' | 'advisories' | 'content_ratings' | 'tags' | 'allow_comments' | 'update_frequency' | 'mature'>;
 const pickMeta = (s: Series): Meta => ({
@@ -120,7 +120,7 @@ export function BulkReleases({ data }: { data: ReleaseList }) {
       await qc.invalidateQueries({ queryKey: releasesKey(series.id) });
       toast.success(`${releases.length} ${releases.length === 1 ? 'release' : 'releases'} saved`);
     } catch (e) {
-      toast.error(errorMessage(e));
+      studioError(e);
     } finally {
       setSaving(false);
     }

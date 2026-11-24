@@ -3,7 +3,7 @@
 Everything a reader touches: store, reader, library, community, account,
 checkout, membership, codes, embeddable widgets. Source:
 `api/src/routes/{catalog,reader,library,social,account,commerce,widgets}.ts`,
-`api/src/lib/{pricing,ledger,payments}.ts`, `api/src/jobs/{settlement,memberships}.ts`.
+`api/src/lib/{pricing,ledger,payments}.ts`, `api/src/jobs/{settlement,memberships,weekly-digests}.ts`.
 
 ## Conventions
 
@@ -16,8 +16,19 @@ checkout, membership, codes, embeddable widgets. Source:
 - Lists take `?page=` (1-based) and `?limit=`, and return `{ items, total, page, limit }` unless noted.
 - Anywhere a path has `:slug` for a series or brand, the id works too.
 - Statuses used below: `401` signed out, `402` payment needed, `403` not allowed
-  (`code: "mature"` = 18+ gate), `404` not found / not available here, `409` conflict
-  (already owned, already used), `429` slow down.
+  (`code: "mature"` = 18+ gate, `code: "email_unverified"` = confirm your email first),
+  `404` not found / not available here, `409` conflict (already owned, already used), `429` slow down.
+- **Confirmed email.** A signed-in reader whose email is not confirmed gets
+  `403 { "error": "Confirm your email to <do the thing>. We sent a link to <email>.", "code": "email_unverified" }`
+  from: `POST /api/checkout` (every kind: releases, series, bundles, tips, gift cards, credits),
+  `POST /api/membership/start`, `POST /api/comments`, `POST /api/forums/threads`,
+  `POST /api/forums/threads/:id/posts`, `PATCH /api/forums/posts/:id`, `POST /api/reports`,
+  `POST /api/comments/:id/report` and `POST /api/messages`. Reading, following, favouriting,
+  `POST /api/checkout/quote` and `POST /api/codes/redeem` stay open. One helper does it
+  (`requireConfirmedEmail` in `lib/email.ts`). The web app answers the code with a prompt and a
+  "Resend confirmation email" button (`POST /api/auth/resend-verification`, 3 per 15 minutes).
+- `GET /api/bootstrap` → `settings.password_min_length` is the minimum password length the
+  register, reset and change-password endpoints enforce (security settings, default 10).
 
 ### Series card
 
@@ -130,7 +141,7 @@ Brand members and admins also see draft and scheduled releases.
           "status": "free"|"preview"|"locked"|"owned"|"membership"|"owner"|"blocked",
           "model", "release_free", "unlock": null|"owner"|"purchase"|"code"|"subscription",
           "can_download", "free_pages", "locked_pages",
-          "read_price_cents", "read_list_price_cents",          // null when not sold / owned / free
+          "read_price_cents", "read_list_price_cents",          // null when not sold / owned / free (see "Read offer")
           "download_price_cents", "download_list_price_cents",  // null when not sold / already owned
           "in_membership"
         },
@@ -143,7 +154,8 @@ Brand members and admins also see draft and scheduled releases.
   "print_links": [ { "release_id", "title", "number", "kind", "url", "isbn" } ],
   "discount": { "label", "percent_off", "applies_to", "ends_at" } | null,
   "offers": {
-    "series_price_cents", "series_list_price_cents",  // buy every unowned release; null unless 2+
+    "series_price_cents", "series_list_price_cents",  // sum of the read prices above; null unless 2+ releases have one
+    "series_release_ids": ["<release id>"],           // exactly the releases in that sum
     "series_release_count",
     "bundles": [ { "id", "title", "description", "price_cents", "list_price_cents",
                    "includes_download", "release_ids" } ],
@@ -352,7 +364,8 @@ Author object everywhere: `{ "username", "name", "avatar_url" }` or `null` (dele
 
 ### Reports
 
-`POST /api/reports` (user): `{ "target_kind": "series"|"release"|"comment"|"publisher"|"user", "target_id", "reason" (2–80), "detail"? (≤2000) }` → `{ ok: true }`.
+`POST /api/reports` (user, confirmed email): `{ "target_kind": "series"|"release"|"comment"|"publisher"|"user"|"forum_post"|"forum_thread", "target_id", "reason" (2–80), "detail"? (≤2000) }` → `{ ok: true }`.
+404 when the target is gone (a deleted post, or a post in a deleted thread). One open report per person per item.
 One open report per reader per item. Forum posts are not a report target in the
 schema; report the series or the user.
 
@@ -389,11 +402,16 @@ schema; report the series or the user.
 | POST | `/api/messages` | user | Send `{ "to": username, "body" (≤4000) }` |
 
 - Inbox → `{ items: [ { id, with: Author, last_message: { body, mine }, last_message_at, unread } ], unread }`.
-- Conversation → `{ conversation: { id, with: Author | null, can_reply }, messages: [ { id, body, mine, read_at, created_at } ], page, limit }`. `page=1` is the newest page; messages inside a page are oldest first.
-- Send → `{ conversation_id, message }`. Starts the conversation if needed. 403 when
-  the sender's email is not confirmed, or the recipient has `allow_dms` off
-  (unless they wrote first in that conversation). The recipient always gets a
+- Conversation → `{ conversation: { id, with: Author | null, can_reply, cannot_reply_reason: string | null }, messages: [ { id, body, mine, read_at, created_at } ], page, limit }`. `page=1` is the newest page; messages inside a page are oldest first.
+- Send → `{ conversation_id, message }`. Starts the conversation if needed. 403
+  `email_unverified` when the sender's email is not confirmed; 403 when the
+  recipient may not be written to (below). The recipient always gets a
   notification, and the `new_message` email unless `prefs.notify.messages` is false.
+- **Who may be written to** is one rule (`canMessage` in `routes/social.ts`), used for
+  `can_reply` and for sending, so the two never disagree: the other account exists and is
+  not banned, and either it accepts direct messages (`prefs.allow_dms`), or it has itself
+  written in this conversation (you can always answer someone who wrote to you), or the
+  sender is platform staff. When `can_reply` is false, `cannot_reply_reason` says why.
 
 ### Notifications
 
@@ -410,7 +428,23 @@ Kinds written by this area: `purchase`, `refund`, `membership`, `tip`,
 `/account/purchases`, `/account/membership`, `/studio/earnings`.
 
 Emails: replies and mentions are emailed unless `prefs.notify.replies` /
-`.mentions` is false; messages use the `new_message` template.
+`.mentions` is false, through the `notice_reply` / `notice_mention` templates
+(vars `title`, `preview`, `url`); messages use the `new_message` template;
+membership billing notices use `membership_billing` (vars `subject`, `name`,
+`body`, `url`). All are entries in `lib/email.ts` `TEMPLATES`, so /admin can edit them.
+
+### Weekly emails (`jobs/weekly-digests.ts`)
+
+Sent once per ISO week (Monday to Sunday, UTC), about the week before it, the
+first time the job runs in the new week. `digest_sends (kind, week, user_id)`
+is claimed before the email is queued, so a week is never sent twice. Both are
+category `notification` (unsubscribe link in the footer); readers who
+unsubscribed, are suppressed, or have not confirmed their email are skipped.
+
+| Template | Toggle | Who | What |
+|---|---|---|---|
+| `weekly_feed` | `prefs.notify.feed` | readers who follow a series or brand, when something came out | releases published last week by followed series / brands (mature ones only if the reader shows mature titles) |
+| `weekly_analytics` | `prefs.notify.analytics` | owners and admins of a brand, when a brand had any activity in the last two weeks | per brand: readers, page reads and earnings (ledger sales, tips, membership shares, less refunds) for the week against the week before |
 
 ### Feedback and community feed
 
@@ -441,6 +475,12 @@ The creators directory is `GET /api/brands`.
 | POST | `/api/account/delete` | user | Delete the account |
 | GET | `/api/account/wallet` | user | Store credit, page credits, log |
 | GET | `/api/account/orders` | user | Purchases with their lines |
+| GET | `/api/account/membership-payments` | user | Membership charges |
+| GET | `/api/account/2fa` | user | Two-factor sign-in status |
+| POST | `/api/account/2fa/begin` | user | Start (or restart) setup |
+| POST | `/api/account/2fa/confirm` | user | `{ "code" }` → turns it on, returns backup codes once |
+| POST | `/api/account/2fa/backup-codes` | user | `{ "code" }` → new backup codes |
+| POST | `/api/account/2fa/disable` | user | `{ "password", "code" }` |
 | GET | `/api/account/gift-cards` | user | Gift cards bought / redeemed |
 | GET | `/api/users/:username` | public | Public profile |
 
@@ -477,7 +517,26 @@ Prefs = { "show_mature": false, "reading_language": null /* any */, "interface_l
   the only owner of a brand.
 - Wallet → `{ wallet: { credit_cents, page_credits, updated_at }, page_credit_cents, log: [ { id, kind, credit_cents, page_credits, note, created_at } ], total, page, limit }`.
   Log kinds: `gift_card`, `purchase`, `refund`, `credits_purchase`, `credits_code`, `page_unlock`.
-- Orders → `{ items: [ { id, status: "paid"|"refunded", total_cents, credit_cents, charged_cents, provider, created_at, paid_at, refunded_at, items: [ { id, kind, description, price_cents, release_id, series_id, publisher_id, bundle_id } ] } ], total, page, limit }`.
+- Orders → `{ items: [ { id, status: "paid"|"refunded", total_cents, credit_cents, charged_cents, refunded_cents, provider, created_at, paid_at, refunded_at, items: [ OrderLine ] } ], total, page, limit }`.
+  `refunded_cents` is what has gone back to the card: the whole charge for a refunded order, the sum of partial refunds for a paid one.
+
+```jsonc
+OrderLine = { "id", "kind", "description", "price_cents",
+              "release_id", "series_id", "publisher_id", "bundle_id",   // as stored; null when not applicable
+              "series_slug", "series_title",        // link the line to /series/<slug>; null for tips, gift cards, credits, multi-series bundles
+              "publisher_slug", "publisher_name",   // the brand (tips link to /b/<slug>)
+              "release_ids": ["<release id>"] }     // every release the line covers (series and bundle lines list them all)
+```
+
+- Membership payments → `{ items: [ { id, status: "pending"|"paid"|"failed"|"refunded", amount_cents, plan, provider, period_start, period_end, date, paid_at, refunded_at, retrying, next_attempt_at } ], total, page, limit }`,
+  newest first. `date` is when it was paid (else when it was raised). `retrying` = a declined renewal that will be tried again at `next_attempt_at`.
+- Two-factor sign-in (any account; the same flow staff have under `/api/admin/security/2fa/*`):
+  - `GET /api/account/2fa` → `{ enabled, enrolment_pending, backup_codes_left }`.
+  - `begin` → `{ secret, otpauth_url, qr_data_url }` (PNG data URL of the QR code). 409 if already on. Nothing is enforced yet.
+  - `confirm { code }` (6 digits from the app) → `{ ok, backup_codes: [10 strings] }`. The codes are returned this once; only SHA-256 hashes are kept in `users.totp_backup_codes`.
+  - `backup-codes { code }` → `{ ok, backup_codes }`; the old set stops working.
+  - `disable { password, code }` (`code` = app code or an unused backup code) → `{ ok, setup_required }` (`setup_required` only for staff when admin 2FA is mandatory).
+  - Once on, `POST /api/auth/login` answers `401 code: "totp_required"` until `totp` (app code or backup code; a backup code is used up) is sent with the password.
 - Gift cards → `{ bought: [ { id, code, amount_cents, balance_cents, recipient_email, message, redeemed, redeemed_at, created_at } ], redeemed: [ { id, amount_cents, redeemed_at } ] }`.
 - Public profile → `{ user: { id, username, name, bio, avatar_url, joined_at, accepts_messages, is_me }, brands: [ { slug, name, kind, role, avatar_url } ], favorites: [Card] }`.
 
@@ -487,11 +546,12 @@ Prefs = { "show_mature": false, "reading_language": null /* any */, "interface_l
 
 | Method | Path | Auth | |
 |---|---|---|---|
-| POST | `/api/checkout` | user | Price a basket and start paying |
+| POST | `/api/checkout/quote` | user | Price a basket: no side effects |
+| POST | `/api/checkout` | user (confirmed email) | Price a basket and start paying |
 | GET | `/api/orders/:id[?session_id=cs_...]` | user (owner) | Order status / receipt |
 | POST | `/api/checkout/confirm` | user | Confirm any hosted session `{ session_id }` |
 | GET | `/api/membership[?session_id=cs_...]` | user | Plans + my membership |
-| POST | `/api/membership/start` | user | `{ "plan": "monthly"|"annual" }` |
+| POST | `/api/membership/start` | user (confirmed email) | `{ "plan": "monthly"|"annual", "next"?: "/same-site/path" }` |
 | POST | `/api/membership/cancel` | user | Stop renewing |
 | POST | `/api/membership/resume` | user | Undo a cancel |
 | POST | `/api/membership/payment-method` | user | Replace the saved card |
@@ -508,7 +568,7 @@ Prefs = { "show_mature": false, "reading_language": null /* any */, "interface_l
     { "kind": "download", "id": "<release id>" },            // download (includes reading)
     { "kind": "series",   "id": "<series slug or id>" },     // every published, unowned, priced release
     { "kind": "bundle",   "id": "<bundle id>" },
-    { "kind": "tip",      "id": "<brand slug or id>", "amount_cents": 500, "message"?, "show_amount"? },
+    { "kind": "tip",      "id": "<brand slug or id, or series slug or id>", "amount_cents": 500, "message"?, "show_amount"? },
     { "kind": "gift_card", "amount_cents": 2500, "recipient_email"?, "message"? },
     { "kind": "credits",  "quantity": 100 }                  // page credits
   ],
@@ -522,12 +582,49 @@ Response: `{ "url": "https://…", "order_id" }` when the reader must be sent to
 the hosted checkout, or `{ "completed": true, "order_id", "return_to" }` when
 nothing more is needed (sandbox, or fully covered by store credit / a 100% code).
 
+A tip's `id` is the brand's slug or id (what the store's tip dialog sends); a
+series slug or id is also accepted and tips the brand that publishes it (a brand
+wins if a brand and a series share a slug). Anything else is
+`404 No brand or series matches "<id>". …`; a suspended brand is 404 and a brand
+with tips off is 400, each saying so.
+
 All prices are worked out on the server (see Pricing). Limits: tip 1.00–1,000.00,
 gift card 5.00–500.00, credits 1–5000, and a card payment must be at least 0.50
 (`code: "below_minimum"`). Errors: 409 already owned; 400 not for sale / free to
 read / same item twice / code problems (`code_invalid`, `code_expired`,
 `code_inactive`, `code_used_up`, `code_wrong_kind`, `code_not_applicable`);
 503 `payments_not_configured`.
+
+### POST /api/checkout/quote
+
+Same body as `POST /api/checkout` (`return_to` is ignored). Runs the same
+pricing function (`priceBasket` in `routes/commerce.ts`) and writes nothing: no
+order, no store credit taken, no code used. Use it to show the total before
+paying, and call it again whenever the code or the credit choice changes.
+
+```jsonc
+{
+  "lines": [ { "kind", "description", "release_id", "series_id", "publisher_id", "bundle_id",
+               "list_price_cents",       // before any discount
+               "sale_discount_cents",    // taken off by the brand's sale / download discount
+               "code_discount_cents",    // taken off by the promo code
+               "price_cents" } ],        // what this line costs; same order as `items`
+  "list_price_cents": 699,
+  "discounts": { "sale_cents": 20, "code_cents": 45 },
+  "code": { "code": "SAVE-25", "percent_off": 25 } | null,
+  "total_cents": 634,                    // list − sale − code
+  "credit_available_cents": 150,
+  "credit_applied_cents": 150,           // 0 unless use_credit
+  "amount_due_cents": 484,               // what the card is charged = total − credit applied
+  "problem": null | { "code": "below_minimum", "message" }   // the checkout would refuse this basket as it stands
+}
+```
+
+Errors are the checkout's own (same statuses and codes): an invalid, expired,
+used or inapplicable code is a 400 here, before any payment is started; 409
+already owned; 404 gone. It does not require a confirmed email. Limits: 120
+quotes per 10 minutes, 40 quotes with a code per hour (kept apart from the
+15 real code attempts per hour at checkout).
 
 After the hosted checkout the processor sends the reader to
 `/checkout/return?order=<orderId>&next=<return_to>&session_id=cs_...`
@@ -542,8 +639,9 @@ the processor before answering, so polling this endpoint is enough.
 { "order": { "id", "status": "pending"|"paid"|"failed"|"refunded", "total_cents", "credit_cents",
              "charged_cents", "provider", "created_at", "paid_at", "refunded_at",
              "return_to", "failure": string|null,
-             "items": [ { "id", "kind", "description", "price_cents", "release_id", "series_id",
-                          "publisher_id", "bundle_id" } ] } }
+             "refunded_cents",                       // back on the card so far (whole charge when refunded)
+             "partial_refunds": [ { "amount_cents", "reason", "at" } ],
+             "items": [ OrderLine ] } }              // OrderLine as under Account → Orders
 ```
 
 `POST /api/checkout/confirm { session_id }` does the same for any session and
@@ -576,8 +674,18 @@ rows are written.
   brand's active `discounts` rows that apply (brand-wide or that series;
   `all` / `read` / `download`) and, for downloads, the release's own
   `download_discount_pct`. Rounded to the nearest cent.
-- Whole series = sum of the discounted read prices of every published release
-  that is not owned and not already free for good.
+- **Read offer** (`readOffer`): a release has a read price for this reader only
+  when it is published, not free to read (free series / language edition /
+  country rule, forced free, free date passed, paywall expired, or free under
+  the series preview rule), not already owned (purchase or code), the reader is
+  not on the brand's team, and it has a price. A membership does not remove the
+  price: members can still buy a release to keep. A release that is free for
+  everyone reports `access.status: "free"` for members too.
+- Whole series = the sum of the read offers of every published release, i.e.
+  exactly the releases that show `read_price_cents`. The series page, the
+  reader manifest, the quote and the checkout all call the same function
+  (`seriesPurchase`), for anonymous visitors, signed-in readers, owners of some
+  releases, members and brand staff alike. `offers.series_release_ids` lists them.
 - Bundle = its price, less a brand-wide discount if one applies.
 - A checkout discount code (`promo_codes.kind = 'discount'`) then takes its
   percentage off the lines in its scope (brand, series or release). Never off
@@ -615,11 +723,17 @@ A page credit pays the creators `page_credit_cents × sale share` when it is spe
 }
 ```
 
-- `POST /api/membership/start` → `{ "url", "status": "pending" }` (send the reader
+- `POST /api/membership/start` → `{ "url", "status": "pending", "next" }` (send the reader
   to the hosted card page; it returns them to `/account/membership?session_id=cs_...`,
   and that page calls `GET /api/membership?session_id=...`), or
-  `{ "completed": true, ...membership }` in the sandbox. 409 already a member,
-  402 the first payment was declined.
+  `{ "completed": true, "next", ...membership }` in the sandbox. 409 already a member,
+  402 the first payment was declined, 403 `email_unverified`.
+  `next` is where the reader was heading (e.g. the release they hit the paywall
+  on). Only a same-site path is kept (`/…`, not `//…`); anything else comes back
+  as `null`. It rides in the hosted flow's return URL
+  (`/account/membership?next=<path>&session_id=cs_...`; cancel:
+  `/account/membership?cancelled=1&next=<path>`), and `/account/membership`
+  sends the reader on to it once the session is confirmed `active`.
 - `cancel` → access continues to `current_period_end`, no further charges
   (a `past_due` membership ends at once). `resume` undoes it while the period
   is still running. Both return `{ ok, ...membership }`.
@@ -658,6 +772,31 @@ No body. Spends one page credit on one locked page →
 `{ "ok": true, "page_credits": <balance>, "spent": 1 }`. A page that is already
 readable costs nothing (`spent: 0`). 402 with no credits.
 
+### Partial refunds
+
+`refund.completed` with `partial: true` and `amount` (cents) for an order
+(`partialRefundOrder` in `lib/payments.ts`):
+
+- The order stays `paid` and the reader keeps everything it unlocked.
+- The refund is shared between what the creators earned, what the platform kept
+  and the processing fee in proportion to how the order's total was shared
+  (`refundParts` in `lib/ledger.ts`, largest remainder), so
+  `creator + platform + fee = refund` exactly. Running totals are used, so any
+  number of partial refunds adds up to the cent.
+- Creator part: negative `refund` ledger rows, spread over the order's payees
+  (owner and revenue-split payees) in proportion to what each earned; `gross`
+  goes down by the refund.
+- Recorded on the order: `orders.refunded_cents` (running total) and
+  `orders.meta.partial_refunds[]` = `{ ref, amount_cents, creator_cents, platform_cents, fee_cents, reason, at }`.
+  The reader gets a `refund` notification.
+- Idempotent per `refundId` (without one, the same amount again within ten
+  minutes is treated as a redelivery).
+- When partial refunds reach the whole card charge the order is reversed as a
+  full refund (access removed, store credit returned). A later full refund asks
+  the processor only for what is left and reverses only what still stands.
+- A partial refund of a membership charge changes nothing automatically; the
+  admins are alerted.
+
 ### POST /api/webhooks/divinity
 
 For the processor only. Verifies `X-Webhook-Signature: t=<unix>,v1=<hex>` =
@@ -672,7 +811,7 @@ events that match nothing, so they are not redelivered.
 | `checkout.failed` / `expired` / `canceled` | Pending order failed and reserved store credit returned (ignored when `pledgeAlreadyPaid`) |
 | `payment.succeeded` | Order / membership charge marked paid and captured |
 | `payment.failed`, `payment.requires_action` | Orders stay open (the hosted page allows another card); a membership charge is counted as declined if we had no answer for it |
-| `refund.completed` | Order or membership charge reversed (full refunds only) |
+| `refund.completed` | `partial: false` (or absent): order or membership charge reversed in full. `partial: true` with `amount` (cents): see Partial refunds |
 | `dispute.created`, `chargeback.created` | Same reversal, admins alerted |
 | `test.ping` | Acknowledged |
 

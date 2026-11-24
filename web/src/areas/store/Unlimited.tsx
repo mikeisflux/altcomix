@@ -8,7 +8,7 @@ import { useSession } from '@/lib/session';
 import { Badge, Button, Card, ErrorState, LinkButton, Notice, cx, toast } from '@/ui';
 import { CoverCard } from './cards';
 import type { SeriesCard } from './cards';
-import { SHELF_ITEM, SectionLink, Shelf, safeNext, useLoginLink, useTitle } from './shared';
+import { ConfirmEmailPrompt, SHELF_ITEM, SectionLink, Shelf, isEmailUnverified, safeNext, useLoginLink, useTitle } from './shared';
 
 type Plan = 'monthly' | 'annual';
 type Membership = {
@@ -20,7 +20,7 @@ type Membership = {
     payment_problem: { attempts: number; next_attempt_at: string | null; message: string | null } | null;
   } | null;
 };
-type StartResult = { completed?: boolean; url?: string; status?: string };
+type StartResult = { completed?: boolean; url?: string; status?: string; next?: string | null };
 
 export function Unlimited() {
   const { user, settings, currency, refresh } = useSession();
@@ -39,8 +39,11 @@ export function Unlimited() {
     queryFn: () => api<{ items: SeriesCard[]; total: number }>('/api/series', { query: { access: 'membership', sort: 'popular', limit: 18 } }),
   });
 
+  const [unverified, setUnverified] = useState<string | null>(null);
   const start = useMutation({
-    mutationFn: () => api<StartResult>('/api/membership/start', { json: { plan } }),
+    // `next` goes with the request so the hosted card page can bring the reader back to where they were.
+    mutationFn: () => api<StartResult>('/api/membership/start', { json: { plan, next: safeNext(next, '') || undefined } }),
+    onMutate: () => setUnverified(null),
     onSuccess: async (r) => {
       if (r.url) {
         window.location.assign(r.url);
@@ -49,9 +52,9 @@ export function Unlimited() {
       await refresh();
       await qc.invalidateQueries();
       toast.success(`Welcome to ${m.name}`);
-      nav(safeNext(next, '/browse?access=membership'), { replace: Boolean(next) });
+      nav(safeNext(r.next ?? next, '/browse?access=membership'), { replace: Boolean(next) });
     },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => (isEmailUnverified(e) ? setUnverified(errorMessage(e)) : toast.error(errorMessage(e))),
   });
 
   const yearAtMonthly = m.monthly_cents * 12;
@@ -119,14 +122,16 @@ export function Unlimited() {
             {m.trial_days > 0 && <p className="mt-3 text-sm text-muted">New members get {m.trial_days} days free before the first payment.</p>}
             <div className="mt-5">
               {user ? (
-                <Button variant="primary" size="lg" block loading={start.isPending} onClick={() => start.mutate()}>
+                <Button variant="primary" size="lg" block loading={start.isPending} disabled={!user.email_verified} onClick={() => start.mutate()}>
                   Start {plan === 'annual' ? 'yearly' : 'monthly'} membership · {money(plan === 'annual' ? m.annual_cents : m.monthly_cents, currency)}
                 </Button>
               ) : (
                 <LinkButton to={login} variant="primary" size="lg" block>Sign in to become a member</LinkButton>
               )}
             </div>
-            {user && !user.email_verified && <div className="mt-3"><Notice tone="warn">Confirm your email ({user.email}) so receipts and renewal notices reach you.</Notice></div>}
+            {user && (unverified || !user.email_verified) && (
+              <div className="mt-3"><ConfirmEmailPrompt message={unverified ?? `Confirm your email to start a membership. We sent a link to ${user.email} when you signed up.`} onConfirmed={() => setUnverified(null)} /></div>
+            )}
             {sub && !isMember && <p className="mt-3 text-sm text-muted">Your previous membership ended on {date(sub.current_period_end)}.</p>}
             <p className="mt-3 text-xs text-faint">
               Renews automatically until you cancel. Cancel in two clicks from your account and keep access until the end of the period you paid for. Have a membership code? <Link to="/account/codes" className="link">Redeem it here</Link>.

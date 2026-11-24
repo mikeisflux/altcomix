@@ -159,13 +159,55 @@ export async function creditSubscription(
   return b;
 }
 
+type LedgerKey = { publisher_id: string; series_id: string | null; release_id: string | null };
+const keyOf = (r: LedgerKey) => `${r.publisher_id}|${r.series_id ?? ''}|${r.release_id ?? ''}`;
+
+/** An order's earning rows and what has been reversed so far, summed per (payee, series, release). */
+async function orderLedger(db: Queryable, orderId: string) {
+  const rows = await q<LedgerKey & { reversed: boolean; amount: number; gross: number }>(
+    `select publisher_id, series_id, release_id, (kind = 'refund') as reversed, sum(amount_cents)::int as amount, sum(gross_cents)::int as gross
+       from ledger where order_id = $1 and kind in ('sale','tip','refund') group by 1,2,3,4`,
+    [orderId],
+    db,
+  );
+  const by = new Map<string, LedgerKey & { amount: number; gross: number; back: number; grossBack: number }>();
+  for (const r of rows) {
+    const k = keyOf(r);
+    const e = by.get(k) ?? { publisher_id: r.publisher_id, series_id: r.series_id, release_id: r.release_id, amount: 0, gross: 0, back: 0, grossBack: 0 };
+    if (r.reversed) {
+      e.back -= r.amount;
+      e.grossBack -= r.gross;
+    } else {
+      e.amount += r.amount;
+      e.gross += r.gross;
+    }
+    by.set(k, e);
+  }
+  return [...by.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([key, e]) => ({ key, ...e }));
+}
+
 /**
  * Take back everything an order paid out: one negative `refund` row per
- * original row. Idempotent: rows already reversed are skipped.
+ * original row. Idempotent: rows already reversed are skipped. After partial
+ * refunds only what is still standing is reversed, so the order always nets
+ * to exactly zero.
  */
 export async function reverseOrder(db: Queryable, orderId: string, note: string): Promise<number> {
   const done = await one('select 1 from ledger where order_id = $1 and kind = $2 limit 1', [orderId, 'refund'], db);
-  if (done) return 0;
+  if (done) {
+    let total = 0;
+    for (const e of await orderLedger(db, orderId)) {
+      const amount = e.amount - e.back;
+      const gross = e.gross - e.grossBack;
+      if (!amount && !gross) continue;
+      await db.query(
+        `insert into ledger (publisher_id, kind, amount_cents, gross_cents, series_id, release_id, order_id, note) values ($1,'refund',$2,$3,$4,$5,$6,$7)`,
+        [e.publisher_id, -amount, -gross, e.series_id, e.release_id, orderId, note],
+      );
+      total += amount;
+    }
+    return total;
+  }
   const rows = await q('select publisher_id, amount_cents, gross_cents, series_id, release_id from ledger where order_id = $1 and kind in ($2,$3)', [orderId, 'sale', 'tip'], db);
   let total = 0;
   for (const r of rows) {
@@ -175,6 +217,52 @@ export async function reverseOrder(db: Queryable, orderId: string, note: string)
       [r.publisher_id, -r.amount_cents, -r.gross_cents, r.series_id, r.release_id, orderId, note],
     );
     total += r.amount_cents;
+  }
+  return total;
+}
+
+export type RefundParts = { creator_cents: number; platform_cents: number; fee_cents: number };
+
+/**
+ * How `refundCents` of an order is shared between what the creators earned,
+ * what the platform kept and the processing fee: in proportion to how the
+ * order's total was shared in the first place, and summing to exactly
+ * `refundCents` (largest remainder; ties go creator, platform, fee).
+ * Pass the running total refunded so far to get running totals back.
+ */
+export function refundParts(order: { total_cents: number; fee_cents: number; creator_cents: number }, refundCents: number): RefundParts {
+  const fee = Math.min(order.total_cents, Math.max(0, order.fee_cents));
+  const creator = Math.min(order.total_cents - fee, Math.max(0, order.creator_cents));
+  const platform = order.total_cents - fee - creator;
+  const refund = Math.min(Math.max(0, refundCents), order.total_cents);
+  const [c, p, f] = allocate(refund, [creator, platform, fee], ['a', 'b', 'c']);
+  return { creator_cents: c, platform_cents: p, fee_cents: f };
+}
+
+/**
+ * Bring the creator side of an order to "`creatorBackCents` of earnings and
+ * `grossBackCents` of gross reversed in total", spread over its ledger rows in
+ * proportion to what each earned. Writes only the difference from what earlier
+ * refunds already reversed, so calling it with running totals is exact however
+ * many partial refunds there are. Returns the creator cents reversed by this call.
+ */
+export async function reverseOrderPartly(db: Queryable, orderId: string, creatorBackCents: number, grossBackCents: number, note: string): Promise<number> {
+  const rows = await orderLedger(db, orderId);
+  if (!rows.length) return 0;
+  const earned = rows.reduce((n, r) => n + r.amount, 0);
+  const gross = rows.reduce((n, r) => n + r.gross, 0);
+  const amounts = allocate(Math.min(creatorBackCents, earned), rows.map((r) => Math.max(0, r.amount)), rows.map((r) => r.key));
+  const grosses = allocate(Math.min(grossBackCents, gross), rows.map((r) => Math.max(0, r.gross)), rows.map((r) => r.key));
+  let total = 0;
+  for (const [i, r] of rows.entries()) {
+    const amount = amounts[i] - r.back;
+    const g = grosses[i] - r.grossBack;
+    if (!amount && !g) continue;
+    await db.query(
+      `insert into ledger (publisher_id, kind, amount_cents, gross_cents, series_id, release_id, order_id, note) values ($1,'refund',$2,$3,$4,$5,$6,$7)`,
+      [r.publisher_id, -amount, -g, r.series_id, r.release_id, orderId, note],
+    );
+    total += amount;
   }
   return total;
 }

@@ -2,13 +2,13 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
-import { api, errorMessage } from '@/lib/api';
+import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { Badge, Button, Checkbox, EmptyState, Field, FormRow, IconButton, Input, MoneyInput, Notice, Segmented, Select, Switch, cx, toast } from '@/ui';
 import { SaveBar } from './SeriesDetails';
 import { releasesKey, seriesKey, useReleases, useSeries } from './SeriesEditor';
 import type { CountryRule, FreePreview, Release, ReleaseList, Series } from './SeriesEditor';
-import { COUNTRIES, Q, STATUS_TONE, Section, bps, can, cap, changed, countryName, fromLocalInput, toLocalInput, useAct, useDraft, Group } from './shared';
+import { COUNTRIES, Q, STATUS_TONE, Section, bps, can, cap, changed, countryName, fromLocalInput, toLocalInput, studioError, useAct, useDraft, Group } from './shared';
 
 const AUTOMATIC_PAGES = 5;
 const MODES: { mode: FreePreview['mode']; label: string; help: string }[] = [
@@ -216,7 +216,7 @@ function PriceTable({ data }: { data: ReleaseList }) {
       await qc.invalidateQueries({ queryKey: releasesKey(series.id) });
       toast.success(`Prices saved for ${count} ${count === 1 ? 'release' : 'releases'}`);
     } catch (e) {
-      toast.error(errorMessage(e));
+      studioError(e);
     } finally {
       setSaving(false);
     }

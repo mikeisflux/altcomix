@@ -221,6 +221,20 @@ export async function renumberPages(db: Queryable, releaseId: string): Promise<v
   await db.query('update releases set page_count = (select count(*) from pages where release_id = $1), updated_at = now() where id = $1', [releaseId]);
 }
 
+/** Move the pages whose ingest key matches `keyLike` (kept in their own order) so the first of them lands at `position`. */
+async function movePagesTo(releaseId: string, keyLike: string, position: number): Promise<void> {
+  await tx(async (db) => {
+    await db.query('select id from releases where id = $1 for update', [releaseId]);
+    const rows = (await db.query('select id, ingest_key like $2 as moving from pages where release_id = $1 order by position, created_at, id', [releaseId, keyLike])).rows as { id: string; moving: boolean | null }[];
+    const moving = rows.filter((r) => r.moving).map((r) => r.id);
+    if (!moving.length) return;
+    const rest = rows.filter((r) => !r.moving).map((r) => r.id);
+    const at = Math.max(0, Math.min(rest.length, position - 1));
+    const ids = [...rest.slice(0, at), ...moving, ...rest.slice(at)];
+    await db.query('update pages p set position = x.ord from unnest($1::uuid[]) with ordinality as x(id, ord) where p.id = x.id', [ids]);
+  });
+}
+
 type NewPage = { releaseId: string; file: string; filename: string; ingestKey: string; archiveId?: string | null; dpi?: number | null };
 
 /** Store one page image with its variants and append it to the release. Safe to call twice. */
@@ -538,6 +552,7 @@ async function runIngest(job: Row): Promise<void> {
   const releaseId = job.release_id as string;
   const payload = job.payload as {
     source: 'images' | 'archive'; items?: { key: string; filename: string }[]; archive_id?: string; filename?: string; replace?: boolean;
+    replace_at?: number | null;
   };
   const store = await storage();
   const dir = await tempDir();
@@ -580,6 +595,13 @@ async function runIngest(job: Row): Promise<void> {
           `select id from pages where release_id = $1 and archive_id = $2 and (ingest_key is null or ingest_key not like $3)`,
           [releaseId, archive.id, `${job.id}:%`],
         );
+        // The fresh pages take the place of the old ones in the reading order, not the end of the release.
+        // Remembered on the job, so a run resumed after the old pages are gone still knows where they were.
+        if (old.length && payload.replace_at === undefined) {
+          const first = await one<{ at: number }>('select min(position)::int as at from pages where id = any($1::uuid[])', [old.map((o) => o.id)]);
+          payload.replace_at = first?.at ?? undefined;
+          await exec(`update jobs set payload = payload || $2::jsonb where id = $1`, [job.id, JSON.stringify({ replace_at: payload.replace_at ?? null })]);
+        }
         await deletePages(releaseId, old.map((o) => o.id));
       }
 
@@ -623,6 +645,7 @@ async function runIngest(job: Row): Promise<void> {
         }
       }
     }
+    if (payload.replace && payload.replace_at) await movePagesTo(releaseId, `${job.id}:%`, payload.replace_at);
     await refreshReleaseCover(releaseId);
     await exec(`update jobs set payload = payload || $2::jsonb where id = $1`, [job.id, JSON.stringify({ skipped, pages_added: made })]);
   } finally {

@@ -6,9 +6,9 @@ import { Link } from 'react-router';
 import { api, errorMessage } from '@/lib/api';
 import { date, money, moneyExact } from '@/lib/format';
 import { useSession } from '@/lib/session';
-import { Badge, Button, Card, ErrorState, Field, Input, LinkButton, MoneyInput, Notice, Segmented, Skeleton, Textarea, toast } from '@/ui';
+import { Badge, Button, Card, ErrorState, Field, Input, LinkButton, MoneyInput, Segmented, Skeleton, Textarea, toast } from '@/ui';
 import { CreditChoice, startCheckout } from './Checkout';
-import { useLoginLink, useTitle } from './shared';
+import { ConfirmEmailPrompt, isEmailUnverified, useLoginLink, useTitle } from './shared';
 
 type Bought = { id: string; code: string; amount_cents: number; balance_cents: number; recipient_email: string | null; message: string | null; redeemed: boolean; created_at: string };
 
@@ -28,6 +28,7 @@ export function GiftCards() {
   const [useCredit, setUseCredit] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [unverified, setUnverified] = useState<string | null>(null);
 
   const mine = useQuery({ queryKey: ['gift-cards', user?.id], queryFn: () => api<{ bought: Bought[] }>('/api/account/gift-cards'), enabled: Boolean(user) });
 
@@ -40,6 +41,7 @@ export function GiftCards() {
     if (problem) return setError(problem);
     setBusy(true);
     setError(null);
+    setUnverified(null);
     try {
       const completed = await startCheckout({
         items: [{ kind: 'gift_card', amount_cents: cents, recipient_email: email.trim() || undefined, message: message.trim() || undefined }],
@@ -52,7 +54,8 @@ export function GiftCards() {
       setEmail('');
       setMessage('');
     } catch (err) {
-      setError(errorMessage(err));
+      if (isEmailUnverified(err)) setUnverified(errorMessage(err));
+      else setError(errorMessage(err));
     }
     setBusy(false);
   };
@@ -105,13 +108,13 @@ export function GiftCards() {
             {user && <CreditChoice total={cents} checked={useCredit} onChange={setUseCredit} />}
             {error && <ErrorState message={error} />}
             {user ? (
-              <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={Boolean(problem)}>
+              <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={Boolean(problem) || !user.email_verified}>
                 Buy gift card{cents >= MIN && !problem ? ` · ${moneyExact(cents - credit, currency)}` : ''}
               </Button>
             ) : (
               <LinkButton to={login} variant="primary" size="lg" block>Sign in to buy a gift card</LinkButton>
             )}
-            {user && !user.email_verified && <Notice tone="warn">Confirm your email ({user.email}) so the receipt reaches you.</Notice>}
+            {user && (unverified || !user.email_verified) && <ConfirmEmailPrompt message={unverified ?? `Confirm your email to buy gift cards. We sent a link to ${user.email} when you signed up.`} onConfirmed={() => setUnverified(null)} />}
           </form>
         </Card>
 

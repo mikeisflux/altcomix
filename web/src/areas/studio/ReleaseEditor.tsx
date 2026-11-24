@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
-import { api, errorMessage, upload } from '@/lib/api';
+import { api, upload } from '@/lib/api';
 import { bytes, dateTime } from '@/lib/format';
 import { languageLabel, useSession } from '@/lib/session';
 import {
@@ -15,7 +15,7 @@ import {
 import { ContributorsEditor } from './Contributors';
 import { releasesKey, seriesKey } from './SeriesEditor';
 import type { Contributor, Release } from './SeriesEditor';
-import { CopyButton, FileButton, PAGE_TYPES, Q, STATUS_TONE, Section, can, cap, changed, fromLocalInput, toLocalInput, useAct, useBrand, useDraft, useTitle, Group } from './shared';
+import { CopyButton, FileButton, PAGE_TYPES, Q, STATUS_TONE, Section, can, cap, changed, fromLocalInput, toLocalInput, studioError, useAct, useBrand, useDraft, useTitle, Group } from './shared';
 
 type ReleaseDetail = {
   release: Release;
@@ -304,7 +304,7 @@ function PageGrid({ d, data, editable, base }: { d: ReleaseDetail; data: Pages; 
       await api(`/api/studio/releases/${r.id}/pages/order`, { method: 'PUT', json: { ids } });
       toast.success('Page order saved');
     } catch (e) {
-      toast.error(errorMessage(e));
+      studioError(e);
     }
     for (const key of inv) await qc.invalidateQueries({ queryKey: key });
   };
@@ -439,7 +439,7 @@ function Workspace({ d, editable, base }: { d: ReleaseDetail; editable: boolean;
       await qc.invalidateQueries({ queryKey: k.jobs });
       await qc.invalidateQueries({ queryKey: k.archives });
     } catch (e) {
-      toast.error(errorMessage(e));
+      studioError(e);
     } finally {
       setUploading(null);
     }

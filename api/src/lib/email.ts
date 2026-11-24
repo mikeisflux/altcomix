@@ -199,7 +199,7 @@ export const TEMPLATES: Record<string, { subject: string; html: string; vars: st
     category: 'transactional',
   },
   weekly_feed: {
-    subject: 'Your week on {{site}}: {{count}} new from what you follow',
+    subject: 'New this week from what you follow: {{count}}',
     html: '<p>Hi {{name}},</p><p>Here is what came out between {{from}} and {{to}} from the series and creators you follow.</p>{{items}}{{button:Open your feed|url}}<p>You can turn this weekly summary off in your account settings.</p>',
     vars: ['name', 'count', 'from', 'to', 'items', 'url', 'site'],
     category: 'notification',

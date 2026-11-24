@@ -1,10 +1,10 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { CalendarDays, Coins, IdCard, Landmark, Share2, Trash2, UsersRound } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { Link, useNavigate, useParams } from 'react-router';
 import { api } from '@/lib/api';
-import { date, dateTime } from '@/lib/format';
+import { date, dateTime, moneyExact, plural } from '@/lib/format';
 import { useSession } from '@/lib/session';
 import { Avatar, Badge, Button, Field, FormRow, IconButton, Input, MoneyInput, Notice, Segmented, Select, SideNav, Switch, Table, Textarea, toast, useConfirm } from '@/ui';
 import { SaveBar } from './SeriesDetails';
@@ -298,11 +298,66 @@ function Conventions() {
   );
 }
 
+type Deletion = { balance_cents: number; open_payouts: number; open_payout_cents: number; series_count: number; published_release_count: number; owned_copies: number; usable_codes: number; can_delete: boolean; blockers: string[] };
+
+function DeleteBrand() {
+  const { brand, role } = useBrand();
+  const { refresh, currency } = useSession();
+  const nav = useNavigate();
+  const qc = useQueryClient();
+  const [typed, setTyped] = useState('');
+  const owner = role === 'owner';
+  const state = useQuery({ queryKey: ['studio', 'brand-deletion', brand.id], queryFn: () => api<Deletion>(`/api/studio/brands/${brand.id}/deletion`), enabled: owner });
+  const del = useAct(() => api(`/api/studio/brands/${brand.id}`, { method: 'DELETE' }), {
+    success: `${brand.name} has been deleted`,
+    // Leave the brand's screens first: nothing about it can be loaded any more.
+    onDone: async () => {
+      nav('/studio', { replace: true });
+      await refresh();
+      await qc.invalidateQueries({ queryKey: ['studio', 'brands'], exact: true });
+    },
+  });
+  if (!owner) return <Notice tone="info">Only an owner of this brand can delete it.</Notice>;
+  const matches = typed.trim() === brand.name;
+  return (
+    <Section title="Delete this brand" description="Takes the brand and everything published under it off AltComix. This cannot be undone from the Studio.">
+      <Q query={state}>
+        {(d) => (
+          <div className="space-y-4">
+            <div>
+              <h3 className="mb-2 text-sm font-semibold">What happens when you delete {brand.name}</h3>
+              <ul className="list-disc space-y-1.5 pl-5 text-sm text-muted">
+                <li><strong className="text-paper">Series.</strong> {d.series_count === 0 ? 'This brand has no series.' : <>All of its series ({plural(d.series_count, 'series', 'series')}, {plural(d.published_release_count, 'published release')}) are removed from the store, search and your brand page, and direct links stop working.</>}</li>
+                <li><strong className="text-paper">Readers.</strong> {d.owned_copies === 0 ? 'Nobody owns a release from this brand yet, so no reader loses anything.' : <>Readers hold {plural(d.owned_copies, 'bought or redeemed copy', 'bought or redeemed copies')} of your releases. Those releases disappear from their libraries and can no longer be read or downloaded. Readers are not refunded and are not told automatically.</>}</li>
+                <li><strong className="text-paper">Earnings owed.</strong> A brand cannot be deleted while it is owed money. {d.balance_cents > 0 || d.open_payouts > 0 ? <>Right now the balance is {moneyExact(d.balance_cents, currency)}{d.open_payouts > 0 ? <> and {plural(d.open_payouts, 'payout')} ({moneyExact(d.open_payout_cents, currency)}) {d.open_payouts === 1 ? 'is' : 'are'} still being processed</> : null}.</> : 'Nothing is owed at the moment: the balance is zero and no payout is in progress.'} The record of past earnings and payouts is kept.</li>
+                <li><strong className="text-paper">Codes.</strong> {d.usable_codes === 0 ? 'This brand has no unused codes.' : <>{plural(d.usable_codes, 'unused code')} {d.usable_codes === 1 ? 'stops' : 'stop'} working: codes that unlock your releases have nothing left to unlock, and discount codes no longer apply to anything.</>} Releases already unlocked with a code are removed from libraries like any other copy.</li>
+                <li><strong className="text-paper">Team and address.</strong> Everyone on the team loses access to this brand in the Studio. The address /{brand.slug} is not freed for another brand.</li>
+              </ul>
+            </div>
+            {d.blockers.length > 0 ? (
+              <Notice tone="warn" action={<Link className="link" to={`/studio/${brand.slug}/earnings`}>Open earnings</Link>}>
+                <strong>This brand cannot be deleted yet.</strong> {d.blockers.join(' ')}
+              </Notice>
+            ) : (
+              <form className="space-y-3" onSubmit={(e: FormEvent) => { e.preventDefault(); if (matches) del.mutate(); }}>
+                <Field label={<>Type the brand name, <strong>{brand.name}</strong>, to confirm</>} className="max-w-md">
+                  <Input value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" spellCheck={false} />
+                </Field>
+                <Button type="submit" variant="danger" icon={<Trash2 className="size-4" />} disabled={!matches} loading={del.isPending}>Delete {brand.name} for good</Button>
+              </form>
+            )}
+          </div>
+        )}
+      </Q>
+    </Section>
+  );
+}
+
 export function SettingsPage() {
   const { brand, role } = useBrand();
   const { section = 'identity' } = useParams();
   const base = `/studio/${brand.slug}/settings`;
-  const pages: Record<string, () => React.ReactNode> = { identity: () => <Identity />, social: () => <Social />, tips: () => <Tips />, payouts: () => <Payouts />, team: () => <Team />, conventions: () => <Conventions /> };
+  const pages: Record<string, () => React.ReactNode> = { identity: () => <Identity />, social: () => <Social />, tips: () => <Tips />, payouts: () => <Payouts />, team: () => <Team />, conventions: () => <Conventions />, delete: () => <DeleteBrand /> };
   return (
     <BrandPage title="Settings">
       <div className="grid gap-5 md:grid-cols-[200px_minmax(0,1fr)]">
@@ -310,6 +365,7 @@ export function SettingsPage() {
           { title: 'Brand', items: [{ to: base, label: 'Identity', icon: <IdCard />, end: true }, { to: `${base}/social`, label: 'Social links', icon: <Share2 /> }, { to: `${base}/conventions`, label: 'Conventions', icon: <CalendarDays /> }] },
           { title: 'Money', items: [{ to: `${base}/tips`, label: 'Tips', icon: <Coins /> }, { to: `${base}/payouts`, label: 'Payouts', icon: <Landmark /> }] },
           { title: 'People', items: [{ to: `${base}/team`, label: 'Team', icon: <UsersRound /> }] },
+          ...(role === 'owner' ? [{ title: 'Danger zone', items: [{ to: `${base}/delete`, label: 'Delete brand', icon: <Trash2 /> }] }] : []),
         ]} />
         <div className="min-w-0 space-y-5">
           {!can(role, 'admin') && ['identity', 'social', 'tips'].includes(section) && <Notice tone="info">Brand settings can be changed by admins and owners. You can view them.</Notice>}

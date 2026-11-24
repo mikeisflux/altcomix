@@ -3,10 +3,10 @@ import { config } from '../config.ts';
 import { exec, one, q, tx } from '../db.ts';
 import type { Queryable, Row } from '../db.ts';
 import { randomCode } from './crypto.ts';
-import { alertAdmins, button, escapeHtml, layout, queueEmail, sendTemplate } from './email.ts';
+import { alertAdmins, escapeHtml, sendTemplate } from './email.ts';
 import { captureError } from './errors.ts';
 import { HttpError, conflict } from './http.ts';
-import { allocate, creditSale, creditTip, estimateFee, reverseOrder } from './ledger.ts';
+import { allocate, creditSale, creditTip, estimateFee, refundParts, reverseOrder, reverseOrderPartly } from './ledger.ts';
 import { notify } from './notify.ts';
 import { getSetting } from './settings.ts';
 
@@ -522,6 +522,50 @@ export async function reverseOrderBooks(orderId: string, why: { reason: string; 
   return true;
 }
 
+export type PartialRefund = { ref: string | null; amount_cents: number; creator_cents: number; platform_cents: number; fee_cents: number; reason: string; at: string };
+
+/**
+ * Part of an order's card payment went back to the reader (reported by the
+ * processor). The books follow in proportion: of every refunded cent, the
+ * creators, the platform and the processing fee each give back the share
+ * they took of the order, and the three parts add up to exactly the refund.
+ * The reader keeps everything the order unlocked and the order stays `paid`;
+ * `orders.refunded_cents` and `orders.meta.partial_refunds` record it.
+ *
+ * Idempotent per processor refund id. `full` means the refunds now add up to
+ * the whole card charge: nothing is written and the caller treats it as a
+ * full refund (`reverseOrderBooks`), which takes back what was unlocked.
+ */
+export async function partialRefundOrder(orderId: string, a: { amountCents: number; ref?: string | null; reason?: string }): Promise<'applied' | 'duplicate' | 'full' | 'ignored'> {
+  if (!Number.isInteger(a.amountCents) || a.amountCents <= 0) return 'ignored';
+  const reason = (a.reason?.trim() || 'Partly refunded by the payment processor').slice(0, 300);
+  const out = await tx(async (db) => {
+    const o = await one('select * from orders where id = $1 for update', [orderId], db);
+    if (!o || o.status !== 'paid') return { result: 'ignored' as const };
+    const earlier = ((o.meta?.partial_refunds as PartialRefund[] | undefined) ?? []).slice();
+    if (a.ref ? earlier.some((r) => r.ref === a.ref) : earlier.some((r) => !r.ref && r.amount_cents === a.amountCents && Date.parse(r.at) > Date.now() - 600_000)) return { result: 'duplicate' as const };
+    const charge = o.total_cents - o.credit_cents;
+    const running = (o.refunded_cents as number) + a.amountCents;
+    if (running >= charge) return { result: 'full' as const };
+    const earned = await one<{ cents: number }>(`select coalesce(sum(amount_cents), 0)::int as cents from ledger where order_id = $1 and kind in ('sale','tip')`, [orderId], db);
+    // Running totals, so several partial refunds can never drift by a cent.
+    const target = refundParts({ total_cents: o.total_cents, fee_cents: o.fee_cents, creator_cents: earned?.cents ?? 0 }, running);
+    const before = earlier.reduce((n, r) => ({ creator: n.creator + r.creator_cents, platform: n.platform + r.platform_cents, fee: n.fee + r.fee_cents }), { creator: 0, platform: 0, fee: 0 });
+    const creator = await reverseOrderPartly(db, orderId, target.creator_cents, running, `Partial refund: ${reason}`);
+    const entry: PartialRefund = {
+      ref: a.ref ?? null, amount_cents: a.amountCents, creator_cents: creator,
+      platform_cents: target.platform_cents - before.platform, fee_cents: a.amountCents - creator - (target.platform_cents - before.platform),
+      reason, at: new Date().toISOString(),
+    };
+    await db.query(`update orders set refunded_cents = $2, meta = meta || $3::jsonb where id = $1`, [orderId, running, JSON.stringify({ partial_refunds: [...earlier, entry] })]);
+    return { result: 'applied' as const, order: o };
+  });
+  if (out.result === 'applied') {
+    await notify(out.order.user_id, 'refund', 'Part of your order was refunded', `${await money(a.amountCents)} is on its way back to your card. Everything from the order stays in your library.`, `/account/purchases/${orderId}`).catch(() => {});
+  }
+  return out.result;
+}
+
 /**
  * Refund an order in full: ask the processor for the money first, then
  * reverse our books. For the admin panel; `refund.completed` webhooks end in
@@ -533,7 +577,8 @@ export async function refundOrder(orderId: string, opts: { reason?: string } = {
   if (o.status === 'refunded') return { refunded: false };
   if (o.status !== 'paid') throw conflict('Only a paid order can be refunded');
   const reason = opts.reason?.trim() || 'Refunded by support';
-  const charge = o.total_cents - o.credit_cents;
+  // Whatever earlier partial refunds already sent back is not asked for again.
+  const charge = o.total_cents - o.credit_cents - (o.refunded_cents ?? 0);
   if (o.provider === 'divinity' && charge > 0) {
     if (!o.payment_ref) throw conflict('This order has no processor payment reference yet, so it cannot be refunded automatically');
     const r = await (await getProvider('divinity')).refund({ paymentRef: o.payment_ref, id: orderId, amountCents: charge, reason });
@@ -631,8 +676,8 @@ async function welcomeMember(userId: string, plan: string, renews: Date): Promis
 async function memberMail(userId: string, subject: string, body: string): Promise<void> {
   const u = await one<{ email: string; display_name: string }>('select email, display_name from users where id = $1 and deleted_at is null', [userId]);
   if (!u) return;
-  const html = await layout(`<p>Hi ${escapeHtml(u.display_name)},</p><p>${escapeHtml(body)}</p>${button('Manage membership', `${config.appUrl}/account/membership`)}`);
-  await queueEmail({ to: u.email, subject, html, template: 'membership_billing', userId });
+  // Editable in /admin like every other template (lib/email.ts TEMPLATES.membership_billing).
+  await sendTemplate('membership_billing', u.email, { subject, name: u.display_name, body, url: `${config.appUrl}/account/membership` }, { userId });
 }
 
 export async function captureCharge(chargeId: string): Promise<boolean> {
@@ -955,8 +1000,26 @@ export async function handleDivinityEvent(evt: { event?: string; data?: Row }): 
     }
 
     case 'refund.completed': {
-      if (data.partial === true) return say('Partial refund noted; nothing reversed');
       const { order, charge } = await locate(data);
+      if (data.partial === true) {
+        const reason = String(data.reason ?? 'Partly refunded by the payment processor');
+        const amount = Number(data.amount);
+        if (order) {
+          const ref = typeof data.refundId === 'string' && data.refundId ? data.refundId : null;
+          const r = await partialRefundOrder(order.id, { amountCents: amount, ref, reason });
+          if (r === 'applied') return say(`Order ${order.id} partly refunded`);
+          if (r === 'duplicate') return say('Partial refund already applied');
+          // The refunds now cover the whole card charge: handle it as the full refund it has become.
+          if (r === 'full') return say((await reverseOrderBooks(order.id, { reason })) ? `Order ${order.id} refunded` : 'Order already settled');
+          return say('Partial refund ignored: no paid order or no amount');
+        }
+        if (charge) {
+          // A membership period is not divisible in the monthly pots; a person decides what to adjust.
+          await alertAdmins('Membership charge partly refunded', `Membership charge ${charge.id} was partly refunded at the processor (${Number.isFinite(amount) ? await money(amount) : 'amount not given'}). The membership and its creator pots were left as they are; adjust by hand if needed.`).catch(() => {});
+          return say('Partial membership refund noted; nothing reversed');
+        }
+        return say('No matching order');
+      }
       if (order) return say((await reverseOrderBooks(order.id, { reason: String(data.reason ?? 'Refunded by the payment processor') })) ? `Order ${order.id} refunded` : 'Order already settled');
       if (charge) return say((await reverseChargeBooks(charge.id, { reason: String(data.reason ?? 'Refunded by the payment processor') })) ? `Membership charge ${charge.id} refunded` : 'Charge already settled');
       return say('No matching order');

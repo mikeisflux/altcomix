@@ -7,7 +7,7 @@ import { api, errorMessage } from '@/lib/api';
 import { ago } from '@/lib/format';
 import { useSession } from '@/lib/session';
 import { Avatar, Badge, Button, ErrorState, LinkButton, Pagination, Skeleton, Textarea, toast, useConfirm } from '@/ui';
-import { ReportDialog, useLoginLink } from './shared';
+import { ConfirmEmailPrompt, ReportDialog, isEmailUnverified, useLoginLink } from './shared';
 
 type Comment = {
   id: string;
@@ -24,22 +24,27 @@ type Comment = {
 type CommentList = { items: Comment[]; total: number; page: number; limit: number; allow_comments: boolean; can_moderate: boolean };
 
 function Composer({ seriesId, parentId, onDone, autoFocus, label }: { seriesId: string; parentId?: string; onDone: () => void; autoFocus?: boolean; label: string }) {
+  const { user } = useSession();
   const [body, setBody] = useState('');
+  const [unverified, setUnverified] = useState<string | null>(null);
   const post = useMutation({
     mutationFn: () => api('/api/comments', { json: { series_id: seriesId, parent_id: parentId ?? null, body } }),
+    onMutate: () => setUnverified(null),
     onSuccess: () => {
       setBody('');
       toast.success(parentId ? 'Reply posted' : 'Comment posted');
       onDone();
     },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => (isEmailUnverified(e) ? setUnverified(errorMessage(e)) : toast.error(errorMessage(e))),
   });
+  const needsEmail = Boolean(unverified) || Boolean(user && !user.email_verified);
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (body.trim()) post.mutate();
   };
   return (
     <form onSubmit={submit} className="space-y-2">
+      {needsEmail && <ConfirmEmailPrompt message={unverified ?? 'Confirm your email to post comments. We sent a link to your address when you signed up.'} onConfirmed={() => setUnverified(null)} />}
       <Textarea aria-label={label} placeholder={parentId ? 'Write a reply' : 'What did you think? No spoilers without a warning, please.'} value={body} onChange={(e) => setBody(e.target.value)} maxLength={2000} autoFocus={autoFocus} className={parentId ? 'min-h-20' : undefined} />
       <div className="flex justify-end gap-2">
         {parentId && <Button size="sm" variant="ghost" onClick={onDone}>Cancel</Button>}

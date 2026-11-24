@@ -213,7 +213,8 @@ function Splits() {
   );
 }
 
-type Widget = { color: string; size: 'small' | 'medium' | 'large'; sizes: Record<string, { width: number; height: number }>; read_now: { url: string; width: number; height: number; html: string }; series_url: string };
+type Embedded = { url: string; width: number; height: number; html: string };
+type Widget = { color: string; size: 'small' | 'medium' | 'large'; theme: 'light' | 'dark'; label: string; sizes: Record<string, { width: number; height: number }>; available: boolean; unavailable_reason: string | null; read_now: Embedded; card: Embedded; series_url: string };
 
 function Embed() {
   const { series } = useSeries();
@@ -221,31 +222,47 @@ function Embed() {
   const [size, setSize] = useState<'small' | 'medium' | 'large'>('medium');
   const [kind, setKind] = useState<'button' | 'card'>('button');
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
-  const w = useQuery({ queryKey: ['studio', 'widget', series.id, color, size], queryFn: () => api<Widget>(`/api/studio/series/${series.id}/widget`, { query: { color: color.replace('#', ''), size } }), placeholderData: (p) => p });
+  const [label, setLabel] = useState('');
+  const [backdrop, setBackdrop] = useState<'light' | 'dark'>('light');
+  const w = useQuery({
+    queryKey: ['studio', 'widget', series.id, color, size, theme, label.trim()],
+    queryFn: () => api<Widget>(`/api/studio/series/${series.id}/widget`, { query: { color: color.replace('#', ''), size, theme, label: label.trim() } }),
+    placeholderData: (p) => p,
+  });
   // The preview is served by this site, whatever address the embed code points at.
   const local = (url: string) => { const u = new URL(url); return u.pathname + u.search; };
-  const cardUrl = w.data ? `${new URL(w.data.read_now.url).origin}/widgets/card/${series.slug}?color=${color.replace('#', '')}&theme=${theme}` : '';
-  const cardHtml = `<iframe src="${cardUrl}" width="360" height="170" title="${series.title.replace(/"/g, '&quot;').replace(/</g, '&lt;')} on AltComix" style="border:0;overflow:hidden" scrolling="no" loading="lazy"></iframe>`;
-  const html = kind === 'button' ? w.data?.read_now.html ?? '' : cardHtml;
+  const e = w.data ? (kind === 'button' ? w.data.read_now : w.data.card) : null;
   return (
-    <Section id="embed" title="Embed on your website" description="A Read now button or a cover card for your own site. Paste the code where you want it to appear.">
+    <Section id="embed" title="Embed on your website" description="A Read now button or a cover card for your own site or blog. Choose how it looks, then paste the code where you want it to appear. Both open your series page in a new tab.">
       <div className="flex flex-wrap items-end gap-4">
         <Group label="Widget"><Segmented value={kind} onChange={setKind} options={[{ value: 'button', label: 'Read now button' }, { value: 'card', label: 'Cover card' }]} /></Group>
-        <Field label="Button colour"><span className="flex h-10 items-center gap-2"><input type="color" value={color} onChange={(e) => setColor(e.target.value)} className="size-9 cursor-pointer rounded border border-line" /><span className="font-mono text-xs uppercase text-muted">{color}</span></span></Field>
-        {kind === 'button' ? <Group label="Size"><Segmented value={size} onChange={setSize} options={[{ value: 'small', label: 'Small' }, { value: 'medium', label: 'Medium' }, { value: 'large', label: 'Large' }]} /></Group> : <Group label="Card style"><Segmented value={theme} onChange={setTheme} options={[{ value: 'dark', label: 'Dark' }, { value: 'light', label: 'Light' }]} /></Group>}
+        <Field label="Button colour"><span className="flex h-10 items-center gap-2"><input type="color" value={color} onChange={(ev) => setColor(ev.target.value)} className="size-9 cursor-pointer rounded border border-line" /><span className="font-mono text-xs uppercase text-muted">{color}</span></span></Field>
+        {kind === 'button' ? (
+          <>
+            <Group label="Size"><Segmented value={size} onChange={setSize} options={[{ value: 'small', label: 'Small' }, { value: 'medium', label: 'Medium' }, { value: 'large', label: 'Large' }]} /></Group>
+            <Field label="Button text" optional className="w-44"><Input value={label} maxLength={40} placeholder="Read now" onChange={(ev) => setLabel(ev.target.value)} /></Field>
+          </>
+        ) : (
+          <Group label="Card style" hint="Cover, title, your brand name and a Read now button."><Segmented value={theme} onChange={setTheme} options={[{ value: 'dark', label: 'Dark' }, { value: 'light', label: 'Light' }]} /></Group>
+        )}
       </div>
-      {w.data && (
+      {w.isError && !w.data && <Notice tone="danger">{(w.error as Error).message}</Notice>}
+      {w.data && e && (
         <>
           <div>
-            <div className="mb-1.5 text-[13px] font-medium">Live preview</div>
-            <div className="flex min-h-24 items-center justify-center overflow-x-auto rounded-xl border border-line bg-paper/90 p-4">
-              {kind === 'button' ? <iframe key={w.data.read_now.url} src={local(w.data.read_now.url)} width={w.data.read_now.width} height={w.data.read_now.height} title="Read now button preview" style={{ border: 0, colorScheme: 'light' }} /> : <iframe key={cardUrl} src={local(cardUrl)} width={360} height={170} title="Cover card preview" style={{ border: 0, maxWidth: '100%', colorScheme: 'light' }} />}
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <span className="text-[13px] font-medium">Live preview</span>
+              <Segmented size="sm" value={backdrop} onChange={setBackdrop} options={[{ value: 'light', label: 'On a light page' }, { value: 'dark', label: 'On a dark page' }]} />
             </div>
-            {series.visibility === 'draft' && <p className="mt-1.5 text-xs text-warn">This series is a draft, so the widget shows “not available” until you list it as public or unlisted.</p>}
+            <div className={`flex min-h-24 items-center justify-center overflow-x-auto rounded-xl border border-line p-4 ${backdrop === 'light' ? 'bg-paper/90' : 'bg-ink'}`}>
+              <iframe key={e.url} src={local(e.url)} width={e.width} height={e.height} title={kind === 'button' ? 'Read now button preview' : 'Cover card preview'} scrolling="no" style={{ border: 0, maxWidth: '100%', colorScheme: 'light' }} />
+            </div>
+            {w.data.unavailable_reason && <p className="mt-1.5 text-xs text-warn">{w.data.unavailable_reason}</p>}
           </div>
           <div>
-            <div className="mb-1.5 flex items-center justify-between gap-2"><span className="text-[13px] font-medium">Embed code</span><CopyButton text={html} label="Copy code" /></div>
-            <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-xl border border-line bg-ink p-3 font-mono text-xs text-muted">{html}</pre>
+            <div className="mb-1.5 flex items-center justify-between gap-2"><span className="text-[13px] font-medium">Embed code</span><CopyButton text={e.html} label="Copy code" /></div>
+            <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-xl border border-line bg-ink p-3 font-mono text-xs text-muted">{e.html}</pre>
+            <p className="mt-1.5 text-xs text-faint">{kind === 'card' ? 'The card is 360 pixels wide at most and narrows to fit a smaller column.' : 'The button keeps the size you chose.'} The widget runs no scripts and sets no cookies on your site.</p>
           </div>
         </>
       )}

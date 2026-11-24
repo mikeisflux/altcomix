@@ -1,11 +1,11 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { ChevronDown, SearchX, SlidersHorizontal, X } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { api, errorMessage } from '@/lib/api';
-import { number } from '@/lib/format';
+import { money, number } from '@/lib/format';
 import { languageLabel, useSession } from '@/lib/session';
-import { Button, Checkbox, EmptyState, ErrorState, Modal, Pagination, Select, cx } from '@/ui';
+import { Button, Checkbox, EmptyState, ErrorState, Modal, MoneyInput, Pagination, Select, cx } from '@/ui';
 import { CoverCard, CoverGrid } from './cards';
 import type { SeriesCard } from './cards';
 import { GridSkeleton, useTitle } from './shared';
@@ -33,7 +33,7 @@ const SORTS = [
 
 const sentence = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
-function Group({ title, count, children, defaultOpen }: { title: string; count: number; children: React.ReactNode; defaultOpen?: boolean }) {
+function Group({ title, count, children, defaultOpen, fit }: { title: string; count: number; children: React.ReactNode; defaultOpen?: boolean; fit?: boolean }) {
   const [open, setOpen] = useState(Boolean(defaultOpen) || count > 0);
   return (
     <div className="border-b border-line last:border-0">
@@ -41,19 +41,65 @@ function Group({ title, count, children, defaultOpen }: { title: string; count: 
         <span>{title}{count > 0 && <span className="ml-2 rounded-full bg-accent-soft px-1.5 py-0.5 text-[11px] text-accent-hover">{count}</span>}</span>
         <ChevronDown className={cx('size-4 text-muted transition-transform', open && 'rotate-180')} aria-hidden />
       </button>
-      {open && <div className="max-h-64 space-y-2.5 overflow-y-auto pb-4 pr-1">{children}</div>}
+      {open && <div className={cx('space-y-2.5 pb-4 pr-1', !fit && 'max-h-64 overflow-y-auto')}>{children}</div>}
     </div>
   );
 }
 
+/** `price_min` / `price_max` in the URL are whole cents; anything else is ignored. */
+function cents(v: string | null): number | null {
+  if (v === null || v === '' || !/^\d{1,7}$/.test(v)) return null;
+  return Number(v);
+}
+
+/**
+ * Lowest and highest price of a series' cheapest release (free series count
+ * as 0). Typed amounts are applied together, so a half-typed number never
+ * runs a search.
+ */
+function PriceRange({ min, max, onApply }: { min: number | null; max: number | null; onApply: (min: number | null, max: number | null) => void }) {
+  const [lo, setLo] = useState<number | null>(min);
+  const [hi, setHi] = useState<number | null>(max);
+  useEffect(() => {
+    setLo(min);
+    setHi(max);
+  }, [min, max]);
+  const backwards = lo !== null && hi !== null && lo > hi;
+  const changed = lo !== min || hi !== max;
+  return (
+    <form
+      className="pt-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!backwards) onApply(lo, hi);
+      }}
+    >
+      <fieldset>
+        <legend className="mb-1.5 text-[13px] font-medium">Price range</legend>
+        <div className="flex items-end gap-2">
+          <label className="min-w-0 flex-1 text-xs text-muted">From<MoneyInput cents={lo} onChange={setLo} placeholder="0.00" /></label>
+          <label className="min-w-0 flex-1 text-xs text-muted">To<MoneyInput cents={hi} onChange={setHi} placeholder="Any" /></label>
+        </div>
+        {backwards && <p className="mt-1.5 text-xs text-danger" role="alert">"From" is more than "To".</p>}
+        <div className="mt-2 flex items-center gap-3">
+          <Button type="submit" size="sm" className="h-10" disabled={backwards || !changed}>Apply</Button>
+          {(min !== null || max !== null) && <button type="button" className="link min-h-10 text-[13px]" onClick={() => onApply(null, null)}>Clear</button>}
+        </div>
+      </fieldset>
+    </form>
+  );
+}
+
 export function Browse() {
-  const { meta, settings } = useSession();
+  const { meta, settings, currency } = useSession();
   const [params, setParams] = useSearchParams();
   const [sheet, setSheet] = useState(false);
 
   const q = params.get('q') ?? '';
   const access = params.get('access') ?? '';
   const onSale = params.get('on_sale') === '1';
+  const priceMin = cents(params.get('price_min'));
+  const priceMax = cents(params.get('price_max'));
   const page = Math.max(1, Number(params.get('page')) || 1);
   const sort = params.get('sort') ?? (q ? 'relevance' : 'new');
   const lists = Object.fromEntries(LIST_KEYS.map((k) => [k, (params.get(k) ?? '').split(',').filter(Boolean)])) as Record<ListKey, string[]>;
@@ -77,6 +123,7 @@ export function Browse() {
 
   const query = {
     q, sort: params.get('sort') ?? undefined, page, access, on_sale: onSale ? '1' : undefined,
+    price_min: priceMin ?? undefined, price_max: priceMax ?? undefined,
     ...Object.fromEntries(LIST_KEYS.map((k) => [k, lists[k].join(',')])),
   };
   const result = useQuery({ queryKey: ['browse', query], queryFn: () => api<Result>('/api/series', { query }), placeholderData: keepPreviousData });
@@ -96,6 +143,12 @@ export function Browse() {
   const chips: { label: string; clear: () => void }[] = [
     ...(access ? [{ label: ACCESS.find((a) => a.value === access)?.label ?? access, clear: () => update({ access: null }) }] : []),
     ...(onSale ? [{ label: 'On sale', clear: () => update({ on_sale: null }) }] : []),
+    ...(priceMin !== null || priceMax !== null
+      ? [{
+          label: priceMin !== null && priceMax !== null ? `${money(priceMin, currency)} to ${money(priceMax, currency)}` : priceMin !== null ? `From ${money(priceMin, currency)}` : `Up to ${money(priceMax, currency)}`,
+          clear: () => update({ price_min: null, price_max: null }),
+        }]
+      : []),
     ...LIST_KEYS.flatMap((k) => lists[k].map((v) => ({ label: labelFor(k, v), clear: () => toggle(k, v) }))),
   ];
   const clearAll = () => {
@@ -107,7 +160,7 @@ export function Browse() {
 
   const panel = (
     <div>
-      <Group title="Price" count={(access ? 1 : 0) + (onSale ? 1 : 0)} defaultOpen>
+      <Group title="Price" count={(access ? 1 : 0) + (onSale ? 1 : 0) + (priceMin !== null || priceMax !== null ? 1 : 0)} defaultOpen fit>
         <div role="radiogroup" aria-label="Price" className="space-y-1">
           {ACCESS.map((a) => (
             <label key={a.value} className="flex min-h-9 cursor-pointer items-center gap-2.5 text-sm">
@@ -117,6 +170,7 @@ export function Browse() {
           ))}
         </div>
         <div className="pt-1"><Checkbox checked={onSale} onChange={(v) => update({ on_sale: v ? '1' : null })} label="On sale now" /></div>
+        <PriceRange min={priceMin} max={priceMax} onApply={(lo, hi) => update({ price_min: lo === null ? null : String(lo), price_max: hi === null ? null : String(hi) })} />
       </Group>
       {groups.map((g) => (
         <Group key={g.key} title={g.title} count={lists[g.key].length}>

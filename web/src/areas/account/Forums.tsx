@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, BookOpen, ChevronRight, Lock, LockOpen, MessageSquarePlus, MessagesSquare, Pencil, Pin, PinOff, Rss, Trash2, UserRound } from 'lucide-react';
+import { ArrowLeft, BookOpen, ChevronRight, Flag, Lock, LockOpen, MessageSquarePlus, MessagesSquare, Pencil, Pin, PinOff, Rss, Trash2, UserRound } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
@@ -9,6 +9,8 @@ import { useSession } from '@/lib/session';
 import { Avatar, Badge, Button, Card, EmptyState, ErrorState, Field, Input, LinkButton, Modal, Notice, PageHeader, PageLoader, Pagination, Textarea, cx, toast, useConfirm } from '@/ui';
 import { Cover, ListSkeleton, PersonLink, PlainText, releaseLabel, useTitle } from './shared';
 import type { Person, ReleaseRef, SeriesCard, Thread } from './shared';
+import { ConfirmEmailPrompt, ReportDialog, isEmailUnverified } from '../store/shared';
+import type { ReportTarget } from '../store/shared';
 
 const BOARD_BLURB: Record<string, string> = {
   general: 'Talk about comics, the site and everything around them.',
@@ -236,16 +238,20 @@ function NewThread({ place, onClose }: { place: { board?: string; series_id?: st
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [unverified, setUnverified] = useState<string | null>(null);
   const create = useMutation({
     mutationFn: () => api<{ thread: Thread }>('/api/forums/threads', { json: { board: place.board, series_id: place.series_id, title, body } }),
-    onMutate: () => setError(null),
+    onMutate: () => {
+      setError(null);
+      setUnverified(null);
+    },
     onSuccess: (r) => {
       toast.success('Thread posted');
       void qc.invalidateQueries({ queryKey: ['forums'] });
       void qc.invalidateQueries({ queryKey: ['community'] });
       nav(`/forums/thread/${r.thread.id}`);
     },
-    onError: (e) => setError(errorMessage(e)),
+    onError: (e) => (isEmailUnverified(e) ? setUnverified(errorMessage(e)) : setError(errorMessage(e))),
   });
   return (
     <Modal
@@ -268,6 +274,7 @@ function NewThread({ place, onClose }: { place: { board?: string; series_id?: st
         }}
       >
         {error && <ErrorState message={error} />}
+        {unverified && <ConfirmEmailPrompt message={unverified} onConfirmed={() => setUnverified(null)} />}
         <Field label="Title" hint="A short summary people can scan.">
           <Input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={140} required minLength={3} autoFocus />
         </Field>
@@ -367,11 +374,12 @@ type ThreadDetail = {
   can_reply: boolean;
 };
 
-function PostCard({ post, first, threadKey, onThreadDeleted }: { post: Post; first: boolean; threadKey: unknown[]; onThreadDeleted: () => void }) {
+function PostCard({ post, first, threadKey, onThreadDeleted, onReport }: { post: Post; first: boolean; threadKey: unknown[]; onThreadDeleted: () => void; onReport: () => void }) {
   const qc = useQueryClient();
   const confirm = useConfirm();
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(post.body);
+  const [unverified, setUnverified] = useState<string | null>(null);
   const save = useMutation({
     mutationFn: () => api(`/api/forums/posts/${post.id}`, { method: 'PATCH', json: { body: text } }),
     onSuccess: async () => {
@@ -379,7 +387,7 @@ function PostCard({ post, first, threadKey, onThreadDeleted }: { post: Post; fir
       setEditing(false);
       toast.success('Post updated');
     },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => (isEmailUnverified(e) ? setUnverified(errorMessage(e)) : toast.error(errorMessage(e))),
   });
   const remove = useMutation({
     mutationFn: () => api<{ ok: true; thread_deleted: boolean }>(`/api/forums/posts/${post.id}`, { method: 'DELETE' }),
@@ -415,6 +423,7 @@ function PostCard({ post, first, threadKey, onThreadDeleted }: { post: Post; fir
               if (text.trim()) save.mutate();
             }}
           >
+            {unverified && <ConfirmEmailPrompt message={unverified} onConfirmed={() => setUnverified(null)} />}
             <label className="sr-only" htmlFor={`edit-${post.id}`}>Edit your post</label>
             <Textarea id={`edit-${post.id}`} value={text} onChange={(e) => setText(e.target.value)} maxLength={10000} required autoFocus className="min-h-32" />
             <div className="flex flex-wrap gap-2">
@@ -425,10 +434,11 @@ function PostCard({ post, first, threadKey, onThreadDeleted }: { post: Post; fir
         ) : (
           <PlainText className="text-[15px] leading-relaxed">{post.body}</PlainText>
         )}
-        {!editing && (post.can_edit || post.can_delete) && (
+        {!editing && (post.can_edit || post.can_delete || !post.mine) && (
           <div className="-mb-1 -ml-2 mt-3 flex flex-wrap gap-1">
             {post.can_edit && <Button size="sm" variant="ghost" className="h-10" icon={<Pencil className="size-4" />} onClick={() => setEditing(true)}>Edit</Button>}
             {post.can_delete && <Button size="sm" variant="ghost" className="h-10" icon={<Trash2 className="size-4" />} loading={remove.isPending} onClick={() => void askDelete()}>Delete</Button>}
+            {!post.mine && <Button size="sm" variant="ghost" className="h-10" icon={<Flag className="size-4" />} onClick={onReport}>Report</Button>}
           </div>
         )}
       </Card>
@@ -446,6 +456,8 @@ export function ForumThread() {
   const [params, setParams] = useSearchParams();
   const page = Math.max(1, Number(params.get('page')) || 1);
   const [reply, setReply] = useState('');
+  const [report, setReport] = useState<ReportTarget | null>(null);
+  const [unverified, setUnverified] = useState<string | null>(null);
   const threadKey = ['forums', 'thread', threadId];
   const detail = useQuery({
     queryKey: [...threadKey, page],
@@ -476,6 +488,7 @@ export function ForumThread() {
   };
   const post = useMutation({
     mutationFn: () => api<{ post: Post }>(`/api/forums/threads/${threadId}/posts`, { json: { body: reply } }),
+    onMutate: () => setUnverified(null),
     onSuccess: async (r) => {
       setReply('');
       toast.success('Reply posted');
@@ -484,7 +497,7 @@ export function ForumThread() {
       await qc.invalidateQueries({ queryKey: threadKey });
       nav(`${loc.pathname}${last > 1 ? `?page=${last}` : ''}#post-${r.post.id}`, { replace: true });
     },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => (isEmailUnverified(e) ? setUnverified(errorMessage(e)) : toast.error(errorMessage(e))),
   });
   const moderate = useMutation({
     mutationFn: (patch: { pinned?: boolean; locked?: boolean }) => api<{ pinned: boolean; locked: boolean }>(`/api/forums/threads/${threadId}`, { method: 'PATCH', json: patch }),
@@ -526,6 +539,7 @@ export function ForumThread() {
             <span>Started by {t.author?.name ?? 'a deleted user'} {ago(t.created_at)} · {plural(t.reply_count, 'reply', 'replies')}</span>
           </span>
         }
+        actions={t.author?.username !== user?.username ? <Button size="sm" className="h-10" icon={<Flag className="size-4" />} onClick={() => setReport({ kind: 'forum_thread', id: t.id, name: 'this thread' })}>Report thread</Button> : undefined}
       />
       {d.can_moderate && (
         <div className="mb-5 flex flex-wrap items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2" role="group" aria-label="Moderator tools">
@@ -547,7 +561,7 @@ export function ForumThread() {
         </div>
       )}
       <ol className="space-y-3">
-        {d.posts.map((p, i) => <PostCard key={`${p.id}:${p.edited_at ?? ''}`} post={p} first={page === 1 && i === 0} threadKey={threadKey} onThreadDeleted={gone} />)}
+        {d.posts.map((p, i) => <PostCard key={`${p.id}:${p.edited_at ?? ''}`} post={p} first={page === 1 && i === 0} threadKey={threadKey} onThreadDeleted={gone} onReport={() => setReport({ kind: 'forum_post', id: p.id, name: p.author ? `${p.author.name}'s post` : 'this post' })} />)}
       </ol>
       {d.posts.length === 0 && <EmptyState title="Nothing on this page" action={<Button onClick={() => setParams({})}>Go to the first page</Button>} />}
       <Pagination page={d.page} pages={pages} onPage={(p) => setParams(p > 1 ? { page: String(p) } : {})} />
@@ -567,12 +581,14 @@ export function ForumThread() {
             }}
           >
             {t.locked && <Notice tone="warn">This thread is locked for everyone else. As a moderator you can still reply.</Notice>}
+            {(unverified || !user.email_verified) && <ConfirmEmailPrompt message={unverified ?? 'Confirm your email to post in the forums. We sent a link to your address when you signed up.'} onConfirmed={() => setUnverified(null)} />}
             <label className="sr-only" htmlFor="reply-body">Your reply</label>
             <Textarea id="reply-body" value={reply} onChange={(e) => setReply(e.target.value)} maxLength={10000} placeholder="Write a reply. Mention someone with @username." className="min-h-32" />
             <Button type="submit" variant="primary" loading={post.isPending} disabled={!reply.trim()}>Post reply</Button>
           </form>
         )}
       </section>
+      <ReportDialog target={report} onClose={() => setReport(null)} />
     </div>
   );
 }

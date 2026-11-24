@@ -7,6 +7,7 @@ import { api, errorMessage, upload } from '@/lib/api';
 import { ago, date } from '@/lib/format';
 import { useSession } from '@/lib/session';
 import { Avatar, Badge, Button, Card, CardHeader, Checkbox, ErrorState, Field, FormRow, Input, Modal, Notice, PageHeader, PageLoader, Select, Switch, Textarea, cx, toast, useConfirm } from '@/ui';
+import { TwoFactor } from './TwoFactor';
 import { useTitle } from './shared';
 
 type NotifyKey = 'newsletter' | 'messages' | 'replies' | 'mentions' | 'releases' | 'feed' | 'followers' | 'analytics';
@@ -315,7 +316,7 @@ function PrivacySection({ prefs }: { prefs: Prefs }) {
       <div className="divide-y divide-line">
         <Switch checked={prefs.show_real_name} disabled={save.isPending} onChange={(v) => save.mutate({ show_real_name: v })} label="Show my display name on my profile" description="When off, your profile shows only your username." />
         <Switch checked={prefs.show_donation_amounts} disabled={save.isPending} onChange={(v) => save.mutate({ show_donation_amounts: v })} label="Show my tip amounts" description="When off, creators' supporter lists show that you tipped but not how much." />
-        <Switch checked={prefs.allow_dms} disabled={save.isPending} onChange={(v) => save.mutate({ allow_dms: v })} label="Allow direct messages" description="When off, nobody can start a conversation with you. You can still reply in conversations you start." />
+        <Switch checked={prefs.allow_dms} disabled={save.isPending} onChange={(v) => save.mutate({ allow_dms: v })} label="Allow direct messages" description="When off, nobody can start a conversation with you. People you have written to can still answer in that conversation." />
       </div>
     </Section>
   );
@@ -327,9 +328,9 @@ const EMAILS: { key: NotifyKey; label: string; description: string }[] = [
   { key: 'replies', label: 'Forum and comment replies', description: 'When someone replies to your thread or comment.' },
   { key: 'mentions', label: '@mentions', description: 'When someone mentions your username.' },
   { key: 'releases', label: 'New releases', description: 'When a series or creator you follow publishes.' },
-  { key: 'feed', label: 'Weekly feed summary', description: 'A weekly digest of what happened in the things you follow. This email has not started yet; your choice is saved for when it does.' },
+  { key: 'feed', label: 'Weekly feed summary', description: 'Every Monday: the new releases from the series and creators you follow. Skipped in weeks with nothing new.' },
   { key: 'followers', label: 'New followers', description: 'When someone follows a brand you run.' },
-  { key: 'analytics', label: 'Weekly publishing analytics', description: 'Reads, sales and earnings for the brands you belong to. This email has not started yet; your choice is saved for when it does.' },
+  { key: 'analytics', label: 'Weekly publishing analytics', description: 'Every Monday, for brands you own or administer: readers, page reads and earnings for the week, compared with the week before.' },
 ];
 
 function EmailSection({ account }: { account: Account }) {
@@ -398,7 +399,12 @@ function ChangeEmailSection({ account }: { account: Account }) {
   );
 }
 
-const MIN_PASSWORD = 10;
+/** The real minimum comes with the bootstrap payload (`settings.password_min_length`); 10 is the server default. */
+function usePasswordMinimum(): number {
+  const { settings } = useSession();
+  const n = (settings as { password_min_length?: number }).password_min_length;
+  return typeof n === 'number' && n > 0 ? n : 10;
+}
 
 function Rule({ ok, children }: { ok: boolean; children: ReactNode }) {
   return (
@@ -415,6 +421,7 @@ function PasswordSection({ username }: { username: string }) {
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [again, setAgain] = useState('');
+  const MIN_PASSWORD = usePasswordMinimum();
   const rules = { length: next.length >= MIN_PASSWORD, different: next.length > 0 && next !== current, match: next.length > 0 && next === again };
   const valid = rules.length && rules.different && rules.match && current.length > 0;
   const change = useMutation({
@@ -444,7 +451,7 @@ function PasswordSection({ username }: { username: string }) {
         </Field>
         <FormRow>
           <Field label="New password">
-            <Input type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} required aria-describedby="password-rules" />
+            <Input type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} required minLength={MIN_PASSWORD} aria-describedby="password-rules" />
           </Field>
           <Field label="Confirm new password">
             <Input type="password" autoComplete="new-password" value={again} onChange={(e) => setAgain(e.target.value)} required aria-describedby="password-rules" />
@@ -497,7 +504,9 @@ function SecuritySection() {
   const items = sessions.data?.items ?? [];
   const others = items.filter((s) => !s.current).length;
   return (
-    <Section id="security" title="Security" description="Every browser and device where your account is signed in right now.">
+    <Section id="security" title="Security" description="A second step when you sign in, and every browser and device where your account is signed in right now.">
+      <TwoFactor />
+      <h3 className="mb-3 mt-6 border-t border-line pt-5 font-medium">Signed-in devices</h3>
       {sessions.isPending ? (
         <div className="h-20 animate-pulse rounded-xl bg-raised" />
       ) : sessions.isError ? (

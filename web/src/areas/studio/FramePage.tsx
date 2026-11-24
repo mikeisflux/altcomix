@@ -10,7 +10,7 @@ import { clamp, normaliseRect } from '@/lib/frames';
 import { useSession } from '@/lib/session';
 import { Button, ErrorState, IconButton, Modal, PageLoader, Segmented, Select, Tabs, Textarea, cx, toast, useConfirm } from '@/ui';
 import { FrameEditor } from './FrameEditor';
-import { NoAccess, SignInNeeded, useTitle } from './shared';
+import { NoAccess, SignInNeeded, VerifyEmailPrompt, studioError, useTitle } from './shared';
 
 type TextRegion = { x: number; y: number; w: number; h: number; text: Record<string, string> };
 type PageDetail = {
@@ -117,7 +117,7 @@ function Stage({ w, h, label, children }: { w: number; h: number; label: string;
   );
 }
 
-function PreviewDialog({ page, onClose }: { page: ReaderPage; onClose: () => void }) {
+function PreviewDialog({ page, rtl, onClose }: { page: ReaderPage; rtl: boolean; onClose: () => void }) {
   const n = page.frames.length;
   const [i, setI] = useState(0);
   const [playing, setPlaying] = useState(n > 1);
@@ -129,12 +129,15 @@ function PreviewDialog({ page, onClose }: { page: ReaderPage; onClose: () => voi
   }, [playing, n]);
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); setPlaying(false); setI((v) => Math.min(n - 1, v + 1)); }
-      if (e.key === 'ArrowLeft') { setPlaying(false); setI((v) => Math.max(0, v - 1)); }
+      // Same as the reader: in a right-to-left series the left arrow goes forward.
+      const fwd = rtl ? 'ArrowLeft' : 'ArrowRight';
+      const back = rtl ? 'ArrowRight' : 'ArrowLeft';
+      if (e.key === fwd || e.key === ' ') { e.preventDefault(); setPlaying(false); setI((v) => Math.min(n - 1, v + 1)); }
+      if (e.key === back) { setPlaying(false); setI((v) => Math.max(0, v - 1)); }
     };
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
-  }, [n]);
+  }, [n, rtl]);
   const frameIndex = n ? i : null;
   return (
     <Modal open onClose={onClose} title="Guided view preview" size="xl">
@@ -143,10 +146,14 @@ function PreviewDialog({ page, onClose }: { page: ReaderPage; onClose: () => voi
           <Segmented size="sm" value={device} onChange={setDevice} options={[...(window.innerWidth >= 900 ? [{ value: 'both' as const, label: 'Both' }] : []), { value: 'phone', label: <span className="inline-flex items-center gap-1"><Smartphone className="size-3.5" />Phone</span> }, { value: 'desktop', label: <span className="inline-flex items-center gap-1"><Monitor className="size-3.5" />Desktop</span> }]} />
           {n > 0 ? (
             <div className="flex items-center gap-1">
-              <IconButton label="Previous frame" disabled={i === 0} onClick={() => { setPlaying(false); setI(i - 1); }}><ChevronLeft className="size-5" /></IconButton>
-              <IconButton label={playing ? 'Pause' : 'Play'} disabled={n < 2} onClick={() => setPlaying((p) => !p)}>{playing ? <Pause className="size-5" /> : <Play className="size-5" />}</IconButton>
-              <IconButton label="Next frame" disabled={i >= n - 1} onClick={() => { setPlaying(false); setI(i + 1); }}><ChevronRight className="size-5" /></IconButton>
+              {/* The arrows point the way the reader's do: in a right-to-left series "next" is on the left. */}
+              <div className={cx('flex items-center gap-1', rtl && 'flex-row-reverse')}>
+                <IconButton label="Previous frame" disabled={i === 0} onClick={() => { setPlaying(false); setI(i - 1); }}>{rtl ? <ChevronRight className="size-5" /> : <ChevronLeft className="size-5" />}</IconButton>
+                <IconButton label={playing ? 'Pause' : 'Play'} disabled={n < 2} onClick={() => setPlaying((p) => !p)}>{playing ? <Pause className="size-5" /> : <Play className="size-5" />}</IconButton>
+                <IconButton label="Next frame" disabled={i >= n - 1} onClick={() => { setPlaying(false); setI(i + 1); }}>{rtl ? <ChevronLeft className="size-5" /> : <ChevronRight className="size-5" />}</IconButton>
+              </div>
               <span className="w-28 text-right text-sm tabular-nums text-muted">Frame {i + 1} of {n}</span>
+              {rtl && <span className="hidden text-xs text-faint sm:inline">Right to left</span>}
             </div>
           ) : <span className="text-sm text-muted">No frames: readers see the whole page.</span>}
         </div>
@@ -314,7 +321,7 @@ export function FramePage() {
       toast.success('Published');
       await qc.invalidateQueries({ queryKey: key });
     } catch (e) {
-      toast.error(errorMessage(e));
+      studioError(e);
     }
   };
 
@@ -339,7 +346,7 @@ export function FramePage() {
     skip.current = null;
     if (editable) frameSaver.queue(p.id, next);
   };
-  const readerPage: ReaderPage = { id: p.id, position: p.position - 1, width: p.width, height: p.height, bg_color: bg, frames, locked: false, url_medium: p.urls.medium, url_full: p.urls.full };
+  const readerPage: ReaderPage = { id: p.id, position: p.position, width: p.width, height: p.height, bg_color: bg, frames, locked: false, url_medium: p.urls.medium, url_full: p.urls.full };
   const pagerBtn = 'size-9';
 
   return (
@@ -389,7 +396,8 @@ export function FramePage() {
           <TextEditor imageUrl={p.urls.full} width={p.width} height={p.height} texts={texts} onChange={(t) => { setTexts(t); if (editable) textSaver.queue(p.id, t); }} languages={meta.languages} language={language} setLanguage={setLanguage} />
         )}
       </main>
-      {preview && <PreviewDialog page={readerPage} onClose={() => setPreview(false)} />}
+      {preview && <PreviewDialog page={readerPage} rtl={rtl} onClose={() => setPreview(false)} />}
+      <VerifyEmailPrompt />
     </div>
   );
 }

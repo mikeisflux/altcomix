@@ -3,9 +3,9 @@ import { ChevronLeft, ChevronRight, Flag, Share2 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useLocation } from 'react-router';
-import { api, errorMessage } from '@/lib/api';
+import { ApiError, api, errorMessage } from '@/lib/api';
 import { useSession } from '@/lib/session';
-import { Button, Field, LinkButton, Modal, Select, Skeleton, Textarea, cx, toast } from '@/ui';
+import { Button, Field, LinkButton, Modal, Notice, Select, Skeleton, Textarea, cx, toast } from '@/ui';
 
 /** Sets the browser tab title for the current page. */
 export function useTitle(title: string | null | undefined) {
@@ -49,9 +49,55 @@ export function ShareButton({ title, path, size = 'md' }: { title: string; path?
   return <Button size={size} icon={<Share2 className="size-4" />} onClick={() => void sharePage(title, path)}>Share</Button>;
 }
 
+/** The API refuses paying and posting until the reader's email is confirmed: 403 with this code. */
+export function isEmailUnverified(e: unknown): boolean {
+  return e instanceof ApiError && e.code === 'email_unverified';
+}
+
+/**
+ * Shown instead of a raw error when the API answers `email_unverified`:
+ * what is needed, and a way to get the confirmation email again.
+ * `message` is the server's sentence ("Confirm your email to …").
+ */
+export function ConfirmEmailPrompt({ message, onConfirmed }: { message?: string | null; onConfirmed?: () => void }) {
+  const { user, refresh } = useSession();
+  const [sent, setSent] = useState(false);
+  const resend = useMutation({
+    mutationFn: () => api('/api/auth/resend-verification', { method: 'POST' }),
+    onSuccess: () => {
+      setSent(true);
+      toast.success(`Confirmation email sent to ${user?.email ?? 'your address'}`);
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+  // The link opens in another tab; this picks the confirmation up here without a reload.
+  const check = useMutation({
+    mutationFn: () => refresh(),
+    onSuccess: () => onConfirmed?.(),
+  });
+  if (user?.email_verified) return null;
+  return (
+    <Notice
+      tone="warn"
+      action={
+        <span className="flex flex-wrap gap-2">
+          <Button size="sm" className="h-10" loading={resend.isPending} onClick={() => resend.mutate()}>{sent ? 'Send it again' : 'Resend confirmation email'}</Button>
+          {sent && <Button size="sm" variant="ghost" className="h-10" loading={check.isPending} onClick={() => check.mutate()}>I have confirmed</Button>}
+        </span>
+      }
+    >
+      <span role="alert">
+        {sent
+          ? `We sent a new link to ${user?.email ?? 'your address'}. Open it, then come back and try again.`
+          : message ?? `Confirm your email to continue. We sent a link to ${user?.email ?? 'your address'} when you signed up.`}
+      </span>
+    </Notice>
+  );
+}
+
 const REASONS = ['Stolen or pirated work', 'Made with generative AI', 'Missing mature-content label', 'Hateful or harassing', 'Spam or scam', 'Illegal content', 'Something else'];
 
-type ReportTarget = { kind: 'series' | 'release' | 'publisher' | 'user' | 'comment'; id: string; name: string };
+export type ReportTarget = { kind: 'series' | 'release' | 'publisher' | 'user' | 'comment' | 'forum_post' | 'forum_thread'; id: string; name: string };
 
 /** Report something to the moderators. `target` null keeps the dialog closed. */
 export function ReportDialog({ target, onClose }: { target: ReportTarget | null; onClose: () => void }) {
@@ -59,10 +105,12 @@ export function ReportDialog({ target, onClose }: { target: ReportTarget | null;
   const login = useLoginLink();
   const [reason, setReason] = useState(REASONS[0]);
   const [detail, setDetail] = useState('');
+  const [unverified, setUnverified] = useState<string | null>(null);
   useEffect(() => {
     if (target) {
       setReason(REASONS[0]);
       setDetail('');
+      setUnverified(null);
     }
   }, [target]);
   const send = useMutation({
@@ -74,7 +122,7 @@ export function ReportDialog({ target, onClose }: { target: ReportTarget | null;
       toast.success('Report sent. A moderator will look at it.');
       onClose();
     },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => (isEmailUnverified(e) ? setUnverified(errorMessage(e)) : toast.error(errorMessage(e))),
   });
   return (
     <Modal
@@ -95,6 +143,7 @@ export function ReportDialog({ target, onClose }: { target: ReportTarget | null;
     >
       {user ? (
         <div className="space-y-4">
+          {unverified && <ConfirmEmailPrompt message={unverified} onConfirmed={() => setUnverified(null)} />}
           <Field label="What is wrong?">
             <Select value={reason} onChange={(e) => setReason(e.target.value)}>
               {REASONS.map((r) => <option key={r}>{r}</option>)}
