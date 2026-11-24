@@ -262,7 +262,7 @@ export function SearchInput({ value, onChange, placeholder, label }: { value: st
 /** A labelled dropdown filter. The first option is normally the "any" choice. */
 export function FilterSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: [string, string][] }) {
   return (
-    <span className="block w-full min-w-36 sm:w-auto">
+    <span className="block w-[calc(50%-0.25rem)] min-w-0 sm:w-auto sm:min-w-36">
       <Select aria-label={label} value={value} onChange={(e) => onChange(e.target.value)}>
         {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
       </Select>

@@ -160,7 +160,7 @@ function General({ value, secrets }: TabProps) {
   const socials: Record<string, string> = f.socials ?? {};
   const extra = Object.keys(socials).filter((k) => !SOCIALS.some(([id]) => id === k));
   const save = () => {
-    const clean = Object.fromEntries(Object.entries(socials).map(([k, v]) => [k, v.trim()]).filter(([, v]) => v));
+    const clean: Record<string, string> = Object.fromEntries(Object.entries(socials).map(([k, v]) => [k, v.trim()]).filter(([, v]) => v));
     for (const [k, v] of Object.entries(clean)) if (!/^https:\/\/\S+$/.test(v)) return void toast.error(`The ${k} link must be a full address starting with https://`);
     s.save({ name: f.name.trim(), tagline: f.tagline.trim(), support_email: f.support_email.trim(), currency: f.currency, socials: clean, registration_open: f.registration_open, maintenance: f.maintenance });
   };

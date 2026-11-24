@@ -5,7 +5,7 @@ import type { FormEvent } from 'react';
 import { Link } from 'react-router';
 import { api, errorMessage } from '@/lib/api';
 import { ago, date, dateTime, number } from '@/lib/format';
-import { Badge, Button, DefList, ErrorState, Field, Input, Modal, Notice, PageHeader, Segmented, Skeleton, Stat, Table, Textarea, toast, useConfirm } from '@/ui';
+import { Badge, Button, DefList, ErrorState, Field, Input, Modal, Notice, PageHeader, Segmented, Skeleton, Stat, Table, Textarea, useConfirm } from '@/ui';
 import type { Column } from '@/ui';
 import {
   DataList, Drawer, EmailFrame, FilterBar, FilterSelect, Loaded, SearchInput, StatusBadge, useAct, useAdminQuery, useAsk, useFilters, useIsSuper, useList, useTitle,
@@ -284,7 +284,7 @@ export function SuppressionsPage() {
       />
       <FilterBar>
         <SearchInput value={f.q} onChange={(q) => setF({ q })} placeholder="Search by email address" />
-        <FilterSelect label="Added by" value={f.source} onChange={(source) => setF({ source })} options={[['', 'Any source'], ['bounce', 'Bounce'], ['complaint', 'Spam complaint'], ['unsubscribe', 'Unsubscribe'], ['manual', 'Added by an admin']]} />
+        <FilterSelect label="Added by" value={f.source} onChange={(source) => setF({ source })} options={[['', 'Any source'], ['sendgrid', 'SendGrid (bounce or complaint)'], ['mailgun', 'Mailgun (bounce or complaint)'], ['manual', 'Added by an admin']]} />
       </FilterBar>
       <DataList
         query={list}

@@ -127,7 +127,7 @@ export default async function readerRoutes(app: FastifyInstance) {
     const page = await one<{ release_id: string; variants: Record<string, string> }>('select release_id, variants from pages where id = $1', [pageId]);
     if (!page) throw notFound();
 
-    const key = `${req.user?.id ?? 'anon'}:${req.user?.prefs?.show_mature ? 1 : 0}:${page.release_id}:${req.country ?? ''}`;
+    const key = `${req.user?.id ?? 'anon'}:${req.showMature ? 1 : 0}:${page.release_id}:${req.country ?? ''}`;
     let via: Via | null | undefined = token ? undefined : open.get(key)?.until! > Date.now() ? open.get(key)!.vias.get(pageId) : undefined;
     if (via === undefined) {
       const l = await load(req, page.release_id, token);

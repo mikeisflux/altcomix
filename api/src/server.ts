@@ -49,6 +49,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.decorateRequest('sessionHash', null);
   app.decorateRequest('clientIp', '');
   app.decorateRequest('country', null);
+  app.decorateRequest('showMature', false);
 
   app.addHook('onRequest', async (req, reply) => {
     req.clientIp = clientIp(req);

@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { config } from '../config.ts';
 import { exec, one, q } from '../db.ts';
-import { createSession, destroySession } from '../lib/auth.ts';
+import { createSession, destroySession, setAdultCookie } from '../lib/auth.ts';
 import { rateLimit } from '../lib/botblock.ts';
 import { hashPassword, randomToken, sha256, verifyPassword } from '../lib/crypto.ts';
 import { readUnsubscribeToken, sendTemplate } from '../lib/email.ts';
@@ -85,7 +85,23 @@ async function me(req: FastifyRequest) {
 
 export default async function authRoutes(app: FastifyInstance) {
   // One call on page load: public settings, vocabularies, current user.
-  app.get('/api/bootstrap', async (req) => ({ settings: await publicSettings(), meta: meta(), user: await me(req) }));
+  app.get('/api/bootstrap', async (req) => ({ settings: await publicSettings(), meta: meta(), user: await me(req), adult: req.showMature }));
+
+  /**
+   * "I am 18 or older, show me adult titles" (or turn it back off). Signed in:
+   * saved on the account. Signed out: a cookie on this browser.
+   */
+  app.post('/api/age-confirm', async (req, reply) => {
+    const { adult } = parse(z.object({ adult: z.boolean() }), req.body);
+    if (req.user) {
+      await exec(
+        `update users set prefs = prefs || $2::jsonb where id = $1`,
+        [req.user.id, JSON.stringify(adult ? { show_mature: true, adult_confirmed_at: new Date().toISOString() } : { show_mature: false })],
+      );
+    }
+    setAdultCookie(reply, adult);
+    return { ok: true, adult };
+  });
 
   app.get('/api/auth/me', async (req) => ({ user: await me(req) }));
 
@@ -101,6 +117,7 @@ export default async function authRoutes(app: FastifyInstance) {
         password: z.string().min(security.password_min_length, `Password must be at least ${security.password_min_length} characters`).max(200),
         display_name: z.string().max(60).optional(),
         marketing_opt_in: z.boolean().optional(),
+        adult: z.boolean().optional(),
         recaptcha: z.string().optional(),
         website: z.string().optional(), // honeypot
       }),
@@ -119,7 +136,7 @@ export default async function authRoutes(app: FastifyInstance) {
       `insert into users (email, username, display_name, password_hash, role, marketing_opt_in, prefs)
        values ($1,$2,$3,$4,$5,$6,$7) returning id`,
       [email, body.username, body.display_name?.trim() || body.username, await hashPassword(body.password), role, body.marketing_opt_in ?? false,
-       JSON.stringify({ notify: { releases: true, messages: true, replies: true, mentions: true, followers: true, feed: true, analytics: true, newsletter: body.marketing_opt_in ?? false } })],
+       JSON.stringify({ ...(body.adult ? { show_mature: true, adult_confirmed_at: new Date().toISOString() } : {}), notify: { releases: true, messages: true, replies: true, mentions: true, followers: true, feed: true, analytics: true, newsletter: body.marketing_opt_in ?? false } })],
     );
     const token = await issueToken(user!.id, 'verify', 48);
     await sendTemplate('verify_email', email, { name: body.display_name?.trim() || body.username, url: `${config.appUrl}/verify-email?token=${token}` }, { userId: user!.id });

@@ -11,7 +11,7 @@ import { FAVORITE_GENRES, RELEASE_GROUPS } from '../lib/taxonomy.ts';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const isUuid = (s: unknown): s is string => typeof s === 'string' && UUID.test(s);
 
-export const showMature = (req: FastifyRequest) => Boolean(req.user?.prefs?.show_mature);
+export const showMature = (req: FastifyRequest) => req.showMature;
 
 /**
  * WHERE conditions every public list applies (aliases: series `s`,
@@ -100,10 +100,10 @@ export async function assertViewable(req: FastifyRequest, series: Row, release: 
   const pub = await one('select suspended_at, deleted_at from publishers where id = $1', [series.publisher_id]);
   if (!pub || pub.deleted_at || pub.suspended_at) throw notFound('This title is not available');
   if (opts.preview) return false;
-  const v = canView(series, release, req.user, false);
+  const v = canView(series, release, req.showMature, false);
   if (!v.ok) {
     if (v.reason === 'mature') {
-      throw new HttpError(403, req.user ? 'This title is for readers 18 and over. Turn on mature content in your account settings to open it.' : 'This title is for readers 18 and over. Sign in and turn on mature content to open it.', 'mature');
+      throw new HttpError(403, 'This title is for adults. Confirm you are 18 or older to open it.', 'mature');
     }
     throw notFound(v.reason);
   }

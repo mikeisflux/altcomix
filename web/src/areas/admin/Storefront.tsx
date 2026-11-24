@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, ArrowUp, ExternalLink, FileText, ImagePlus, Inbox, LayoutTemplate, Megaphone, Newspaper, Pencil, Trash2, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, ExternalLink, ImagePlus, Inbox, LayoutTemplate, Megaphone, Newspaper, Pencil, Trash2, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
@@ -7,7 +7,7 @@ import { api, errorMessage, upload } from '@/lib/api';
 import { ago, date, dateTime, number } from '@/lib/format';
 import { Markdown } from '@/lib/markdown';
 import {
-  Badge, Button, Card, EmptyState, ErrorState, Field, FormRow, IconButton, Input, LinkButton, Modal, Notice, PageHeader, Pagination, Segmented, Skeleton, Switch, Table,
+  Badge, Button, Card, EmptyState, ErrorState, Field, FormRow, IconButton, Input, LinkButton, Modal, PageHeader, Pagination, Segmented, Skeleton, Switch, Table,
   Tabs, Textarea, buttonClass, cx, toast, useConfirm,
 } from '@/ui';
 import {
@@ -642,5 +642,3 @@ export function FeedbackPage() {
     </>
   );
 }
-
-export { FileText as PagesIcon };

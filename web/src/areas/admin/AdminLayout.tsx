@@ -2,6 +2,7 @@ import {
   Activity, BadgeDollarSign, Ban, BookOpen, Bug, CalendarClock, Clock, CreditCard, FileText, Flag, Gauge, Inbox, KeyRound, LayoutTemplate, Mail, MailX,
   Megaphone, MessageSquare, Newspaper, Receipt, ScrollText, Settings, ShieldCheck, Sparkles, Store, Ticket, Users, Wallet,
 } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { Navigate, Outlet, useLocation } from 'react-router';
 import { ApiError } from '@/lib/api';
@@ -32,6 +33,12 @@ export function AdminLayout() {
   const { user, isStaff } = useSession();
   const loc = useLocation();
   const badges = useAdminQuery<Badges>('/api/admin/badges', undefined, { enabled: isStaff, refetchInterval: 60_000 });
+
+  // On phones the navigation is a sideways scroller: keep the current section in view.
+  const navRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    navRef.current?.querySelector('a[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'center' });
+  }, [loc.pathname, badges.isSuccess]);
 
   if (!user) {
     return (
@@ -112,7 +119,7 @@ export function AdminLayout() {
   return (
     <AskProvider>
       <div className="md:grid md:grid-cols-[212px_minmax(0,1fr)] md:gap-8">
-        <aside className="-mx-4 mb-5 border-b border-line px-4 pb-3 sm:-mx-6 sm:px-6 md:sticky md:top-20 md:mx-0 md:mb-0 md:max-h-[calc(100dvh-6rem)] md:self-start md:overflow-y-auto md:border-0 md:px-0 md:pb-6">
+        <aside ref={navRef} className="-mx-4 mb-5 border-b border-line px-4 pb-3 sm:-mx-6 sm:px-6 md:sticky md:top-20 md:mx-0 md:mb-0 md:max-h-[calc(100dvh-6rem)] md:self-start md:overflow-y-auto md:border-0 md:px-0 md:pb-6">
           <div className="mb-3 hidden items-center gap-2 px-2.5 text-xs font-semibold uppercase tracking-wider text-muted md:flex">
             <Activity className="size-4 text-accent" /> Admin
             {!isSuper && <span className="rounded border border-line px-1 text-[10px] normal-case tracking-normal text-faint">limited</span>}

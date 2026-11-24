@@ -37,6 +37,8 @@ declare module 'fastify' {
     user: SessionUser | null;
     sessionHash: string | null;
     clientIp: string;
+    /** Reader has confirmed they are an adult and wants adult titles shown (account setting, or the age cookie when signed out). */
+    showMature: boolean;
     country: string | null;
   }
 }

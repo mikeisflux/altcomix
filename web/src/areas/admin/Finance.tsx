@@ -90,7 +90,7 @@ export function OrderDetail() {
         onDone: (r) => (r.warnings as string[]).forEach((w) => toast.warning(w, { duration: 12_000 })),
         quietError: (e) => {
           if (!(e instanceof ApiError && e.code === 'provider_refund_unavailable')) return false;
-          void confirm({ title: 'Refund it at the processor first', body: `${e.message} Only continue if the money has already been returned there.`, confirmLabel: 'I have refunded it there', danger: true }).then((yes) => yes && send({ provider_refunded: true }));
+          void confirm({ title: 'Refund it at the processor first', body: `${e.message} Only continue if the money has already been returned there.`, confirmLabel: 'I have refunded it there', danger: true }).then((yes) => { if (yes) void send({ provider_refunded: true }); });
           return true;
         },
       });

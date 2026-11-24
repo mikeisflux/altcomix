@@ -6,6 +6,7 @@ import type { SessionUser } from './http.ts';
 
 export const SESSION_COOKIE = 'session_token';
 export const CSRF_COOKIE = 'csrf_token';
+export const ADULT_COOKIE = 'adult_ok';
 const SESSION_DAYS = 30;
 
 const cookieBase = { path: '/', sameSite: 'lax' as const, secure: config.isProd };
@@ -24,6 +25,11 @@ export async function createSession(req: FastifyRequest, reply: FastifyReply, us
   reply.setCookie(CSRF_COOKIE, csrf, { ...cookieBase, httpOnly: false, maxAge });
 }
 
+export function setAdultCookie(reply: FastifyReply, on: boolean): void {
+  if (on) reply.setCookie(ADULT_COOKIE, '1', { ...cookieBase, httpOnly: false, maxAge: 365 * 86400 });
+  else reply.clearCookie(ADULT_COOKIE, cookieBase);
+}
+
 export async function destroySession(req: FastifyRequest, reply: FastifyReply): Promise<void> {
   if (req.sessionHash) await exec('delete from sessions where token_hash = $1', [req.sessionHash]);
   reply.clearCookie(SESSION_COOKIE, cookieBase);
@@ -39,6 +45,8 @@ export function ensureCsrfCookie(req: FastifyRequest, reply: FastifyReply): void
 export async function loadSession(req: FastifyRequest): Promise<void> {
   req.user = null;
   req.sessionHash = null;
+  // Signed-out visitors confirm their age once and carry it in a cookie.
+  req.showMature = req.cookies[ADULT_COOKIE] === '1';
   const token = req.cookies[SESSION_COOKIE];
   if (!token) return;
   const hash = sha256(token);
@@ -52,6 +60,8 @@ export async function loadSession(req: FastifyRequest): Promise<void> {
   if (!row || row.banned_at) return;
   req.user = row;
   req.sessionHash = hash;
+  // For accounts the saved setting decides, so turning it off sticks on every device.
+  req.showMature = Boolean((row.prefs as { show_mature?: boolean }).show_mature);
   // Touch at most once a minute.
   exec(`update sessions set last_seen_at = now() where token_hash = $1 and last_seen_at < now() - interval '1 minute'`, [hash]).catch(() => {});
 }

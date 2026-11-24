@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { api, errorMessage } from '@/lib/api';
 import { ago, date, plural } from '@/lib/format';
-import { Avatar, Badge, Button, EmptyState, ErrorState, LinkButton, PageHeader, Pagination, ProgressBar, Tabs, buttonClass, toast, useConfirm } from '@/ui';
+import { Avatar, Badge, Button, EmptyState, ErrorState, LinkButton, PageHeader, Pagination, ProgressBar, Tabs, buttonClass, cx, toast, useConfirm } from '@/ui';
 import { Cover, CoverGrid, GridSkeleton, ListSkeleton, SeriesTile, releaseLabel, useTitle } from './shared';
 import type { ReleaseRef, SeriesCard } from './shared';
 
@@ -56,7 +56,7 @@ function ProgressRow({ item, history }: { item: Progress; history?: boolean }) {
           <div className="min-w-32 flex-1">
             <ProgressBar value={item.percent} max={100} label={item.finished ? 'Finished' : pages ? `Page ${Math.min(item.position + 1, pages)} of ${pages}` : `${item.percent}% read`} />
           </div>
-          <LinkButton to={`/read/${item.release.id}`} variant={history ? 'secondary' : 'primary'} size="sm" icon={<BookOpen className="size-4" />}>
+          <LinkButton to={`/read/${item.release.id}`} variant={history ? 'secondary' : 'primary'} size="sm" className="h-10" icon={<BookOpen className="size-4" />}>
             {item.finished ? 'Read again' : 'Resume'}
           </LinkButton>
         </div>
@@ -139,12 +139,12 @@ function OwnedTab({ downloads }: { downloads?: boolean }) {
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     {it.release.published ? (
-                      <LinkButton to={`/read/${it.release.id}`} size="sm" icon={<BookOpen className="size-4" />}>Read</LinkButton>
+                      <LinkButton to={`/read/${it.release.id}`} size="sm" className="h-10" icon={<BookOpen className="size-4" />}>Read</LinkButton>
                     ) : (
                       <Badge tone="warn">Not released yet</Badge>
                     )}
                     {it.download_url && it.release.published && (
-                      <a href={it.download_url} download className={buttonClass(downloads ? 'primary' : 'secondary', 'sm')}>
+                      <a href={it.download_url} download className={cx(buttonClass(downloads ? 'primary' : 'secondary', 'sm'), 'h-10')}>
                         <Download className="size-4" aria-hidden />
                         Download CBZ
                       </a>
@@ -225,7 +225,7 @@ function FollowingTab() {
                             Latest: {releaseLabel(s.latest_release)}{s.latest_release.published_at ? ` · ${ago(s.latest_release.published_at)}` : ''}
                           </Link>
                         )}
-                        <Button size="sm" block disabled={unfollow.isPending} onClick={() => void ask({ kind: 'series', slug: s.slug, name: s.title })}>Unfollow</Button>
+                        <Button size="sm" className="h-10" block disabled={unfollow.isPending} onClick={() => void ask({ kind: 'series', slug: s.slug, name: s.title })}>Unfollow</Button>
                       </div>
                     }
                   />
@@ -264,7 +264,7 @@ function FavoritesTab() {
       {(d) => (
         <CoverGrid>
           {d.items.map((s) => (
-            <SeriesTile key={s.id} series={s} footer={<Button size="sm" block disabled={remove.isPending} onClick={() => remove.mutate(s)}>Remove</Button>} />
+            <SeriesTile key={s.id} series={s} footer={<Button size="sm" className="h-10" block disabled={remove.isPending} onClick={() => remove.mutate(s)}>Remove</Button>} />
           ))}
         </CoverGrid>
       )}

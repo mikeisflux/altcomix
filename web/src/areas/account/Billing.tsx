@@ -54,7 +54,7 @@ function RedeemResult({ result, next, currency, membershipName }: { result: Rede
   let action: ReactNode;
   if (result.kind === 'gift_card') {
     detail = <>Your store credit balance is now {moneyExact(result.wallet_credit_cents, currency)}. It is taken off your next purchases automatically at checkout, and it does not expire.</>;
-    action = <LinkButton to="/" variant="primary" size="sm">Spend it in the store</LinkButton>;
+    action = <LinkButton to="/" variant="primary" size="sm" className="h-10">Spend it in the store</LinkButton>;
   } else if (result.kind === 'unlock') {
     const n = result.release_ids.length;
     detail = (
@@ -65,23 +65,23 @@ function RedeemResult({ result, next, currency, membershipName }: { result: Rede
     );
     action = (
       <>
-        <LinkButton to={`/read/${result.release_ids[0]}`} variant="primary" size="sm" icon={<BookOpen className="size-4" />}>Start reading</LinkButton>
-        <LinkButton to={`/series/${result.series_slug}`} size="sm">View the series</LinkButton>
+        <LinkButton to={`/read/${result.release_ids[0]}`} variant="primary" size="sm" className="h-10" icon={<BookOpen className="size-4" />}>Start reading</LinkButton>
+        <LinkButton to={`/series/${result.series_slug}`} size="sm" className="h-10">View the series</LinkButton>
       </>
     );
   } else if (result.kind === 'membership') {
     detail = <>You have {membershipName} until {date(result.member_until)}: everything in the membership catalogue is open to you. It ends by itself on that date and nothing is charged.</>;
-    action = <LinkButton to="/account/membership" variant="primary" size="sm">See your membership</LinkButton>;
+    action = <LinkButton to="/account/membership" variant="primary" size="sm" className="h-10">See your membership</LinkButton>;
   } else {
     detail = <>You now have {plural(result.page_credits, 'page credit')}. Each credit opens one locked page of a pay-per-page comic; spend them from the reader when you reach a locked page.</>;
-    action = <LinkButton to="/" variant="primary" size="sm">Find something to read</LinkButton>;
+    action = <LinkButton to="/" variant="primary" size="sm" className="h-10">Find something to read</LinkButton>;
   }
   return (
     <div className="rounded-xl border border-ok/30 bg-ok-soft px-4 py-4" role="status">
       <div className="font-semibold text-ok">{result.message}</div>
       <p className="mt-1.5 text-sm text-paper">{detail}</p>
       <div className="mt-3 flex flex-wrap gap-2">
-        {next ? <LinkButton to={next} variant="primary" size="sm">Continue</LinkButton> : action}
+        {next ? <LinkButton to={next} variant="primary" size="sm" className="h-10">Continue</LinkButton> : action}
       </div>
     </div>
   );
@@ -302,7 +302,7 @@ export function Receipt() {
   const { currency, settings, user } = useSession();
   useTitle(`Receipt ${orderNumber(orderId)}`);
   const order = useQuery({ queryKey: ['order', orderId], queryFn: () => api<{ order: Order & { failure: string | null } }>(`/api/orders/${orderId}`) });
-  const back = <Link to="/account/purchases" className="inline-flex items-center gap-1 hover:text-paper print:hidden"><ArrowLeft className="size-4" /> All purchases</Link>;
+  const back = <Link to="/account/purchases" className="inline-flex min-h-10 items-center gap-1 hover:text-paper print:hidden"><ArrowLeft className="size-4" /> All purchases</Link>;
   if (order.isPending) return <PageLoader label="Loading the receipt" />;
   if (order.isError) {
     return (

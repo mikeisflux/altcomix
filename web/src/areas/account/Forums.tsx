@@ -107,8 +107,8 @@ export function Community() {
       ) : feed.isError ? (
         <ErrorState message={errorMessage(feed.error)} retry={() => feed.refetch()} />
       ) : (
-        <div className="grid gap-10 lg:grid-cols-2">
-          <section aria-labelledby="feed-releases">
+        <div className="grid grid-cols-1 gap-10 lg:grid-cols-2">
+          <section aria-labelledby="feed-releases" className="min-w-0">
             <h2 id="feed-releases" className="mb-3 text-lg font-semibold">{feed.data.following_releases.length ? 'New from what you follow' : 'New releases'}</h2>
             {feed.data.following_releases.length ? (
               <ReleaseList items={feed.data.following_releases} />
@@ -125,7 +125,7 @@ export function Community() {
               </div>
             )}
           </section>
-          <section aria-labelledby="feed-threads">
+          <section aria-labelledby="feed-threads" className="min-w-0">
             <div className="mb-3 flex items-center justify-between gap-3">
               <h2 id="feed-threads" className="text-lg font-semibold">Recent forum threads</h2>
               <Link to="/forums" className="text-sm font-medium text-accent-hover hover:text-paper">All forums</Link>
@@ -159,7 +159,7 @@ export function ForumIndexPage() {
   const stats = new Map(index.data?.boards.map((b) => [b.id, b]));
   return (
     <div className="mx-auto max-w-4xl">
-      <PageHeader title="Forums" description="Pick a board, or head to the forum of a series you read." back={<Link to="/community" className="inline-flex items-center gap-1 hover:text-paper"><ArrowLeft className="size-4" /> Community</Link>} />
+      <PageHeader title="Forums" description="Pick a board, or head to the forum of a series you read." back={<Link to="/community" className="inline-flex min-h-10 items-center gap-1 hover:text-paper"><ArrowLeft className="size-4" /> Community</Link>} />
       <section aria-labelledby="boards" className="mb-10">
         <h2 id="boards" className="mb-3 text-lg font-semibold">Boards</h2>
         <ul className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-surface">
@@ -296,7 +296,7 @@ export function ForumBoard({ kind }: { kind: 'board' | 'series' }) {
   const knownBoard = meta.forumBoards.find((b) => b.id === key);
   const label = kind === 'board' ? (threads.data?.board?.label ?? knownBoard?.label ?? 'Forum') : threads.data?.series ? `${threads.data.series.title} forum` : 'Series forum';
   useTitle(label);
-  const back = <Link to="/forums" className="inline-flex items-center gap-1 hover:text-paper"><ArrowLeft className="size-4" /> All forums</Link>;
+  const back = <Link to="/forums" className="inline-flex min-h-10 items-center gap-1 hover:text-paper"><ArrowLeft className="size-4" /> All forums</Link>;
 
   if (threads.isError) {
     const e = threads.error;
@@ -517,7 +517,7 @@ export function ForumThread() {
   return (
     <div className="mx-auto max-w-3xl">
       <PageHeader
-        back={<Link to={home.to} className="inline-flex items-center gap-1 hover:text-paper"><ArrowLeft className="size-4" /> {home.label}</Link>}
+        back={<Link to={home.to} className="inline-flex min-h-10 items-center gap-1 hover:text-paper"><ArrowLeft className="size-4" /> {home.label}</Link>}
         title={<span className="break-words [overflow-wrap:anywhere]">{t.title}</span>}
         description={
           <span className="flex flex-wrap items-center gap-2 text-sm">

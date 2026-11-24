@@ -183,13 +183,13 @@ export async function hasMembership(userId: string): Promise<boolean> {
 }
 
 /** Can this visitor open the series/release at all (drafts, takedowns, mature gate)? */
-export function canView(series: Row, release: Row | null, user: SessionUser | null, isMember: boolean): { ok: boolean; reason?: string } {
+export function canView(series: Row, release: Row | null, showMature: boolean, isMember: boolean): { ok: boolean; reason?: string } {
   if (isMember) return { ok: true };
   if (series.deleted_at || series.takedown_at) return { ok: false, reason: 'This title is not available' };
   if (series.visibility === 'draft') return { ok: false, reason: 'This title is not published yet' };
   if (release && (release.status !== 'published' || release.deleted_at)) return { ok: false, reason: 'This release is not published yet' };
   const mature = series.mature || release?.mature;
-  if (mature && !(user?.prefs as { show_mature?: boolean } | undefined)?.show_mature) {
+  if (mature && !showMature) {
     return { ok: false, reason: 'mature' };
   }
   return { ok: true };
