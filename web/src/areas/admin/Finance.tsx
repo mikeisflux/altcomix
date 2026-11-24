@@ -453,8 +453,8 @@ function SettlementPreview({ month, closed, onClose }: { month: string; closed: 
                 columns={
                   p.series
                     ? [
-                        { key: 'series', header: 'Series', cell: (r: R) => <Mono>{shortId(r.series_id)}</Mono> },
-                        { key: 'brand', header: 'Brand', cell: (r: R) => <Link className="link" to={`/admin/brands/${r.publisher_id}`}><Mono>{shortId(r.publisher_id)}</Mono></Link> },
+                        { key: 'series', header: 'Series', cell: (r: R) => r.series_title ?? <Mono>{shortId(r.series_id)}</Mono> },
+                        { key: 'brand', header: 'Brand', cell: (r: R) => <Link className="link" to={`/admin/brands/${r.publisher_id}`}>{r.publisher_name ?? <Mono>{shortId(r.publisher_id)}</Mono>}</Link> },
                         { key: 'pages', header: 'Pages read', align: 'right', cell: (r: R) => number(r.pages) },
                         { key: 'net', header: 'Net share', align: 'right', cell: (r: R) => $(r.net_cents) },
                         { key: 'creator', header: 'To creator', align: 'right', cell: (r: R) => $(r.creator_cents) },

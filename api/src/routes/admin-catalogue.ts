@@ -96,7 +96,7 @@ export default async function adminCatalogueRoutes(app: FastifyInstance) {
       const { mature } = parse(z.object({ mature: z.boolean() }), req.body);
       const sr = await one('update series set mature = $2, updated_at = now() where id = $1 and deleted_at is null returning title, publisher_id', [id, mature]);
       if (!sr) throw notFound('Series not found');
-      if (mature) await tellBrand(sr.publisher_id, 'moderation', `"${sr.title}" was marked as mature`, 'A moderator set the mature flag on this series. Readers must opt in to mature content to see it.', `/studio/series/${id}`);
+      if (mature) await tellBrand(sr.publisher_id, 'moderation', `"${sr.title}" now has an 18+ label`, 'We added the 18+ label to this series so it is shown to readers who have confirmed their age. This is a label, not a penalty: the series stays in the store and in search for adult readers.', `/studio/series/${id}`);
       audit(req, 'series.mature', { kind: 'series', id }, { title: sr.title, mature });
       return { ok: true, mature };
     });

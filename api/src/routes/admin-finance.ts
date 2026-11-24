@@ -442,7 +442,20 @@ export default async function adminFinanceRoutes(app: FastifyInstance) {
       } catch (e) {
         if (!(e instanceof HttpError && e.code === 'settlement_missing')) throw e;
       }
-      return { month: month.slice(0, 7), settled: existing, preview: preview ?? (await estimateSettlement(month)) };
+      const result = (preview ?? (await estimateSettlement(month))) as { series?: { series_id: string; publisher_id: string; series_title?: string; publisher_name?: string }[] };
+      // Name the rows so the preview reads as titles and brands, not ids.
+      if (Array.isArray(result.series) && result.series.length) {
+        const names = await q<{ id: string; title: string; name: string }>(
+          'select s.id, s.title, p.name from series s join publishers p on p.id = s.publisher_id where s.id = any($1::uuid[])',
+          [result.series.map((r) => r.series_id)],
+        );
+        const byId = new Map(names.map((n) => [n.id, n]));
+        for (const r of result.series) {
+          r.series_title = byId.get(r.series_id)?.title ?? r.series_title;
+          r.publisher_name = byId.get(r.series_id)?.name ?? r.publisher_name;
+        }
+      }
+      return { month: month.slice(0, 7), settled: existing, preview: result };
     });
 
     s.post('/api/admin/settlement/:month/run', async (req) => {
