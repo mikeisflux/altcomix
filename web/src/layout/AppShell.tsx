@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import {
-  BarChart3, Bell, BookOpen, ChevronRight, Download, Gift, LibraryBig, LogOut, Menu, MessageCircle, MessagesSquare, PenLine,
+  ArrowUpRight, BarChart3, Bell, BookOpen, ChevronRight, Download, Gift, LibraryBig, LogOut, Menu, MessageCircle, MessagesSquare, PenLine,
   Receipt, Search, Settings, ShieldCheck, Sparkles, Store, Ticket, UserRound, X,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -341,6 +341,30 @@ export function AppShell() {
   const [drawer, setDrawer] = useState(false);
   const loc = useLocation();
   useEffect(() => setDrawer(false), [loc.pathname]);
+
+  // Admin is a back office, not part of the store: it gets its own plain top bar
+  // (logo, a way back to the site, the account menu) and none of the reader chrome.
+  if (loc.pathname === '/admin' || loc.pathname.startsWith('/admin/')) {
+    return (
+      <div className="flex min-h-dvh flex-col">
+        <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-line bg-ink/90 px-3 backdrop-blur print:hidden sm:px-5">
+          <Link to="/admin" className="flex shrink-0 items-center gap-2" aria-label="Admin home">
+            <Keycap size={36} />
+            <span className="hidden font-display text-[28px] font-extrabold leading-none tracking-[-0.045em] sm:inline">comix</span>
+            <span className="ml-1 rounded-md border border-line-strong px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-muted">Admin</span>
+          </Link>
+          <div className="flex-1" />
+          <Link to="/" className="inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm text-muted hover:bg-hover hover:text-paper">
+            View site <ArrowUpRight className="size-4" />
+          </Link>
+          <AccountMenu />
+        </header>
+        <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">
+          <Outlet />
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-dvh flex-col">
