@@ -497,7 +497,8 @@ export function NewsEditor() {
   const nav = useNavigate();
   const confirm = useConfirm();
   const { run, busy } = useAct();
-  const q = useAdminQuery<{ post: R }>(`/api/admin/news/${id}`, undefined, { enabled: !isNew });
+  const [gone, setGone] = useState(false);
+  const q = useAdminQuery<{ post: R }>(`/api/admin/news/${id}`, undefined, { enabled: !isNew && !gone });
   const post = q.data?.post;
   useTitle(isNew ? 'New post' : post?.title ?? 'Post');
   const [v, setV] = useState({ title: '', slug: '', excerpt: '', body: '', when: '' });
@@ -577,7 +578,13 @@ export function NewsEditor() {
             {live && <LinkButton to={`/news/${post!.slug}`} external icon={<ExternalLink className="size-4" />}>View post</LinkButton>}
             {!isNew && (
               <Button variant="danger" disabled={busy === 'del'} onClick={async () => {
-                if (await confirm({ title: 'Delete this post?', body: 'The post and its cover image are removed for good.', confirmLabel: 'Delete post', danger: true })) void run({ key: 'del', fn: () => api(`/api/admin/news/${id}`, { method: 'DELETE' }), ok: 'Post deleted', onDone: () => nav('/admin/news') });
+                if (await confirm({ title: 'Delete this post?', body: 'The post and its cover image are removed for good.', confirmLabel: 'Delete post', danger: true })) void run({
+                    key: 'del',
+                    // Stop reloading the post while it is being removed.
+                    fn: () => { setGone(true); return api(`/api/admin/news/${id}`, { method: 'DELETE' }).catch((e) => { setGone(false); throw e; }); },
+                    ok: 'Post deleted',
+                    onDone: () => nav('/admin/news'),
+                  });
               }}>Delete</Button>
             )}
             <Button variant="primary" loading={busy === 'news'} onClick={() => save(undefined, isNew ? 'Draft saved' : 'Post saved')}>{isNew ? 'Save draft' : 'Save'}</Button>
