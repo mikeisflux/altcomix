@@ -104,6 +104,34 @@ Convention: `{ id, name, location, booth, url, starts_on, ends_on, created_at }`
 
 ---
 
+### Open a brand by its address (members and platform admins)
+
+`GET /api/studio/brands/by-slug/:slug` (any member; platform admins even when not a member)
+
+`{ brand }`: the brand object with `series_count`, `member_count`, `follower_count`, plus
+`member_role` (the caller's real team role, or `null`) and `viewing_as_admin` (`true` for a platform admin who is not on the team).
+`role` is the effective role: a platform admin always gets `owner`, as everywhere else in the Studio. 403 for a signed-in
+non-member, 404 when no brand has that address. The Studio web app loads the brand for `/studio/:brand` with this call.
+
+### Deleting a brand
+
+| Method | Path | Role | Notes |
+|---|---|---|---|
+| GET | `/api/studio/brands/:id/deletion` | owner | `{ balance_cents, open_payouts, open_payout_cents, series_count, published_release_count, owned_copies, usable_codes, can_delete, blockers: string[] }`. What deleting would take with it, and why it is refused if it is. |
+| DELETE | `/api/studio/brands/:id` | owner | Soft-deletes the brand and all of its series. **409** while money is owed: a positive ledger balance (pending included), or a payout in `requested` / `approved`. `{ ok: true }` |
+
+Effects of a delete (all enforced elsewhere by `deleted_at` filters): the series leave the store, search, brand page and direct
+links; releases readers bought or redeemed leave their libraries and can no longer be read or downloaded; unlock codes for those
+series stop redeeming; the team loses Studio access; the slug is not freed. Ledger and payout rows are kept.
+
+### Confirmed email
+
+`POST /api/studio/brands`, `POST /api/studio/releases/:id/publish` (publish or schedule),
+`POST /api/studio/brands/:id/announcements` (and `/test`), `POST /api/studio/brands/:id/code-batches/:batchId/email` and
+`POST /api/studio/brands/:id/payouts` answer **403** `{ "error": "Confirm your email to publish", "code": "email_unverified" }`
+when the signed-in account's email is not confirmed (`requireVerifiedEmail` in `lib/ingest.ts`). Drafting, uploading and editing
+are not affected. The web app shows a prompt with "Resend confirmation email" (`POST /api/auth/resend-verification`).
+
 ## 2. Series — `studio-series.ts`
 
 ### Series object
@@ -221,19 +249,30 @@ Split: `{ id, share_bps, note, created_at, payee_id, payee_slug, payee_name }`. 
 | PATCH | `/api/studio/series/:id/splits/:splitId` | admin | `{ share_bps?, note? }` → `{ split }` |
 | DELETE | `/api/studio/series/:id/splits/:splitId` | admin | |
 
-### "Read now" widget
+### Embed widgets ("Read now" button and cover card)
 
-`GET /api/studio/series/:id/widget?color=1a1c20&size=small|medium|large` (analyst)
+`GET /api/studio/series/:id/widget?color=1a1c20&size=small|medium|large&label=&theme=light|dark` (analyst)
 
+```json
+{ "color": "1a1c20", "size": "medium", "theme": "light", "label": "",
+  "sizes": { "small": { "width": 140, "height": 40 }, "medium": { "width": 180, "height": 48 }, "large": { "width": 240, "height": 60 } },
+  "available": true, "unavailable_reason": null,
+  "read_now": { "url": "…/widgets/read-now/:slug?color=&size=&label=", "width": 180, "height": 48, "html": "<iframe …></iframe>" },
+  "card":     { "url": "…/widgets/card/:slug?color=&theme=", "width": 360, "height": 180, "html": "<iframe …></iframe>" },
+  "series_url": "…/series/:slug" }
 ```
-{ color, size, sizes: { small: {width,height}, medium: {…}, large: {…} },
-  read_now: { url, width, height, html },   // html = the <iframe …> snippet to copy
-  series_url }
-```
 
-`url` is `{APP_URL}/widgets/read-now/:slug?color=&size=` (that page is served by the widgets routes).
+`label` (max 40 chars) replaces "Read now" on the button. `theme` applies to the card. `available` is false, with a sentence in
+`unavailable_reason`, when the public widget would answer "not available": draft, taken down, or an adult series (widgets never
+show adult titles). The widget pages themselves are `GET /widgets/read-now/:slug` and `GET /widgets/card/:slug` (`widgets.ts`):
+script-free, cookie-free HTML with `frame-ancestors *`, meant for an iframe on any site.
 
----
+### First time public
+
+`PATCH /api/studio/series/:id` returns `{ series, launch_notified }`. When the patch takes the series out of `draft` for the first
+time (`series.launched_at` was null), followers of the series and of the brand get ONE notification and one email summarising the
+releases that were already published; `launch_notified` is how many people were told (`0` if nothing was published yet), otherwise
+`null`. Releases published while the series is a draft send nothing; releases published afterwards notify one by one as before.
 
 ## 3. Releases — `studio-releases.ts`
 
@@ -271,7 +310,7 @@ Editable fields: `title`, `synopsis` (≤1800), `kind`, `language`, `number`
 | PATCH | `/api/studio/releases/:id` | editor | partial → `{ release }` |
 | PUT | `/api/studio/series/:id/releases/bulk` | editor | The metadata / pricing table. `{ releases: [{ id, ...fields }] }`. All rows are saved or none; numbers may be swapped between rows in one save. `{ releases }` (the rows that changed) |
 | PUT | `/api/studio/series/:id/releases/order` | editor | `{ kind, language?, ids: [...] }` — `ids` must be every release of that type and language exactly once; they are renumbered 1..n. `{ ok, order: [{ id, number }] }` |
-| POST | `/api/studio/releases/:id/publish` | editor | Body `{}` = publish now; `{ publish_at }` in the future = schedule (status `scheduled`; a job publishes it within ~30 s of the time). Needs ≥1 page. `{ release, first_publish }` |
+| POST | `/api/studio/releases/:id/publish` | editor | Needs a confirmed email (403 `email_unverified`). Body `{}` = publish now; `{ publish_at }` in the future = schedule (status `scheduled`; a job publishes it within ~30 s of the time). Needs ≥1 page. `{ release, first_publish }` |
 | POST | `/api/studio/releases/:id/unpublish` | editor | Back to `draft`; also cancels a schedule. `{ release }` |
 | GET | `/api/studio/releases/:id/preview-link` | editor | `{ url }` = `{APP_URL}/read/:id?preview=<private_token>` |
 | POST | `/api/studio/releases/:id/preview-link/rotate` | editor | New token; old links stop working. `{ url }` |
@@ -586,6 +625,38 @@ as `reserved`, so it is never counted twice.
 
 ---
 
+## 11. Marketing: follower announcements — `studio-marketing.ts`
+
+All admin / owner. An announcement is one email to everyone who follows the brand or any of its series (series follows with
+"notify" on), one per person, leaving out accounts that turned off "New releases" emails (`prefs.notify.releases = false`),
+unsubscribed, are banned or deleted. It is the `announcement` email template (admin overrides apply), queued in `emails` with
+`category = 'marketing'`, `publisher_id` set (so `/analytics/emails` counts it) and `announcement_id` pointing at the row.
+Limit: **3 per brand in any 7 days**.
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| GET | `/api/studio/brands/:id/announcements` | | `{ audience: { followers, emailable }, limit: { per_week, used, remaining, next_available_at }, announcements: [...], series: [{ id, title }], limits: { subject_max, body_max } }` |
+| POST | `/api/studio/brands/:id/announcements/preview` | draft | `{ subject, html, audience }`. Nothing is sent. `html` is the complete email. |
+| POST | `/api/studio/brands/:id/announcements/test` | draft | Sends it to the caller only, subject prefixed `[Test]`. Not counted in the limit or in analytics. Max 10 an hour. `{ ok, to, email_id }` |
+| POST | `/api/studio/brands/:id/announcements` | draft | Sends. 201 `{ announcement, queued, limit }`. 429 code `announcement_limit` over the limit; 400 when nobody can be emailed. |
+
+Draft: `{ subject (3-120 chars, one line), body (10-5000 chars, plain text; blank line = new paragraph), series_id? }`. `series_id`
+(one of the brand's non-draft series) adds an "Open <title>" button.
+
+Announcement row: `{ id, subject, body, recipients, created_at, sent_by, series_id, series_title, queued, sent, opened, clicked, failed }`.
+`sent` / `opened` / `clicked` are counted from the `emails` rows (opens and clicks arrive through the provider webhooks);
+`queued` is still in the queue; `failed` covers failed, suppressed and cancelled.
+
+## 12. Takedowns (what the Studio and reader do)
+
+`series.takedown_at` hides a series from the store, search, the brand page and direct links. A reader who holds an entitlement
+for a release (purchase, code or grant) can still open that release in the reader and download it if their copy included the
+file; the reader manifest then has `series.taken_down: true`, offers no prices, and `prev/next_release_id` only point at releases
+the reader owns. `series.takedown_purge = true` (set by platform admins, for content that must go) ends access for everyone except
+platform admins, including the brand: the reader answers 404 "This title has been removed" and the Studio stops serving page
+images, originals and archives. The rule is `canView` in `lib/access.ts`. The series object's `takedown` is
+`{ at, reason, purge } | null`.
+
 ## Background jobs
 
 - `jobs/ingest.ts` (every 5 s): runs queued `jobs` rows of kind `ingest` and
@@ -602,8 +673,20 @@ as `reserved`, so it is never counted twice.
 
 ## Demo data
 
-`npm run seed -w api -- [you@example.com] [--force]` creates brand "Demo
-Comics" and series "Paper Robots" with two published releases (8 pages from a
-CBZ, 6 from a PDF) whose pages are drawn by the script, run through the real
-ingestion and frame detection. With no email it creates `demo@altcomix.test`
-and prints a random password once.
+`npm run seed -w api -- [you@example.com] [--force]` creates brand "Demo Comics" and four series whose pages are drawn by the
+script and run through the real ingestion and frame detection: "Paper Robots" (paged, left to right, premium; CBZ and PDF),
+"Moonlit Courier" (manga, right to left, with a landscape double-page spread; ZIP and loose images), "Long Way Down" (webcomic,
+vertical scroll) and "After Hours (adult sample, Not safe for work)" (marked mature, for the 18+ gate; nothing explicit in it).
+With no email it creates `demo@altcomix.test` with a confirmed email and prints a random password once.
+
+## Schema added (`060_studio_fixes.sql`)
+
+- `series.takedown_purge boolean not null default false`, `series.launched_at timestamptz` (backfilled for non-draft series).
+- `brand_announcements (id, publisher_id, series_id, subject, body, recipients, sent_by, created_at)`; `emails.announcement_id`.
+
+## Storage (`lib/storage.ts`)
+
+`storage().putStream(key, pathOrReadable, contentType)` stores from a file path or stream and returns the byte count: local disk
+writes to a temp file and renames; R2 sends one PutObject up to 16 MB and a multipart upload (16 MB parts, aborted on failure)
+above that. Ingestion uses it for archives, staged images and originals. `put(key, Buffer, type)` is unchanged. Extracting an
+archive again now puts the fresh pages where the old ones were in the reading order.
