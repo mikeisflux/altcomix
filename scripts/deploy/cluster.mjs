@@ -24,7 +24,10 @@ const STOP_TIMEOUT_MS = 20_000;
 
 const log = (msg) => console.log(`${new Date().toISOString()} [launcher] ${msg}`);
 
-cluster.setupPrimary({ exec: entry, cwd: apiDir });
+// Workers inherit this process's environment, which already holds .env. Dropping the
+// --env-file flag for them avoids a misleading ".env not found" line per worker (their
+// working directory is api/, where there is no .env).
+cluster.setupPrimary({ exec: entry, cwd: apiDir, execArgv: process.execArgv.filter((a) => !a.startsWith('--env-file')) });
 
 /** worker.id -> { role: 'jobs' | 'web', startedAt, retiring } */
 const meta = new Map();

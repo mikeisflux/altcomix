@@ -16,6 +16,10 @@ const databaseUrl = required('DATABASE_URL', 'postgres://postgres@127.0.0.1:5433
 export const config = {
   isProd,
   port: Number(env.PORT ?? 4000),
+  // In production only nginx should reach the API, so it listens on loopback
+  // unless HOST says otherwise. Reaching it directly would also let a caller
+  // forge the X-Forwarded-For header the bot blocker and rate limits trust.
+  host: env.HOST ?? (isProd ? '127.0.0.1' : '0.0.0.0'),
   appUrl: (env.APP_URL ?? 'http://localhost:5173').replace(/\/$/, ''),
   databaseUrl,
   // Development falls back to a stable machine-local value so saved settings survive restarts.

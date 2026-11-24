@@ -159,7 +159,7 @@ if (import.meta.main) {
   await migrate((m) => console.log(m));
   const app = await buildApp();
   const stopJobs = process.env.NO_JOBS ? () => {} : await startJobs(app.log);
-  await app.listen({ port: config.port, host: '0.0.0.0' });
+  await app.listen({ port: config.port, host: config.host });
   console.log(`NSFWComix API listening on :${config.port}`);
   const shutdown = async () => {
     stopJobs();
