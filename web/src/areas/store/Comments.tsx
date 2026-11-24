@@ -88,7 +88,7 @@ export function Comments({ seriesId, slug }: { seriesId: string; slug: string })
   const data = list.data;
   if (data && !data.allow_comments) return null;
 
-  const action = 'inline-flex min-h-8 items-center gap-1 rounded px-1.5 text-xs text-muted hover:text-paper disabled:opacity-50';
+  const action = 'inline-flex min-h-10 items-center gap-1 rounded px-1.5 text-xs text-muted hover:text-paper disabled:opacity-50';
   const one = (c: Comment, isReply: boolean) => (
     <div id={`comment-${c.id}`} className="flex gap-3">
       <Avatar src={c.author?.avatar_url} name={c.author?.name ?? 'Deleted account'} size={isReply ? 28 : 36} />

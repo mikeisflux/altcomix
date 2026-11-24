@@ -162,11 +162,11 @@ export function Browse() {
           {chips.length > 0 && (
             <div className="mb-4 flex flex-wrap items-center gap-2">
               {chips.map((c) => (
-                <button key={c.label} type="button" onClick={c.clear} className="inline-flex h-8 items-center gap-1.5 rounded-full border border-line bg-raised pl-3 pr-2 text-[13px] hover:border-line-strong" aria-label={`Remove filter ${c.label}`}>
+                <button key={c.label} type="button" onClick={c.clear} className="inline-flex h-10 items-center gap-1.5 rounded-full border border-line bg-raised pl-3.5 pr-2.5 text-[13px] hover:border-line-strong" aria-label={`Remove filter ${c.label}`}>
                   {c.label}<X className="size-3.5 text-muted" aria-hidden />
                 </button>
               ))}
-              <button type="button" onClick={clearAll} className="link h-8 px-1 text-[13px]">Clear all</button>
+              <button type="button" onClick={clearAll} className="link h-10 px-1 text-[13px]">Clear all</button>
             </div>
           )}
 

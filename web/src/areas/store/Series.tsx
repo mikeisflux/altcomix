@@ -203,25 +203,25 @@ function ReleaseRow({ r, data, buy }: { r: Release; data: SeriesData; buy: (line
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:justify-end">
           {readable && (
-            <Link to={`/read/${r.id}`} className={buttonClass('secondary', 'sm')} aria-label={`Read ${r.title}`}>
+            <Link to={`/read/${r.id}`} className={buttonClass('secondary', 'md')} aria-label={`Read ${r.title}`}>
               <BookOpen className="size-4" aria-hidden />{a.status === 'preview' ? 'Preview' : a.status === 'locked' ? 'Open' : 'Read'}
             </Link>
           )}
           {a.read_price_cents !== null && (
-            <Button size="sm" aria-label={`Buy ${r.title}`} onClick={() => buy({ item: { kind: 'release', id: r.id }, label, detail: `${mark}, to read online`, price_cents: a.read_price_cents!, list_price_cents: a.read_list_price_cents })}>
+            <Button aria-label={`Buy ${r.title}`} onClick={() => buy({ item: { kind: 'release', id: r.id }, label, detail: `${mark}, to read online`, price_cents: a.read_price_cents!, list_price_cents: a.read_list_price_cents })}>
               Buy · <Price cents={a.read_price_cents} list={a.read_list_price_cents} />
             </Button>
           )}
           {a.can_download && (
-            <a href={`/api/releases/${r.id}/download`} className={buttonClass('secondary', 'sm')} aria-label={`Download ${r.title}`}><Download className="size-4" aria-hidden />Download</a>
+            <a href={`/api/releases/${r.id}/download`} className={buttonClass('secondary', 'md')} aria-label={`Download ${r.title}`}><Download className="size-4" aria-hidden />Download</a>
           )}
           {a.download_price_cents !== null && (
-            <Button size="sm" variant="ghost" aria-label={`Buy the download of ${r.title}`} icon={<Download className="size-4" />} onClick={() => buy({ item: { kind: 'download', id: r.id }, label, detail: `${mark}, file to keep (CBZ)`, price_cents: a.download_price_cents!, list_price_cents: a.download_list_price_cents })}>
+            <Button variant="ghost" aria-label={`Buy the download of ${r.title}`} icon={<Download className="size-4" />} onClick={() => buy({ item: { kind: 'download', id: r.id }, label, detail: `${mark}, file to keep (CBZ)`, price_cents: a.download_price_cents!, list_price_cents: a.download_list_price_cents })}>
               Download · <Price cents={a.download_price_cents} list={a.download_list_price_cents} />
             </Button>
           )}
           {r.print_url && (
-            <a href={r.print_url} target="_blank" rel="noreferrer" className={buttonClass('ghost', 'sm')} aria-label={`Print edition of ${r.title}`}><Printer className="size-4" aria-hidden />Print edition</a>
+            <a href={r.print_url} target="_blank" rel="noreferrer" className={buttonClass('ghost', 'md')} aria-label={`Print edition of ${r.title}`}><Printer className="size-4" aria-hidden />Print edition</a>
           )}
         </div>
       </div>

@@ -157,7 +157,7 @@ export function SeriesNew() {
           <Field label="Reading direction" hint={DIR_HELP[f.reading_dir]}>
             <Segmented value={f.reading_dir} onChange={(v) => { touched.current.dir = true; set({ reading_dir: v }); }} options={[{ value: 'ltr', label: 'Left to right' }, { value: 'rtl', label: 'Right to left' }]} />
           </Field>
-          <Field label="Original publishing year" optional className="max-w-40">
+          <Field label="Original publishing year" optional className="max-w-56">
             <Input type="number" min={1800} max={year + 2} value={f.pub_year ?? ''} onChange={(e) => set({ pub_year: e.target.value ? Number(e.target.value) : null })} />
           </Field>
         </FormSection>

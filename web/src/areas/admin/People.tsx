@@ -176,7 +176,7 @@ export function UserDetail() {
               <Stat label="Reports against" value={number(d.stats.reports_against)} />
             </div>
 
-            <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+            <div className="flex flex-col gap-5">
               <div className="min-w-0 space-y-5">
                 <Section title="Profile">
                   <DefList
@@ -281,26 +281,26 @@ export function UserDetail() {
                 </Section>
               </div>
 
-              <aside className="space-y-3 xl:sticky xl:top-20 xl:self-start">
+              <aside className="order-first">
                 <Section title="Actions">
-                  <div className="flex flex-col gap-2">
+                  <div className="flex flex-wrap gap-2">
                     {!user.email_verified_at && !user.deleted_at && (
-                      <Button block loading={busy === 'verify'} onClick={() => simple('verify', 'Mark email as confirmed?', `Treat ${user.email} as confirmed without the user clicking the link.`, 'verify-email', 'Email marked as confirmed')}>Confirm email</Button>
+                      <Button loading={busy === 'verify'} onClick={() => simple('verify', 'Mark email as confirmed?', `Treat ${user.email} as confirmed without the user clicking the link.`, 'verify-email', 'Email marked as confirmed')}>Confirm email</Button>
                     )}
-                    <Button block loading={busy === 'grant'} disabled={Boolean(user.deleted_at)} onClick={grant}>Grant membership days</Button>
-                    {isSuper && <Button block loading={busy === 'wallet'} onClick={wallet}>Adjust wallet</Button>}
-                    <Button block loading={busy === 'logout'} disabled={!isSelf && staffLocked} onClick={() => simple('logout', 'Sign this user out everywhere?', isSelf ? 'Your other devices are signed out. This one stays signed in.' : 'Every device is signed out. They can sign in again with their password.', 'logout', (r) => `${r.sessions_ended} ${r.sessions_ended === 1 ? 'session' : 'sessions'} ended`, 'Sign out')}>Force sign-out</Button>
-                    {isSuper && !isSelf && <Button block loading={busy === 'role'} disabled={Boolean(user.deleted_at)} onClick={changeRole}>Change role</Button>}
-                    {isSuper && !isSelf && user.totp_enabled && <Button block loading={busy === '2fa'} onClick={reset2fa}>Reset two-factor</Button>}
+                    <Button loading={busy === 'grant'} disabled={Boolean(user.deleted_at)} onClick={grant}>Grant membership days</Button>
+                    {isSuper && <Button loading={busy === 'wallet'} onClick={wallet}>Adjust wallet</Button>}
+                    <Button loading={busy === 'logout'} disabled={!isSelf && staffLocked} onClick={() => simple('logout', 'Sign this user out everywhere?', isSelf ? 'Your other devices are signed out. This one stays signed in.' : 'Every device is signed out. They can sign in again with their password.', 'logout', (r) => `${r.sessions_ended} ${r.sessions_ended === 1 ? 'session' : 'sessions'} ended`, 'Sign out')}>Force sign-out</Button>
+                    {isSuper && !isSelf && <Button loading={busy === 'role'} disabled={Boolean(user.deleted_at)} onClick={changeRole}>Change role</Button>}
+                    {isSuper && !isSelf && user.totp_enabled && <Button loading={busy === '2fa'} onClick={reset2fa}>Reset two-factor</Button>}
                     {canModerate && !user.deleted_at && (
                       user.banned_at
-                        ? <Button block loading={busy === 'unban'} onClick={() => simple('unban', `Unban @${user.username}?`, 'They can sign in again straight away.', 'unban', 'User unbanned', 'Unban')}>Unban</Button>
-                        : <Button block variant="danger" loading={busy === 'ban'} onClick={ban}>Ban user</Button>
+                        ? <Button loading={busy === 'unban'} onClick={() => simple('unban', `Unban @${user.username}?`, 'They can sign in again straight away.', 'unban', 'User unbanned', 'Unban')}>Unban</Button>
+                        : <Button variant="danger" loading={busy === 'ban'} onClick={ban}>Ban user</Button>
                     )}
                     {canModerate && (
                       user.deleted_at
-                        ? <Button block loading={busy === 'restore'} onClick={() => simple('restore', 'Restore this account?', 'The account becomes usable again.', 'restore', 'Account restored', 'Restore')}>Restore account</Button>
-                        : <Button block variant="danger" loading={busy === 'delete'} onClick={remove}>Delete account</Button>
+                        ? <Button loading={busy === 'restore'} onClick={() => simple('restore', 'Restore this account?', 'The account becomes usable again.', 'restore', 'Account restored', 'Restore')}>Restore account</Button>
+                        : <Button variant="danger" loading={busy === 'delete'} onClick={remove}>Delete account</Button>
                     )}
                   </div>
                 </Section>
