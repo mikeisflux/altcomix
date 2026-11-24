@@ -1,12 +1,12 @@
-# AltComix feature catalogue
+# NSFWComix feature catalogue
 
 Source: 36 screenshots of the GlobalComix creator and reader UI (Drive folder
 "global comix shots", captured 23 Nov 2026), each read at full resolution.
-Every feature seen is listed with the AltComix equivalent and where we go
+Every feature seen is listed with the NSFWComix equivalent and where we go
 further. The **Status** column is kept current as the build progresses:
 `done`, `partial` (works, missing a listed detail), `todo`.
 
-Legend for "Better": what AltComix does that the screenshots show GlobalComix
+Legend for "Better": what NSFWComix does that the screenshots show GlobalComix
 does not.
 
 Status as of the first full build. `done` means built and exercised in a
@@ -24,7 +24,7 @@ Divinity payments yet. The `partial` rows:
 
 ## 1. Global shell and navigation
 
-| # | Seen in GlobalComix | AltComix | Better | Status |
+| # | Seen in GlobalComix | NSFWComix | Better | Status |
 |---|---|---|---|---|
 | 1.1 | Left sidebar: Store, Library, Gold, Community | Sidebar: Store, Library, Unlimited, Community | | done |
 | 1.2 | Legacy top bar: Comics, Downloads, Creators, Forums, News, Originals | Browse, Downloads shelf, Creators directory, Forums, News | One navigation system instead of two (their creator pages still use the old top bar) | done |
@@ -43,7 +43,7 @@ Divinity payments yet. The `partial` rows:
 
 ## 2. Account menu (avatar flyout)
 
-| # | Seen | AltComix | Status |
+| # | Seen | NSFWComix | Status |
 |---|---|---|---|
 | 2.1 | Username + "View profile" | Same | done |
 | 2.2 | "Get Gold — unlimited access" upsell row | Unlimited upsell row (hidden for members) | done |
@@ -62,13 +62,13 @@ Divinity payments yet. The `partial` rows:
 
 ## 3. Onboarding
 
-| # | Seen | AltComix | Status |
+| # | Seen | NSFWComix | Status |
 |---|---|---|---|
 | 3.1 | "Pick one to start" favourite-genre picker: Superhero & Action; Sci-Fi & Fantasy; Manga, Action & Adventure; Manga, Romance & Fantasy; Horror & Mystery; A little bit of everything. Save / Cancel. | Same six-way picker, tunes the store rows | done |
 
 ## 4. Account settings
 
-| # | Seen | AltComix | Status |
+| # | Seen | NSFWComix | Status |
 |---|---|---|---|
 | 4.1 | "About yourself" collapsible section | Display name, avatar, bio | done |
 | 4.2 | Discovery: Show mature content (18+) | Same | done |
@@ -96,7 +96,7 @@ Divinity payments yet. The `partial` rows:
 
 ## 5. Store
 
-| # | Seen | AltComix | Better | Status |
+| # | Seen | NSFWComix | Better | Status |
 |---|---|---|---|---|
 | 5.1 | Hero carousel of wide promo banners with progress bar and dots | Admin-curated hero carousel | | done |
 | 5.2 | "New Releases" row with Last week / Earlier tabs and View All | Same | | done |
@@ -106,7 +106,7 @@ Divinity payments yet. The `partial` rows:
 
 ## 6. Brand (publisher / creator) public profile
 
-| # | Seen | AltComix | Status |
+| # | Seen | NSFWComix | Status |
 |---|---|---|---|
 | 6.1 | Avatar, name, series count, bio | Same | done |
 | 6.2 | "Search titles" within the brand | Same | done |
@@ -126,7 +126,7 @@ Settings, Donation Settings, Revenue Splitting β, Payouts & Revenue), BILLING
 (Subscriptions, Payment Methods, Order History), TEAM (Members, Roles).
 Top tabs: SETTINGS, ANALYTICS, SERIES.
 
-| # | Seen | AltComix | Better | Status |
+| # | Seen | NSFWComix | Better | Status |
 |---|---|---|---|---|
 | 7.1 | Identity: Brand name | Same | | done |
 | 7.2 | Identity: Short bio (400 chars) | Same | | done |
@@ -151,7 +151,7 @@ Top tabs: SETTINGS, ANALYTICS, SERIES.
 
 ## 8. Studio: create series
 
-| # | Seen | AltComix | Better | Status |
+| # | Seen | NSFWComix | Better | Status |
 |---|---|---|---|---|
 | 8.1 | Title | Same | | done |
 | 8.2 | Language | Same | | done |
@@ -177,7 +177,7 @@ Crowdfunding), COMMUNITY (Forums).
 
 ### 9a. Metadata
 
-| # | Seen | AltComix | Better | Status |
+| # | Seen | NSFWComix | Better | Status |
 |---|---|---|---|---|
 | 9.1 | Title, Description (1800 chars) | Same | | done |
 | 9.2 | Genre, Theme, Time/Era, Audience, Art style, Advisory flags | Same | | done |
@@ -190,7 +190,7 @@ Crowdfunding), COMMUNITY (Forums).
 
 ### 9b. Paywall
 
-| # | Seen | AltComix | Better | Status |
+| # | Seen | NSFWComix | Better | Status |
 |---|---|---|---|---|
 | 9.9 | Revenue share statement ("subscription 70%, à-la-carte 70%") | Share statement with live numbers | Higher share, and no paid plan needed to get it | done |
 | 9.10 | Public access: Blocked / Free / Gold | Blocked / Free / Premium | | done |
@@ -201,7 +201,7 @@ Crowdfunding), COMMUNITY (Forums).
 
 ### 9c. Advanced
 
-| # | Seen | AltComix | Status |
+| # | Seen | NSFWComix | Status |
 |---|---|---|---|
 | 9.15 | Type, Page layout, Primary language | Same | done |
 | 9.16 | Official website | Same | done |
@@ -217,7 +217,7 @@ Crowdfunding), COMMUNITY (Forums).
 
 ### 9d. Releases tab
 
-| # | Seen | AltComix | Better | Status |
+| # | Seen | NSFWComix | Better | Status |
 |---|---|---|---|---|
 | 9.26 | Grid / list toggle | Same | | done |
 | 9.27 | Language selector + "Add new" | Same | | done |
@@ -228,7 +228,7 @@ Crowdfunding), COMMUNITY (Forums).
 
 ## 10. Studio: release editor
 
-| # | Seen | AltComix | Better | Status |
+| # | Seen | NSFWComix | Better | Status |
 |---|---|---|---|---|
 | 10.1 | Breadcrumb brand › series › "Release #1 (English)" | Same | | done |
 | 10.2 | "Go to release", "View stats" links | Same | | done |
@@ -254,7 +254,7 @@ Crowdfunding), COMMUNITY (Forums).
 
 ## 11. Studio: page / frame editor
 
-| # | Seen | AltComix | Better | Status |
+| # | Seen | NSFWComix | Better | Status |
 |---|---|---|---|---|
 | 11.1 | Page pager: first, prev, "n of N", next, last | Same + arrow keys | | done |
 | 11.2 | Zoom out, reset, zoom in, fullscreen | Same + wheel zoom | | partial |
@@ -277,7 +277,7 @@ Crowdfunding), COMMUNITY (Forums).
 
 ## 12. Studio: analytics
 
-| # | Seen | AltComix | Better | Status |
+| # | Seen | NSFWComix | Better | Status |
 |---|---|---|---|---|
 | 12.1 | Dashboard, last 30 days vs previous 30 | Same, selectable range | | done |
 | 12.2 | Readers: Unique readers, Total visits, Page reads with deltas | Same | | done |
@@ -288,7 +288,7 @@ Crowdfunding), COMMUNITY (Forums).
 
 ## 13. Reader-side features implied by the screenshots
 
-| # | Seen / implied | AltComix | Status |
+| # | Seen / implied | NSFWComix | Status |
 |---|---|---|---|
 | 13.1 | Library | Continue reading, owned, following, favourites | done |
 | 13.2 | Downloads shelf (`/my-shelf/downloads`) | Purchased downloads | done |
@@ -307,7 +307,7 @@ Crowdfunding), COMMUNITY (Forums).
 
 ## 14. Platform (not in the screenshots, required)
 
-| # | AltComix | Status |
+| # | NSFWComix | Status |
 |---|---|---|
 | 14.1 | `/admin` panel: dashboard, users, brands, series moderation, orders, memberships, payouts, settlement, codes, featured rows, announcements, pages, news, feedback, reports, audit log | done |
 | 14.2 | Integrations editable in `/admin`: Cloudflare R2 storage, SendGrid email, payments, reCAPTCHA, analytics | partial |

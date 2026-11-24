@@ -1,6 +1,6 @@
 # BotBlock firewall scripts
 
-Kernel-level blocking for the IPs the AltComix bot blocker catches. Ported from
+Kernel-level blocking for the IPs the NSFWComix bot blocker catches. Ported from
 IndieCrowdfund's `botblock-firewall` and adapted to this schema.
 
 The API already answers blocked IPs with a 403. These scripts go one step
@@ -80,7 +80,7 @@ For the password, either set `DB_PASS=` in `/etc/default/botblock-watcher`, or
 leave it out and add a line to `/root/.pgpass` (mode 600):
 
 ```
-127.0.0.1:5432:altcomix:botblock:the-password
+127.0.0.1:5432:nsfwcomix:botblock:the-password
 ```
 
 ```bash
@@ -109,8 +109,8 @@ All optional, set in `/etc/default/botblock-watcher` as plain `KEY=value` lines.
 |---|---|---|
 | `DB_HOST` | `127.0.0.1` | |
 | `DB_PORT` | `5432` | |
-| `DB_NAME` | `altcomix` | |
-| `DB_USER` | `altcomix` | |
+| `DB_NAME` | `nsfwcomix` | |
+| `DB_USER` | `nsfwcomix` | |
 | `DB_PASS` | (none) | If absent, `~/.pgpass` of the user running the script is used |
 | `BOTBLOCK_ALLOWLIST` | (none) | Space-separated addresses that are never dropped |
 | `BOTBLOCK_INTERVAL` | `5` | Seconds between watcher passes |
@@ -137,7 +137,7 @@ firewall follows within seconds.
 
 ```bash
 sudo botblock-manual unblock YOUR.IP.ADDRESS
-psql altcomix -c "delete from blocked_ips where ip_address = 'YOUR.IP.ADDRESS'"
+psql nsfwcomix -c "delete from blocked_ips where ip_address = 'YOUR.IP.ADDRESS'"
 ```
 
 Then add your address to `BOTBLOCK_ALLOWLIST`.

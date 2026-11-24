@@ -1,4 +1,4 @@
-# AltComix
+# NSFWComix
 
 A digital comics platform: readers get a frame-by-frame reader that fits any
 screen, creators get free publishing with a fast frame editor, direct sales
@@ -18,7 +18,7 @@ What is built, and what is not yet, is tracked item by item in
 Requires Node 26+ and PostgreSQL 18+ (the schema uses `uuidv7()`).
 
 ```bash
-createdb altcomix
+createdb nsfwcomix
 cp .env.example .env        # set DATABASE_URL and APP_SECRET
 npm install
 npm run migrate
@@ -78,5 +78,5 @@ Every page can carry an ordered list of reading frames. The reader's guided
 view shows one frame at a time, scaled to the screen, which is what makes a
 print-layout comic readable on a phone. Creators set frames in Studio with
 rectangle, point-by-point and smart tools, or detect them for a whole release
-in one step. Detection is classical image analysis of panel gutters; AltComix
+in one step. Detection is classical image analysis of panel gutters; NSFWComix
 does not use generative AI and does not accept AI-generated comics.

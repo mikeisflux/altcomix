@@ -169,7 +169,7 @@ function AccessLabel({ r, isMember }: { r: Release; isMember: boolean }) {
       return (
         <span className="flex flex-wrap items-center gap-1.5">
           {a.status === 'preview' ? <Badge tone="neutral">{plural(a.free_pages, 'free page')}</Badge> : <Badge tone="neutral"><Lock className="size-3" aria-hidden />Paid</Badge>}
-          {a.in_membership && !isMember && <Badge tone="accent">In {settings.membership.name.replace(/^AltComix\s+/i, '')}</Badge>}
+          {a.in_membership && !isMember && <Badge tone="accent">In {settings.membership.name.replace(/^NSFWComix\s+/i, '')}</Badge>}
         </span>
       );
   }

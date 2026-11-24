@@ -36,10 +36,10 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <SessionProvider
-        fallback={<PageLoader label="Opening AltComix" />}
+        fallback={<PageLoader label="Opening NSFWComix" />}
         failure={(message, retry) => (
           <div className="flex min-h-dvh flex-col items-center justify-center gap-4 px-6 text-center">
-            <h1 className="text-2xl font-bold">AltComix is not responding</h1>
+            <h1 className="text-2xl font-bold">NSFWComix is not responding</h1>
             <p className="max-w-md text-muted">{message}</p>
             <Button variant="primary" onClick={retry}>Try again</Button>
           </div>

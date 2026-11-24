@@ -27,7 +27,7 @@ test('inParts: exact multiple, one big chunk, and an empty stream', async () => 
 });
 
 test('local driver: putStream stores a file path and a stream without changing the bytes', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'altcomix-storage-test-'));
+  const dir = await mkdtemp(join(tmpdir(), 'nsfwcomix-storage-test-'));
   const store = await storage();
   const key = `private/staging/storage-test-${Date.now()}`;
   try {

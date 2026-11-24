@@ -55,7 +55,7 @@ export async function api<T = unknown>(path: string, opts: Options = {}): Promis
     res = await fetch(withQuery(path, opts.query), { method, headers, body, credentials: 'same-origin', signal: opts.signal });
   } catch (e) {
     if ((e as Error).name === 'AbortError') throw e;
-    throw new ApiError(0, 'Could not reach AltComix. Check your connection and try again.');
+    throw new ApiError(0, 'Could not reach NSFWComix. Check your connection and try again.');
   }
   if (res.status === 204) return undefined as T;
   const isJson = res.headers.get('content-type')?.includes('application/json');

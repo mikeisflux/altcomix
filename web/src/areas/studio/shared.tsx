@@ -34,7 +34,7 @@ export function useBrands(enabled = true) {
 
 export function useTitle(title: string | null | undefined) {
   useEffect(() => {
-    if (title) document.title = `${title} · AltComix Studio`;
+    if (title) document.title = `${title} · NSFWComix Studio`;
   }, [title]);
 }
 

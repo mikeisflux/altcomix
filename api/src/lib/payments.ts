@@ -15,14 +15,14 @@ import { getSetting } from './settings.ts';
  *
  *   divinity  Divinity payments partner API (production). Hosted checkout
  *             only: the reader enters their card on the processor's page and
- *             AltComix never sees, logs or stores card data. Memberships save
+ *             NSFWComix never sees, logs or stores card data. Memberships save
  *             a payment method token (pm_...) through a SETUP-mode hosted
  *             checkout and are charged off-session each period.
  *   sandbox   Completes instantly with no processor so the whole flow can be
  *             exercised in development. Refused when NODE_ENV=production.
  *
  * Every Divinity charge is created as a hold on the processor's side, keyed
- * by the id we send as `pledgeId`. AltComix sells immediately, so each paid
+ * by the id we send as `pledgeId`. NSFWComix sells immediately, so each paid
  * order / membership charge is captured as soon as the hold exists
  * (`payment.succeeded`), with the housekeeping job retrying any that are not.
  *
@@ -37,8 +37,8 @@ export type DcResponse = { ok: boolean; status: number; data: Row; error: string
 
 const DC_READ_ONLY = new Set(['get-checkout-session', 'lookup-payment', 'verify-payment']);
 const DC_GATEWAY = new Set([502, 503, 504]);
-const STORE_PROJECT = 'altcomix-store';
-const MEMBERSHIP_PROJECT = 'altcomix-membership';
+const STORE_PROJECT = 'nsfwcomix-store';
+const MEMBERSHIP_PROJECT = 'nsfwcomix-membership';
 
 function dcErrorText(body: Row): string | null {
   for (const c of [body.error, body.message, body.detail, body.reason]) {

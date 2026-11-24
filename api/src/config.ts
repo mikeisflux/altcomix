@@ -11,7 +11,7 @@ function required(name: string, devDefault?: string): string {
   throw new Error(`Missing required environment variable ${name}`);
 }
 
-const databaseUrl = required('DATABASE_URL', 'postgres://postgres@127.0.0.1:5433/altcomix');
+const databaseUrl = required('DATABASE_URL', 'postgres://postgres@127.0.0.1:5433/nsfwcomix');
 
 export const config = {
   isProd,

@@ -68,7 +68,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     const site = await getSetting('site');
     const staff = req.user?.role === 'admin' || req.user?.role === 'super_admin';
     if (site.maintenance && !staff && !path.startsWith('/api/auth/') && !path.startsWith('/api/admin/') && path !== '/api/bootstrap' && !path.startsWith('/api/health')) {
-      return reply.code(503).send({ error: 'AltComix is down for maintenance. Back shortly.', code: 'maintenance' });
+      return reply.code(503).send({ error: 'NSFWComix is down for maintenance. Back shortly.', code: 'maintenance' });
     }
   });
 
@@ -160,7 +160,7 @@ if (import.meta.main) {
   const app = await buildApp();
   const stopJobs = process.env.NO_JOBS ? () => {} : await startJobs(app.log);
   await app.listen({ port: config.port, host: '0.0.0.0' });
-  console.log(`AltComix API listening on :${config.port}`);
+  console.log(`NSFWComix API listening on :${config.port}`);
   const shutdown = async () => {
     stopJobs();
     await app.close();

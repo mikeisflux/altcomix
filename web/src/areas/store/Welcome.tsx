@@ -6,7 +6,7 @@ import { LinkButton, cx } from '@/ui';
 import { useTitle } from './shared';
 
 /**
- * The pitch: why AltComix exists. Linked from the footer, the Studio and the
+ * The pitch: why NSFWComix exists. Linked from the footer, the Studio and the
  * signed-out home. Layout follows the "Marketing landing page" board in the
  * brand canvas; creator shares come from live settings, never hardcoded.
  */

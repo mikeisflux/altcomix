@@ -7,7 +7,7 @@ import { audit, badRequest, conflict, notFound, pageParams, parse, requireAdmin,
 import { getSetting, setSetting } from '../lib/settings.ts';
 
 const SAMPLE: Record<string, string> = {
-  name: 'Sam Reader', url: 'https://example.com/sample-link', site: 'AltComix', total: '$12.00', title: 'Night Ferry #1', message: 'Thanks for backing the book!',
+  name: 'Sam Reader', url: 'https://example.com/sample-link', site: 'NSFWComix', total: '$12.00', title: 'Night Ferry #1', message: 'Thanks for backing the book!',
   code: 'ABCD-EFGH-JKLM', brand: 'Harbour Press', inviter: 'Alex Editor', role: 'editor', amount: '$48.20', status: 'approved', note: 'Sent by bank transfer.',
   series: 'Night Ferry', release: 'Issue 2: Low Tide', synopsis: 'The ferry leaves without its captain.', subject: 'Sample subject', body: 'Sample body text.',
   plan: 'monthly', renews: '1 January', from: 'Jo Artist', preview: 'Loved the last issue...',

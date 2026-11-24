@@ -1,8 +1,8 @@
-// PM2 process file for AltComix.
+// PM2 process file for NSFWComix.
 //
 //   pm2 start scripts/deploy/ecosystem.config.cjs     first start
-//   pm2 sendSignal SIGHUP altcomix                    zero-downtime reload after a deploy
-//   pm2 restart altcomix --update-env                 full restart (after changing .env or this file)
+//   pm2 sendSignal SIGHUP nsfwcomix                    zero-downtime reload after a deploy
+//   pm2 restart nsfwcomix --update-env                 full restart (after changing .env or this file)
 //   pm2 save && pm2 startup                           start again after a reboot
 //
 // PM2 supervises one launcher (cluster.mjs). The launcher runs WEB_CONCURRENCY
@@ -12,7 +12,7 @@
 // because it does not run server.ts as the main module (see cluster.mjs).
 //
 // Secrets (DATABASE_URL, APP_SECRET, CRON_SECRET ...) are NOT in this file.
-// They live in /path/to/altcomix/.env on the server, which is never committed.
+// They live in /path/to/nsfwcomix/.env on the server, which is never committed.
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '../..');
@@ -20,7 +20,7 @@ const root = path.resolve(__dirname, '../..');
 module.exports = {
   apps: [
     {
-      name: 'altcomix',
+      name: 'nsfwcomix',
       cwd: root,
       script: 'scripts/deploy/cluster.mjs',
       interpreter: 'node',
@@ -45,8 +45,8 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
       },
-      out_file: '/var/log/pm2/altcomix-out.log',
-      error_file: '/var/log/pm2/altcomix-error.log',
+      out_file: '/var/log/pm2/nsfwcomix-out.log',
+      error_file: '/var/log/pm2/nsfwcomix-error.log',
       merge_logs: true,
       time: false, // the API logs carry their own timestamps
     },

@@ -1,4 +1,4 @@
-# AltComix — example crontab entries. Nothing here is installed automatically.
+# NSFWComix — example crontab entries. Nothing here is installed automatically.
 #
 # ---------------------------------------------------------------------------
 # 1. Firewall sync (root's crontab: sudo crontab -e)
@@ -17,17 +17,17 @@
 #    appears in the crontab, in `ps`, or in this repository:
 #
 #      umask 077
-#      printf 'header = "Authorization: Bearer %s"\n' "$(grep '^CRON_SECRET=' /srv/altcomix/.env | cut -d= -f2-)" > ~/.altcomix-cron
+#      printf 'header = "Authorization: Bearer %s"\n' "$(grep '^CRON_SECRET=' /srv/nsfwcomix/.env | cut -d= -f2-)" > ~/.nsfwcomix-cron
 #
 #    With CRON_SECRET unset on the server, these endpoints refuse every call.
 # ---------------------------------------------------------------------------
-ALTCOMIX=http://127.0.0.1:4000/api/cron
+NSFWCOMIX=http://127.0.0.1:4000/api/cron
 
 # Outbound email, every minute
-* * * * *    curl -fsS -m 55 -K ~/.altcomix-cron -X POST $ALTCOMIX/email-queue > /dev/null
+* * * * *    curl -fsS -m 55 -K ~/.nsfwcomix-cron -X POST $NSFWCOMIX/email-queue > /dev/null
 # Scheduled releases, every minute
-* * * * *    curl -fsS -m 55 -K ~/.altcomix-cron -X POST $ALTCOMIX/publish-scheduled > /dev/null
+* * * * *    curl -fsS -m 55 -K ~/.nsfwcomix-cron -X POST $NSFWCOMIX/publish-scheduled > /dev/null
 # Housekeeping, hourly at :17
-17 * * * *   curl -fsS -m 120 -K ~/.altcomix-cron -X POST $ALTCOMIX/cleanup > /dev/null
+17 * * * *   curl -fsS -m 120 -K ~/.nsfwcomix-cron -X POST $NSFWCOMIX/cleanup > /dev/null
 # Membership split for the month that just ended: 02:30 UTC on the 2nd, and again on the 3rd in case the first run failed
-30 2 2,3 * * curl -fsS -m 600 -K ~/.altcomix-cron -X POST $ALTCOMIX/settlement > /dev/null
+30 2 2,3 * * curl -fsS -m 600 -K ~/.nsfwcomix-cron -X POST $NSFWCOMIX/settlement > /dev/null

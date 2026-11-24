@@ -1,4 +1,4 @@
--- AltComix core schema. Postgres 18+ (uses uuidv7()).
+-- NSFWComix core schema. Postgres 18+ (uses uuidv7()).
 
 create table users (
   id              uuid primary key default uuidv7(),

@@ -228,7 +228,7 @@ function Team() {
         <dl className="grid gap-2 text-sm sm:grid-cols-2">{(Object.keys(ROLE_HELP) as Role[]).map((r) => <div key={r} className="rounded-xl border border-line p-3"><dt className="font-semibold">{cap(r)}</dt><dd className="text-muted">{ROLE_HELP[r]}</dd></div>)}</dl>
       </Section>
       {manage && (
-        <Section title="Invite someone" description="They get an email with a link. If they have no AltComix account yet, they can create one with that address and then accept.">
+        <Section title="Invite someone" description="They get an email with a link. If they have no NSFWComix account yet, they can create one with that address and then accept.">
           <form className="grid items-end gap-3 sm:grid-cols-[1fr_160px_auto]" onSubmit={(e: FormEvent) => { e.preventDefault(); invite.mutate(); }}>
             <Field label="Email address"><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required maxLength={200} /></Field>
             <Field label="Role"><Select value={inviteRole} onChange={(e) => setInviteRole(e.target.value as Role)}>{(owner ? ['owner', 'admin', 'editor', 'analyst'] : ['editor', 'analyst']).map((r) => <option key={r} value={r}>{cap(r)}</option>)}</Select></Field>
@@ -320,7 +320,7 @@ function DeleteBrand() {
   if (!owner) return <Notice tone="info">Only an owner of this brand can delete it.</Notice>;
   const matches = typed.trim() === brand.name;
   return (
-    <Section title="Delete this brand" description="Takes the brand and everything published under it off AltComix. This cannot be undone from the Studio.">
+    <Section title="Delete this brand" description="Takes the brand and everything published under it off NSFWComix. This cannot be undone from the Studio.">
       <Q query={state}>
         {(d) => (
           <div className="space-y-4">

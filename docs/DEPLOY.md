@@ -1,4 +1,4 @@
-# Deploying AltComix
+# Deploying NSFWComix
 
 One Linux server running nginx, PM2, Node 26 and PostgreSQL 18 or newer. The
 layout follows IndieCrowdfund: nginx in front, PM2 supervising the Node
@@ -43,15 +43,15 @@ sudo mkdir -p /var/log/pm2 && sudo chown "$USER" /var/log/pm2
 Database:
 
 ```sql
-create role altcomix login password 'choose-one';
-create database altcomix owner altcomix;
+create role nsfwcomix login password 'choose-one';
+create database nsfwcomix owner nsfwcomix;
 ```
 
 ## 3. First install
 
 ```bash
-sudo mkdir -p /srv/altcomix && sudo chown "$USER" /srv/altcomix
-git clone <repository url> /srv/altcomix && cd /srv/altcomix
+sudo mkdir -p /srv/nsfwcomix && sudo chown "$USER" /srv/nsfwcomix
+git clone <repository url> /srv/nsfwcomix && cd /srv/nsfwcomix
 cp .env.example .env && chmod 600 .env && nano .env
 ```
 
@@ -61,10 +61,10 @@ cp .env.example .env && chmod 600 .env && nano .env
 |---|---|
 | `NODE_ENV` | `production` |
 | `PORT` | `4000` |
-| `APP_URL` | Public origin, no trailing slash, e.g. `https://altcomix.example` |
-| `DATABASE_URL` | `postgres://altcomix:PASSWORD@127.0.0.1:5432/altcomix` |
+| `APP_URL` | Public origin, no trailing slash, e.g. `https://nsfwcomix.example` |
+| `DATABASE_URL` | `postgres://nsfwcomix:PASSWORD@127.0.0.1:5432/nsfwcomix` |
 | `APP_SECRET` | 32+ random bytes: `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`. **Back it up.** It encrypts every key saved in `/admin`; lose it and they all have to be re-entered |
-| `STORAGE_DIR` | Absolute path for uploaded files while storage is local, e.g. `/srv/altcomix-storage` |
+| `STORAGE_DIR` | Absolute path for uploaded files while storage is local, e.g. `/srv/nsfwcomix-storage` |
 | `SUPER_ADMIN_EMAIL` | Your email. The account registered with it becomes super admin |
 | `CRON_SECRET` | Long random string. Leave empty to disable the `/api/cron` endpoints |
 | `WEB_CONCURRENCY` | Optional. API processes to run (default 4, see section 6) |
@@ -83,11 +83,11 @@ curl -s localhost:4000/api/health
 nginx:
 
 ```bash
-sudo cp scripts/deploy/nginx.conf /etc/nginx/sites-available/altcomix
-sudo nano /etc/nginx/sites-available/altcomix      # server_name and the /srv/altcomix path
-sudo ln -s /etc/nginx/sites-available/altcomix /etc/nginx/sites-enabled/
+sudo cp scripts/deploy/nginx.conf /etc/nginx/sites-available/nsfwcomix
+sudo nano /etc/nginx/sites-available/nsfwcomix      # server_name and the /srv/nsfwcomix path
+sudo ln -s /etc/nginx/sites-available/nsfwcomix /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
-sudo certbot --nginx -d altcomix.example -d www.altcomix.example
+sudo certbot --nginx -d nsfwcomix.example -d www.nsfwcomix.example
 ```
 
 The API works out each visitor's address from the **last** `X-Forwarded-For`
@@ -103,7 +103,7 @@ appears to come from the proxy and a single block shuts everyone out.
 2. To promote anyone later, from the server:
 
    ```bash
-   cd /srv/altcomix/api
+   cd /srv/nsfwcomix/api
    node --env-file=../.env src/make-admin.ts someone@example.com          # super admin
    node --env-file=../.env src/make-admin.ts someone@example.com admin    # admin
    node --env-file=../.env src/make-admin.ts someone@example.com user     # remove access
@@ -149,10 +149,10 @@ after saving. A blank secret field keeps what is stored.
 ## 6. Processes
 
 ```bash
-pm2 status                         # one entry: altcomix (the launcher)
-pm2 logs altcomix                  # launcher + API output
-pm2 sendSignal SIGHUP altcomix     # rolling reload: no dropped requests
-pm2 restart altcomix --update-env  # full restart: needed after editing .env or the files in scripts/deploy
+pm2 status                         # one entry: nsfwcomix (the launcher)
+pm2 logs nsfwcomix                  # launcher + API output
+pm2 sendSignal SIGHUP nsfwcomix     # rolling reload: no dropped requests
+pm2 restart nsfwcomix --update-env  # full restart: needed after editing .env or the files in scripts/deploy
 ```
 
 - `WEB_CONCURRENCY` sets how many API processes run (default 4, or the number
@@ -171,7 +171,7 @@ pm2 restart altcomix --update-env  # full restart: needed after editing .env or 
 ## 7. Deploying an update
 
 ```bash
-cd /srv/altcomix && ./scripts/deploy/deploy.sh
+cd /srv/nsfwcomix && ./scripts/deploy/deploy.sh
 ```
 
 Pull (fast-forward only; refuses if the checkout has local changes) → `npm ci`
@@ -207,7 +207,7 @@ never match; the API-level block still applies.
 
 ## 10. Backups
 
-- **Database:** `pg_dump -Fc altcomix > altcomix-$(date +%F).dump` nightly, copied off the server.
+- **Database:** `pg_dump -Fc nsfwcomix > nsfwcomix-$(date +%F).dump` nightly, copied off the server.
 - **Files:** `STORAGE_DIR` while storage is local; the R2 bucket afterwards.
 - **`.env`**, above all `APP_SECRET`, somewhere safe and separate from the database dump.
 
@@ -220,7 +220,7 @@ integration keys.
   `GET /api/health/live` only says the process is up. Point an uptime monitor at the first.
 - Admin > Health: database, storage round trip, disk, email, payments, jobs, warnings.
 - Admin > Error log: server, job and browser errors, grouped.
-- Logs: `/var/log/pm2/altcomix-*.log`, `/var/log/nginx/`, `/var/log/botblock*.log`.
+- Logs: `/var/log/pm2/nsfwcomix-*.log`, `/var/log/nginx/`, `/var/log/botblock*.log`.
   PM2 does not rotate logs by itself: `pm2 install pm2-logrotate`.
 
 ## 12. Known limits

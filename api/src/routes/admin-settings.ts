@@ -297,7 +297,7 @@ export default async function adminSettingsRoutes(app: FastifyInstance) {
         const res = await fetch(`${url}${url.includes('?') ? '&' : '?'}action=lookup-payment`, {
           method: 'POST',
           headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', 'x-partner-id': partnerId },
-          body: JSON.stringify({ pledgeId: 'altcomix-connection-test' }),
+          body: JSON.stringify({ pledgeId: 'nsfwcomix-connection-test' }),
           signal: AbortSignal.timeout(10_000),
         });
         const text = await res.text();

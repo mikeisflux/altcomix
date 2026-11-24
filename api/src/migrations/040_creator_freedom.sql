@@ -8,7 +8,7 @@ insert into cms_pages (slug, title, body) values
 
 ## Make the book you want
 
-AltComix exists because creators keep getting told, with a day's notice, that work they were invited to publish is no longer welcome. This is what we promise instead.
+NSFWComix exists because creators keep getting told, with a day's notice, that work they were invited to publish is no longer welcome. This is what we promise instead.
 
 ## 1. Adult work is allowed
 
@@ -49,7 +49,7 @@ Make the book you want. Label it honestly. Stay inside a short list of hard limi
 
 ## Adult content is welcome
 
-AltComix is for all kinds of comics, including comics made for adults. **Explicit sexual content, nudity, graphic violence and mature themes are allowed** when the work:
+NSFWComix is for all kinds of comics, including comics made for adults. **Explicit sexual content, nudity, graphic violence and mature themes are allowed** when the work:
 
 - is marked **Not safe for work** on the series or release, with the content advisories that apply, and
 - stays inside the hard limits below.
@@ -70,7 +70,7 @@ These apply to everything, however it is labelled, and they do not have exceptio
 
 - Mark a series or a single release **Not safe for work** if you would think twice before showing it to a parent or a boss.
 - Use the advisories (nudity, sexual content, graphic violence and so on) so readers can choose.
-- Covers and banners can appear in link previews outside AltComix, where there is no age check. Keep explicit imagery off the cover itself.
+- Covers and banners can appear in link previews outside NSFWComix, where there is no age check. Keep explicit imagery off the cover itself.
 
 Moderators may add a missing label. That is a label, not a penalty.
 

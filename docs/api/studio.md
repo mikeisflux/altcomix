@@ -677,7 +677,7 @@ images, originals and archives. The rule is `canView` in `lib/access.ts`. The se
 script and run through the real ingestion and frame detection: "Paper Robots" (paged, left to right, premium; CBZ and PDF),
 "Moonlit Courier" (manga, right to left, with a landscape double-page spread; ZIP and loose images), "Long Way Down" (webcomic,
 vertical scroll) and "After Hours (adult sample, Not safe for work)" (marked mature, for the 18+ gate; nothing explicit in it).
-With no email it creates `demo@altcomix.test` with a confirmed email and prints a random password once.
+With no email it creates `demo@nsfwcomix.test` with a confirmed email and prints a random password once.
 
 ## Schema added (`060_studio_fixes.sql`)
 

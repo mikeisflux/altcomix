@@ -1,6 +1,6 @@
 {
-  "name": "AltComix",
-  "short_name": "AltComix",
+  "name": "NSFWComix",
+  "short_name": "NSFWComix",
   "description": "Creator-owned comics, frame by frame on any screen.",
   "start_url": "/",
   "display": "standalone",

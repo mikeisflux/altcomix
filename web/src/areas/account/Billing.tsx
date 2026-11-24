@@ -62,7 +62,7 @@ function RedeemResult({ result, next, currency, membershipName }: { result: Rede
     detail = (
       <>
         {n === 1 ? 'That release is' : `Those ${n} releases are`} yours to read for good, on any device.{' '}
-        {result.includes_download ? 'The code includes the files too: find them under Downloads in your library.' : 'This code covers reading on AltComix; it does not include a file download.'}
+        {result.includes_download ? 'The code includes the files too: find them under Downloads in your library.' : 'This code covers reading on NSFWComix; it does not include a file download.'}
       </>
     );
     action = (

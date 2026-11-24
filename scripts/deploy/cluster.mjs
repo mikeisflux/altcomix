@@ -1,4 +1,4 @@
-// AltComix process launcher, run by PM2 (see ecosystem.config.cjs).
+// NSFWComix process launcher, run by PM2 (see ecosystem.config.cjs).
 //
 // Starts N copies of `node api/src/server.ts` sharing one port through
 // node:cluster. Exactly one of them runs the background jobs (email queue,
@@ -34,7 +34,7 @@ let quickDeaths = 0;
 
 function start(role) {
   // An empty NO_JOBS is falsy in server.ts, and overrides anything inherited.
-  const worker = cluster.fork({ NO_JOBS: role === 'jobs' ? '' : '1', ALTCOMIX_ROLE: role });
+  const worker = cluster.fork({ NO_JOBS: role === 'jobs' ? '' : '1', NSFWCOMIX_ROLE: role });
   meta.set(worker.id, { role, startedAt: Date.now(), retiring: false });
   log(`started ${role} worker ${worker.process.pid}`);
   return worker;

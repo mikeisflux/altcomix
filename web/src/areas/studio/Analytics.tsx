@@ -236,7 +236,7 @@ function Emails({ brandId, q }: { brandId: string; q: RangeQuery }) {
     <Q query={rows}>
       {(d) => (
         <div className="grid gap-4 lg:grid-cols-2">
-          <Panel title="Emails sent per day" note="Emails AltComix sends for this brand, such as new-release alerts and backer codes." actions={<Csv brandId={brandId} path="emails" q={q} />}>
+          <Panel title="Emails sent per day" note="Emails NSFWComix sends for this brand, such as new-release alerts and backer codes." actions={<Csv brandId={brandId} path="emails" q={q} />}>
             <BarChart data={d.rows.map((r) => ({ label: day(r.day), value: r.sent }))} format={number} />
           </Panel>
           <Panel title="By kind of email">

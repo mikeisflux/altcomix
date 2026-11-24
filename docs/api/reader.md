@@ -740,7 +740,7 @@ A page credit pays the creators `page_credit_cents × sale share` when it is spe
 - `payment-method` → `{ url }` (hosted page) or `{ completed: true, ... }` in the sandbox.
   A new card on a past-due membership is charged straight away.
 
-How billing works: the hosted checkout runs in SETUP mode and gives AltComix an
+How billing works: the hosted checkout runs in SETUP mode and gives NSFWComix an
 opaque payment method token (`pm_…`), the only payment credential stored. The
 first period is charged with it immediately; `jobs/memberships.ts` charges each
 renewal when the period ends. A declined renewal makes the membership
@@ -824,14 +824,14 @@ Provider comes from `settings.payments.provider`.
 **`divinity`** (production; Divinity payments partner API,
 `POST <divinity_api_url>?action=…`, `Authorization: Bearer <api key>`,
 `X-Partner-ID`). Hosted checkout only: card details are entered on the
-processor's page and never reach AltComix.
+processor's page and never reach NSFWComix.
 
 | Our action | Partner call | Notes |
 |---|---|---|
-| Start an order | `create-checkout-session` `mode: payment` | `pledgeId` = order id, `projectId` = `altcomix-store`, `idempotencyKey` = order id, `returnUrl` as above |
+| Start an order | `create-checkout-session` `mode: payment` | `pledgeId` = order id, `projectId` = `nsfwcomix-store`, `idempotencyKey` = order id, `returnUrl` as above |
 | Start a membership / change card | `create-checkout-session` `mode: setup` | `idempotencyKey` = `setup-<subscription id>` |
 | Reader returns / reconciliation | `get-checkout-session` | |
-| Charge a period | `charge-saved-payment-method` | `pledgeId` = the charge row id (new for every period), `projectId` = `altcomix-membership`, `idempotencyKey` = `attempt-<n>` |
+| Charge a period | `charge-saved-payment-method` | `pledgeId` = the charge row id (new for every period), `projectId` = `nsfwcomix-membership`, `idempotencyKey` = `attempt-<n>` |
 | Unanswered charge | `lookup-payment` | before any repeat |
 | Complete the sale | `capture` `{ pledgeId }` | each payment is a hold on the processor's side; captured as soon as the hold exists |
 | Refund | `refund` `{ paymentIntentId, pledgeId, amount, reason }` | |
@@ -896,9 +896,9 @@ Suggested embed code:
 
 ```html
 <iframe src="https://SITE/widgets/read-now/SERIES-SLUG?color=1a1c20&size=medium"
-        width="160" height="46" style="border:0" title="Read on AltComix"></iframe>
+        width="160" height="46" style="border:0" title="Read on NSFWComix"></iframe>
 <iframe src="https://SITE/widgets/card/SERIES-SLUG" width="360" height="180" style="border:0"
-        title="Read on AltComix"></iframe>
+        title="Read on NSFWComix"></iframe>
 ```
 
 Button heights: small 34px, medium 42px, large 54px. The link opens the series

@@ -9,7 +9,7 @@ import { decrypt, encrypt } from './crypto.ts';
 export const SETTINGS = {
   site: {
     defaults: {
-      name: 'AltComix',
+      name: 'NSFWComix',
       tagline: 'Your comic. Your rules.',
       support_email: '',
       currency: 'usd',
@@ -35,7 +35,7 @@ export const SETTINGS = {
   },
   membership: {
     defaults: {
-      name: 'AltComix Unlimited',
+      name: 'NSFWComix Unlimited',
       monthly_cents: 599,
       annual_cents: 5900,
       trial_days: 0,
@@ -64,7 +64,7 @@ export const SETTINGS = {
       mailgun_domain: '',
       mailgun_webhook_signing_key: '',
       from_email: '',
-      from_name: 'AltComix',
+      from_name: 'NSFWComix',
       reply_to: '',
       queue_paused: false,
     },

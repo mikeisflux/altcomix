@@ -65,8 +65,8 @@ before(async () => {
   await exec(`update orders set status = 'failed' where status = 'pending'`);
   await exec(`delete from subscriptions where status not in ('active','canceled','expired') or current_period_end < now()`);
   await setSetting('payments', {
-    provider: 'divinity', divinity_api_url: `http://127.0.0.1:${(fake.address() as AddressInfo).port}/internal`, divinity_partner_id: 'partner_altcomix',
-    divinity_api_key: 'dc_live_testkey', divinity_webhook_secret: SECRET, divinity_checkout_logo_url: 'https://altcomix.example/logo.png',
+    provider: 'divinity', divinity_api_url: `http://127.0.0.1:${(fake.address() as AddressInfo).port}/internal`, divinity_partner_id: 'partner_nsfwcomix',
+    divinity_api_key: 'dc_live_testkey', divinity_webhook_secret: SECRET, divinity_checkout_logo_url: 'https://nsfwcomix.example/logo.png',
   }, null);
   await setSetting('membership', { trial_days: 0, monthly_cents: 599, annual_cents: 5900 }, null);
   const owner = await f.user();
@@ -126,14 +126,14 @@ test('hosted checkout: request shape, then return page + webhooks converge on on
 
   const [c] = of('create-checkout-session');
   assert.equal(c.headers.authorization, 'Bearer dc_live_testkey');
-  assert.equal(c.headers['x-partner-id'], 'partner_altcomix');
+  assert.equal(c.headers['x-partner-id'], 'partner_nsfwcomix');
   assert.equal(c.headers['content-type'], 'application/json');
   assert.deepEqual(
     { mode: c.body.mode, platformUserId: c.body.platformUserId, email: c.body.email, amount: c.body.amount, currency: c.body.currency, pledgeId: c.body.pledgeId, projectId: c.body.projectId, idempotencyKey: c.body.idempotencyKey },
-    { mode: 'payment', platformUserId: reader.id, email: reader.email, amount: 199, currency: 'usd', pledgeId: id, projectId: 'altcomix-store', idempotencyKey: id },
+    { mode: 'payment', platformUserId: reader.id, email: reader.email, amount: 199, currency: 'usd', pledgeId: id, projectId: 'nsfwcomix-store', idempotencyKey: id },
   );
   assert.match(c.body.returnUrl, new RegExp(`/checkout/return\\?order=${id}&next=%2Fread%2Fabc$`));
-  assert.equal(c.body.partnerLogoUrl, 'https://altcomix.example/logo.png');
+  assert.equal(c.body.partnerLogoUrl, 'https://nsfwcomix.example/logo.png');
   // the reader's browser, never our server
   assert.equal(c.body.customerIpAddress, '203.0.113.42');
   assert.equal(c.body.customerUserAgent, 'Mozilla/5.0 (Test Browser)');
@@ -171,7 +171,7 @@ test('hosted checkout: request shape, then return page + webhooks converge on on
   respond = () => undefined;
   for (let i = 0; i < 2; i++) {
     await pay.handleDivinityEvent({ event: 'checkout.completed', data: { sessionId: o1!.provider_ref, mode: 'payment', paymentIntentId: `pi_${o1!.provider_ref}`, pledgeId: id } });
-    await pay.handleDivinityEvent({ event: 'payment.succeeded', data: { paymentIntentId: `pi_${o1!.provider_ref}`, amount: 199, pledgeId: id, projectId: 'altcomix-store', platformUserId: reader.id, hold: { holdId: 'hold_1', amount: 199, status: 'ACTIVE' } } });
+    await pay.handleDivinityEvent({ event: 'payment.succeeded', data: { paymentIntentId: `pi_${o1!.provider_ref}`, amount: 199, pledgeId: id, projectId: 'nsfwcomix-store', platformUserId: reader.id, hold: { holdId: 'hold_1', amount: 199, status: 'ACTIVE' } } });
   }
   assert.equal(await ledgerRows(id), 2);
   assert.equal(await ledgerSum(id), 138);
@@ -333,7 +333,7 @@ test('membership: SETUP checkout saves only a pm_ token, first period is charged
   assert.equal(paid.length, 1, 'charged exactly once');
   assert.deepEqual(
     { platformUserId: paid[0].body.platformUserId, paymentMethodId: paid[0].body.paymentMethodId, amount: paid[0].body.amount, pledgeId: paid[0].body.pledgeId, projectId: paid[0].body.projectId, idempotencyKey: paid[0].body.idempotencyKey, ip: paid[0].body.customerIpAddress, ua: paid[0].body.customerUserAgent },
-    { platformUserId: reader.id, paymentMethodId: 'pm_saved_1', amount: 599, pledgeId: cs[0].id, projectId: 'altcomix-membership', idempotencyKey: 'attempt-1', ip: '198.51.100.7', ua: 'Mozilla/5.0 (Member)' },
+    { platformUserId: reader.id, paymentMethodId: 'pm_saved_1', amount: 599, pledgeId: cs[0].id, projectId: 'nsfwcomix-membership', idempotencyKey: 'attempt-1', ip: '198.51.100.7', ua: 'Mozilla/5.0 (Member)' },
   );
   assert.deepEqual(of('capture').map((x) => x.body.pledgeId), [cs[0].id]);
   assert.deepEqual([cs[0].status, cs[0].amount_cents, cs[0].fee_cents, Boolean(cs[0].captured_at)], ['paid', 599, 47, true]);
@@ -545,6 +545,6 @@ test('divinity without credentials is "not configured", not a crash', async () =
   try {
     await assert.rejects(pay.getProvider(), /Payments are not set up yet/);
   } finally {
-    await setSetting('payments', { divinity_partner_id: 'partner_altcomix' }, null);
+    await setSetting('payments', { divinity_partner_id: 'partner_nsfwcomix' }, null);
   }
 });

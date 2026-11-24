@@ -129,14 +129,14 @@ export function SeriesReleases() {
   const nav = useNavigate();
   const editor = can(role, 'editor');
   const [lang, setLang] = useState(series.language);
-  const [view, setView] = useState<'grid' | 'list'>(() => { try { return localStorage.getItem('altcomix.studio.releases') === 'list' ? 'list' : 'grid'; } catch { return 'grid'; } });
+  const [view, setView] = useState<'grid' | 'list'>(() => { try { return localStorage.getItem('nsfwcomix.studio.releases') === 'list' ? 'list' : 'grid'; } catch { return 'grid'; } });
   const [dialog, setDialog] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [dropBusy, setDropBusy] = useState<string | null>(null);
   const [addLang, setAddLang] = useState(false);
   const [newLang, setNewLang] = useState('');
   const list = useReleases(series.id, 4000);
-  const setViewPref = (v: 'grid' | 'list') => { setView(v); try { localStorage.setItem('altcomix.studio.releases', v); } catch { /* private mode */ } };
+  const setViewPref = (v: 'grid' | 'list') => { setView(v); try { localStorage.setItem('nsfwcomix.studio.releases', v); } catch { /* private mode */ } };
   const available = useMemo(() => meta.languages.filter((l) => !detail.languages.some((x) => x.code === l.code)), [meta.languages, detail.languages]);
 
   const addEdition = useAct(

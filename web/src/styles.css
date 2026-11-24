@@ -3,7 +3,7 @@
 @import '@fontsource-variable/bricolage-grotesque';
 
 /*
- * AltComix design tokens. Ink-and-paper: warm near-black surfaces, cream text,
+ * NSFWComix design tokens. Ink-and-paper: warm near-black surfaces, cream text,
  * process magenta as the one accent, yellow reserved for "free / new" marks.
  * Use the semantic names (bg-surface, text-muted, border-line ...) in
  * components, never raw hex values.

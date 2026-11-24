@@ -72,7 +72,7 @@ Sidebar counts: `{ reports, payouts, feedback, errors, emails_failed, emails_que
   "ok": true,
   "db": { "ok": true, "ms": 3, "version": "19.0", "size_bytes": 0, "connections": 12 },
   "storage": { "ok": true, "driver": "local", "ms": 3 },
-  "disk": { "path": "/srv/altcomix/storage", "used_bytes": 0, "files": 0, "volume_total_bytes": 0, "volume_free_bytes": 0, "volume_used_pct": 12.3 },
+  "disk": { "path": "/srv/nsfwcomix/storage", "used_bytes": 0, "files": 0, "volume_total_bytes": 0, "volume_free_bytes": 0, "volume_used_pct": 12.3 },
   "email": { "ok": true, "provider": "log", "configured": false, "from_email": "", "queue_paused": false, "webhook_verification": null, "last_sent_at": null },
   "payments": { "ok": true, "provider": "sandbox", "configured": false, "webhook_secret_set": false, "webhook_url": "https://.../api/webhooks/divinity" },
   "jobs": { "in_process": true, "cron_secret_set": true, "last_runs": [{ "job": "", "ok": true, "detail": "", "started_at": "", "finished_at": "" }] },
@@ -449,7 +449,7 @@ The seeded text is a first draft marked as such, for the owner to review.
   },
   "secrets": { "storage": ["r2_secret_access_key"], "email": ["sendgrid_api_key", "..."], "payments": ["divinity_api_key", "divinity_webhook_secret"], "security": ["recaptcha_secret_key"], "site": [] },
   "info": {
-    "app_url": "https://altcomix.example",
+    "app_url": "https://nsfwcomix.example",
     "environment": "production",
     "webhooks": { "divinity": "https://.../api/webhooks/divinity", "sendgrid": "https://.../api/webhooks/email/sendgrid", "mailgun": "https://.../api/webhooks/email/mailgun" },
     "cron_secret_set": true
@@ -465,7 +465,7 @@ show `divinity` on the Payments form and the email ones on the Email form.
 ### PATCH /api/admin/settings
 
 ```json
-{ "section": "email", "data": { "provider": "sendgrid", "sendgrid_api_key": "", "from_email": "hello@altcomix.example" }, "clear": [] }
+{ "section": "email", "data": { "provider": "sendgrid", "sendgrid_api_key": "", "from_email": "hello@nsfwcomix.example" }, "clear": [] }
 ```
 - Send only the fields being changed. Unknown fields are a `400`.
 - **A blank secret field keeps the stored value.** To remove a secret, list it in `clear`.

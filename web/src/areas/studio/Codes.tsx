@@ -173,7 +173,7 @@ function ImportBackers({ onClose, batches }: { onClose: () => void; batches: Bat
 
 function EmailBatch({ batch, onClose }: { batch: Batch; onClose: () => void }) {
   const { brand } = useBrand();
-  const [message, setMessage] = useState('Thank you for backing us! Here is your code to read the comic on AltComix.');
+  const [message, setMessage] = useState('Thank you for backing us! Here is your code to read the comic on NSFWComix.');
   const [resend, setResend] = useState(false);
   const waiting = batch.assigned - batch.sent;
   const send = useAct(() => api<{ sent: number; not_sent: number }>(`/api/studio/brands/${brand.id}/code-batches/${batch.batch_id}/email`, { json: { message, resend } }), { success: (r) => `${r.sent} emails sent${r.not_sent ? `, ${r.not_sent} could not be sent (unsubscribed or bounced)` : ''}`, invalidate: [['studio', 'batches', brand.id]], onDone: onClose });

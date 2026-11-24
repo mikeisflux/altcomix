@@ -209,7 +209,7 @@ async function waitForJobs(releaseId: string): Promise<void> {
 async function main() {
   const args = process.argv.slice(2);
   const force = args.includes('--force');
-  const email = (args.find((a) => a.includes('@')) ?? 'demo@altcomix.test').toLowerCase();
+  const email = (args.find((a) => a.includes('@')) ?? 'demo@nsfwcomix.test').toLowerCase();
   await migrate(() => {});
 
   let user = await one<{ id: string; username: string }>('select id, username from users where lower(email) = $1 and deleted_at is null', [email]);
@@ -235,7 +235,7 @@ async function main() {
     for (let i = 2; await one('select 1 from publishers where slug = $1', [slug]); i++) slug = `demo-comics-${i}`;
     brand = await one(
       `insert into publishers (slug, name, bio, country, timezone, website, socials, monthly_goal_cents, verified_at)
-       values ($1, 'Demo Comics', 'A demo brand with machine-drawn sample pages, for trying out AltComix.', 'US', 'America/New_York',
+       values ($1, 'Demo Comics', 'A demo brand with machine-drawn sample pages, for trying out NSFWComix.', 'US', 'America/New_York',
                null, '{}', 10000, now()) returning id`,
       [slug],
     );

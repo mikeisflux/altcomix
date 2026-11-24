@@ -1,5 +1,5 @@
 [Unit]
-Description=AltComix BotBlock watcher - instant firewall blocking for detected bots
+Description=NSFWComix BotBlock watcher - instant firewall blocking for detected bots
 After=network.target postgresql.service
 Wants=network.target
 

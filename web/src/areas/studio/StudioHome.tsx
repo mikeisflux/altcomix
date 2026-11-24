@@ -22,7 +22,7 @@ function Pitch() {
   ];
   return (
     <div className="mx-auto max-w-4xl">
-      <PageHeader title="Publish your comics on AltComix" description="A studio for creators and publishers: upload, set your terms, publish. Readers get a guided, frame-by-frame view on any screen." />
+      <PageHeader title="Publish your comics on NSFWComix" description="A studio for creators and publishers: upload, set your terms, publish. Readers get a guided, frame-by-frame view on any screen." />
       <div className="mb-8 flex flex-wrap gap-2">
         <LinkButton to="/register?next=%2Fstudio" variant="primary" size="lg">Create a free account</LinkButton>
         <LinkButton to="/login?next=%2Fstudio" size="lg">Sign in</LinkButton>

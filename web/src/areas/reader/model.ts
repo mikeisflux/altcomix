@@ -89,7 +89,7 @@ export function defaultMode(layout: 'paged' | 'vertical', viewW: number, viewH: 
   return viewW > viewH * 1.25 ? 'spread' : 'page';
 }
 
-const PREF_KEY = 'altcomix.reader.mode';
+const PREF_KEY = 'nsfwcomix.reader.mode';
 
 export function loadModePref(layout: string): Mode | null {
   try {

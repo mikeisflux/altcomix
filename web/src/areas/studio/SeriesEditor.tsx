@@ -94,7 +94,7 @@ export function SeriesEditor() {
                 </div>
               </div>
             </header>
-            {s.takedown && <div className="mb-4"><Notice tone="danger">AltComix has taken this series down{s.takedown.reason ? `: ${s.takedown.reason}` : ''}. {s.takedown.purge ? 'It has been removed completely: nobody can open it, including readers who bought it, and its files cannot be downloaded from the Studio.' : 'It is hidden from the store, search and your brand page. Readers who already own a release can still read it from their library.'} Contact support to resolve this.</Notice></div>}
+            {s.takedown && <div className="mb-4"><Notice tone="danger">NSFWComix has taken this series down{s.takedown.reason ? `: ${s.takedown.reason}` : ''}. {s.takedown.purge ? 'It has been removed completely: nobody can open it, including readers who bought it, and its files cannot be downloaded from the Studio.' : 'It is hidden from the store, search and your brand page. Readers who already own a release can still read it from their library.'} Contact support to resolve this.</Notice></div>}
             {!s.cover_url && <div className="mb-4"><Notice tone="info">No cover yet. Upload one, or add a release: its first page becomes the cover automatically.</Notice></div>}
             <NavTabs tabs={[{ to: base, label: 'Releases', end: true }, { to: `${base}/details`, label: 'Details' }, { to: `${base}/paywall`, label: 'Paywall' }, { to: `${base}/advanced`, label: 'Advanced' }]} />
             <Outlet context={{ detail: d, series: s, brand, role, base } satisfies Ctx} />

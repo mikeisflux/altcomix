@@ -12,12 +12,12 @@ create index if not exists audit_log_target_idx on audit_log (target_kind, targe
 -- the owner to review and rewrite in /admin > Pages, not legal advice. Rows
 -- that already exist are left alone.
 insert into cms_pages (slug, title, body) values
-('about', 'About AltComix', $md$
+('about', 'About NSFWComix', $md$
 **Draft.** This page is a first draft written during setup. Review and edit it in Admin > Pages before launch.
 
 ## Comics, straight from the people who make them
 
-AltComix is a place to read and publish comics, graphic novels, manga and webcomics. Creators upload their own work, set their own prices and keep most of what readers pay.
+NSFWComix is a place to read and publish comics, graphic novels, manga and webcomics. Creators upload their own work, set their own prices and keep most of what readers pay.
 
 ## How it works for readers
 
@@ -33,7 +33,7 @@ AltComix is a place to read and publish comics, graphic novels, manga and webcom
 
 ## No generative AI
 
-AltComix does not accept AI-generated comics. Everything here is made by people.
+NSFWComix does not accept AI-generated comics. Everything here is made by people.
 
 ## Get in touch
 
@@ -56,14 +56,14 @@ Every series, release, comment and profile has a **Report** option. That is the 
 
 ## Copyright complaints
 
-If you believe something on AltComix infringes your copyright, send us: the work you own, where it appears on AltComix, your contact details, and a statement that you are the rights holder or act for them.
+If you believe something on NSFWComix infringes your copyright, send us: the work you own, where it appears on NSFWComix, your contact details, and a statement that you are the rights holder or act for them.
 
 *[Owner: add the support email address, a postal address if you are required to publish one, and the address that receives copyright notices.]*
 $md$),
 ('content-policy', 'Content policy', $md$
 **Draft.** This page is a first draft written during setup, not legal advice. Review it, and have it checked if you can, before launch.
 
-## What belongs on AltComix
+## What belongs on NSFWComix
 
 Comics, graphic novels, manga and webcomics that you made or have the right to publish.
 
@@ -97,7 +97,7 @@ $md$),
 
 ## What this page is
 
-What creators and publishers can expect from AltComix as a service. It sits alongside the [publisher terms](/p/publisher-terms).
+What creators and publishers can expect from NSFWComix as a service. It sits alongside the [publisher terms](/p/publisher-terms).
 
 ## Availability
 
@@ -130,14 +130,14 @@ $md$),
 
 ## Who we are
 
-AltComix is operated by *[Owner: legal name and address of the operator]*. Contact: see the [contact page](/p/contact).
+NSFWComix is operated by *[Owner: legal name and address of the operator]*. Contact: see the [contact page](/p/contact).
 
 ## What we collect
 
 - **Account details:** email address, username, display name, and a password stored only as a salted hash.
 - **Profile content you add:** avatar, bio, and the comics and brand pages you publish.
 - **Reading and purchase activity:** what you read, follow, buy and redeem. This drives your library, creator analytics and the split of membership money between creators.
-- **Payment records:** what was bought and for how much. Card details are entered on our payment processor's pages and are never stored on AltComix.
+- **Payment records:** what was bought and for how much. Card details are entered on our payment processor's pages and are never stored on NSFWComix.
 - **Technical data:** IP address, browser type and session cookies, used to keep you signed in and to protect the site from abuse.
 - **Messages:** feedback, reports and direct messages you send through the site.
 
@@ -169,7 +169,7 @@ Depending on where you live you may have the right to see, correct, export or de
 
 ## Children
 
-AltComix is not intended for children under the age at which they can consent to data processing in their country. *[Owner: confirm the minimum age.]*
+NSFWComix is not intended for children under the age at which they can consent to data processing in their country. *[Owner: confirm the minimum age.]*
 
 ## Changes
 
@@ -185,7 +185,7 @@ $md$),
 
 ## Cookies
 
-AltComix sets the cookies needed to sign you in and to protect forms from forged requests. These are required for the site to work.
+NSFWComix sets the cookies needed to sign you in and to protect forms from forged requests. These are required for the site to work.
 
 *[Owner: if analytics is enabled, describe it here and how to opt out.]*
 
@@ -208,7 +208,7 @@ $md$),
 
 ## 1. Agreement
 
-By using AltComix you agree to these terms. AltComix is operated by *[Owner: legal name of the operator]*.
+By using NSFWComix you agree to these terms. NSFWComix is operated by *[Owner: legal name of the operator]*.
 
 ## 2. Your account
 
@@ -216,7 +216,7 @@ You are responsible for your account and for keeping your password safe. Give ac
 
 ## 3. Reading and buying
 
-- When you buy a release you get a personal, non-transferable licence to read it on AltComix for as long as the service offers it. Where a download is included, the file is for your personal use.
+- When you buy a release you get a personal, non-transferable licence to read it on NSFWComix for as long as the service offers it. Where a download is included, the file is for your personal use.
 - Membership gives access to the membership catalogue while your membership is active. The catalogue can change.
 - Prices are shown before you pay. *[Owner: state how taxes are handled.]*
 
@@ -234,11 +234,11 @@ Codes and gift cards have no cash value, cannot be resold, and may expire where 
 
 ## 7. Acceptable use
 
-Do not copy, redistribute or scrape comics from AltComix, attempt to bypass the paywall, harass other people, or interfere with the service. The [content policy](/p/content-policy) applies to everything you post.
+Do not copy, redistribute or scrape comics from NSFWComix, attempt to bypass the paywall, harass other people, or interfere with the service. The [content policy](/p/content-policy) applies to everything you post.
 
 ## 8. Creators
 
-If you publish on AltComix the [publisher terms](/p/publisher-terms) also apply.
+If you publish on NSFWComix the [publisher terms](/p/publisher-terms) also apply.
 
 ## 9. Ending accounts
 
@@ -261,11 +261,11 @@ $md$),
 
 ## 1. Who this applies to
 
-Anyone who publishes on AltComix through a brand page, whether a solo creator or a publisher. These terms add to the [terms of service](/p/terms).
+Anyone who publishes on NSFWComix through a brand page, whether a solo creator or a publisher. These terms add to the [terms of service](/p/terms).
 
 ## 2. Your work stays yours
 
-You keep all rights to what you publish. You give AltComix a non-exclusive licence to host, display, and deliver your work to readers on the service, and to show covers and short previews to promote it on AltComix. The licence ends when you remove the work, except that readers who bought a release keep access to it.
+You keep all rights to what you publish. You give NSFWComix a non-exclusive licence to host, display, and deliver your work to readers on the service, and to show covers and short previews to promote it on NSFWComix. The licence ends when you remove the work, except that readers who bought a release keep access to it.
 
 ## 3. What you promise
 

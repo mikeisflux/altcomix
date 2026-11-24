@@ -32,11 +32,18 @@ html,body{background:transparent}
 .d{font-family:Brico,sans-serif;font-weight:800;letter-spacing:-.045em;line-height:1}
 `;
 
-/** The keycap mark at `s` px. */
-const keycap = (s, bg = HOT, fg = INK, shade = 'rgba(0,0,0,.24)') => `
+/** Square icon form of the mark at `s` px: "ns" over "fw". */
+const icon = (s, bg = HOT, fg = INK, shade = 'rgba(0,0,0,.24)') => `
 <div style="width:${s}px;height:${s}px;border-radius:${s * 0.235}px;background:${bg};box-shadow:inset 0 -${s * 0.095}px 0 ${shade};
-  padding:0 0 ${s * 0.19}px ${s * 0.15}px;display:flex;align-items:flex-end;flex:none">
-  <span class="d" style="font-size:${s * 0.37}px;letter-spacing:-.04em;color:${fg}">alt</span>
+  padding:0 0 ${s * 0.08}px ${s * 0.16}px;display:flex;flex-direction:column;justify-content:center;flex:none">
+  <span class="d" style="font-size:${s * 0.36}px;line-height:.86;letter-spacing:-.04em;color:${fg}">ns<br>fw</span>
+</div>`;
+
+/** The key reading "nsfw", `h` px tall. */
+const keycap = (h, bg = HOT, fg = INK, shade = 'rgba(0,0,0,.24)') => `
+<div style="height:${h}px;border-radius:${h * 0.235}px;background:${bg};box-shadow:inset 0 -${h * 0.095}px 0 ${shade};
+  padding:0 ${h * 0.2}px ${h * 0.2}px ${h * 0.17}px;display:flex;align-items:flex-end;flex:none">
+  <span class="d" style="font-size:${h * 0.42}px;letter-spacing:-.04em;color:${fg}">nsfw</span>
 </div>`;
 
 const lockup = (h, textColor, bg = HOT, fg = INK, shade) => `
@@ -60,11 +67,12 @@ const og = `
 
 const shots = [
   // [file, html, width, height, transparent]
-  ['favicon-32.png', keycap(32), 32, 32, true],
-  ['icon-192.png', `<div style="width:192px;height:192px;background:${INK};display:flex;align-items:center;justify-content:center">${keycap(136)}</div>`, 192, 192, false],
-  ['icon-512.png', `<div style="width:512px;height:512px;background:${INK};display:flex;align-items:center;justify-content:center">${keycap(360)}</div>`, 512, 512, false],
-  ['apple-touch-icon.png', `<div style="width:180px;height:180px;background:${INK};display:flex;align-items:center;justify-content:center">${keycap(128)}</div>`, 180, 180, false],
-  ['brand/mark.png', keycap(512), 512, 512, true],
+  ['favicon-32.png', icon(32), 32, 32, true],
+  ['icon-192.png', `<div style="width:192px;height:192px;background:${INK};display:flex;align-items:center;justify-content:center">${icon(136)}</div>`, 192, 192, false],
+  ['icon-512.png', `<div style="width:512px;height:512px;background:${INK};display:flex;align-items:center;justify-content:center">${icon(360)}</div>`, 512, 512, false],
+  ['apple-touch-icon.png', `<div style="width:180px;height:180px;background:${INK};display:flex;align-items:center;justify-content:center">${icon(128)}</div>`, 180, 180, false],
+  ['brand/mark.png', icon(512), 512, 512, true],
+  ['brand/key.png', keycap(256), null, null, true],
   ['brand/logo-on-dark.png', lockup(160, PAPER), null, null, true],
   ['brand/logo-on-light.png', lockup(160, INK, INK, HOT, 'rgba(255,255,255,.14)'), null, null, true],
   ['brand/logo-one-colour-light.png', lockup(160, INK, INK, PAPER, 'rgba(255,255,255,.14)'), null, null, true],

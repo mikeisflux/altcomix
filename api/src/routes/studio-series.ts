@@ -441,7 +441,7 @@ export default async function (app: FastifyInstance) {
   const contributor = z.object({
     name: z.string().trim().min(1, 'Enter the contributor\'s name').max(120),
     role: z.string().trim().min(1, 'Choose a role').max(40),
-    // Link the credit to an AltComix account.
+    // Link the credit to an NSFWComix account.
     username: z.string().trim().max(24).nullable().optional(),
     // Null = credited on the whole series; otherwise on one release.
     release_id: z.string().refine(isUuid, 'Unknown release').nullable().optional(),

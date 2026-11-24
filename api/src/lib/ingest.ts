@@ -49,7 +49,7 @@ export class IngestError extends Error {}
 export const naturalCompare = (a: string, b: string) => a.localeCompare(b, 'en', { numeric: true, sensitivity: 'base' });
 
 export async function tempDir(): Promise<string> {
-  return mkdtemp(join(tmpdir(), 'altcomix-'));
+  return mkdtemp(join(tmpdir(), 'nsfwcomix-'));
 }
 
 // ---------------------------------------------------------------- images

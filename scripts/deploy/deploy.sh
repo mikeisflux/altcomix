@@ -1,8 +1,8 @@
 #!/bin/bash
 # ============================================================================
-# AltComix deploy: pull -> npm ci -> build web -> migrate -> reload.
+# NSFWComix deploy: pull -> npm ci -> build web -> migrate -> reload.
 #
-#   cd /srv/altcomix && ./scripts/deploy/deploy.sh
+#   cd /srv/nsfwcomix && ./scripts/deploy/deploy.sh
 #
 # Run it as the user that owns the checkout and the PM2 process (not root).
 # Stops at the first failing step; the running site is only touched by the
@@ -59,7 +59,7 @@ step "Running database migrations"
 npm run migrate
 
 step "Reloading"
-if ! pm2 describe altcomix >/dev/null 2>&1; then
+if ! pm2 describe nsfwcomix >/dev/null 2>&1; then
   pm2 start scripts/deploy/ecosystem.config.cjs
   pm2 save
 elif [ "$RESTART" = 1 ] || ! git diff --quiet "$BEFORE" "$AFTER" -- scripts/deploy/ecosystem.config.cjs scripts/deploy/cluster.mjs; then
@@ -67,7 +67,7 @@ elif [ "$RESTART" = 1 ] || ! git diff --quiet "$BEFORE" "$AFTER" -- scripts/depl
   pm2 restart scripts/deploy/ecosystem.config.cjs --update-env
 else
   # Rolling: the launcher replaces its workers one at a time.
-  pm2 sendSignal SIGHUP altcomix
+  pm2 sendSignal SIGHUP nsfwcomix
 fi
 
 step "Checking health"
@@ -80,6 +80,6 @@ for i in $(seq 1 30); do
   fi
   sleep 2
 done
-echo "The API did not answer /api/health within 60 seconds. Check: pm2 logs altcomix" >&2
+echo "The API did not answer /api/health within 60 seconds. Check: pm2 logs nsfwcomix" >&2
 echo "To go back: git checkout ${BEFORE} && ./scripts/deploy/deploy.sh --no-pull" >&2
 exit 1

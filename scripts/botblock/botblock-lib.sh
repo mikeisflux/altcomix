@@ -3,8 +3,8 @@
 # botblock-lib.sh — shared by botblock-watcher.sh, sync-blocked-ips.sh and
 # botblock-manual.sh. Sourced, not run.
 #
-# Ported from IndieCrowdfund's botblock-firewall and adapted to AltComix:
-#   table blocked_ips (ip_address, expires_at), database "altcomix".
+# Ported from IndieCrowdfund's botblock-firewall and adapted to NSFWComix:
+#   table blocked_ips (ip_address, expires_at), database "nsfwcomix".
 #
 # Configuration comes from the environment. Both the systemd unit and the
 # cron wrapper read /etc/default/botblock-watcher (see botblock.env.example).
@@ -21,8 +21,8 @@ ALLOWLIST="${BOTBLOCK_ALLOWLIST:-}"
 
 DB_HOST="${DB_HOST:-127.0.0.1}"
 DB_PORT="${DB_PORT:-5432}"
-DB_USER="${DB_USER:-altcomix}"
-DB_NAME="${DB_NAME:-altcomix}"
+DB_USER="${DB_USER:-nsfwcomix}"
+DB_NAME="${DB_NAME:-nsfwcomix}"
 # DB_PASS is optional: without it psql falls back to ~/.pgpass.
 
 LOG_PREFIX="${LOG_PREFIX:-[BotBlock]}"

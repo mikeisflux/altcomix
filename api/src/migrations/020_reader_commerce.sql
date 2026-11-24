@@ -17,7 +17,7 @@ alter table subscriptions drop constraint subscriptions_status_check;
 alter table subscriptions add constraint subscriptions_status_check
   check (status in ('pending','active','past_due','canceled','expired'));
 -- Opaque saved payment method token (pm_...) from the processor's hosted
--- setup checkout. The only payment credential AltComix stores.
+-- setup checkout. The only payment credential NSFWComix stores.
 alter table subscriptions add column payment_method_token text;
 -- Hosted setup session (cs_...) that produced the token.
 alter table subscriptions add column setup_ref text;

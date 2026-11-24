@@ -1,14 +1,14 @@
 # Working agreement for parallel build work
 
-Several workers are building AltComix at the same time in this one checkout.
+Several workers are building NSFWComix at the same time in this one checkout.
 Read this before touching anything.
 
 ## Environment
 
 - Repo: `/home/user/altcomix`. Node 26 is at `/opt/node26/bin` — put it first on
   PATH: `export PATH=/opt/node26/bin:$PATH`.
-- Postgres 19 runs at `127.0.0.1:5433`, database `altcomix`, user `postgres`, no
-  password. Shell access: `/opt/pg19/bin/psql -h 127.0.0.1 -p 5433 -U postgres altcomix`.
+- Postgres 19 runs at `127.0.0.1:5433`, database `nsfwcomix`, user `postgres`, no
+  password. Shell access: `/opt/pg19/bin/psql -h 127.0.0.1 -p 5433 -U postgres nsfwcomix`.
   `DATABASE_URL` defaults to this in development; you do not need a `.env`.
 - Run migrations: `cd api && node src/migrate.ts`.
 - Start your own API for testing on **your own port** with only the route files

@@ -13,19 +13,27 @@ import { Avatar, Badge, Button, IconButton, LinkButton, Modal, Popover, cx } fro
 type Announcement = { id: string; kind: 'bar' | 'modal'; headline: string; body: string; cta_label: string | null; cta_url: string | null; image_url: string | null };
 
 const LEGAL = [
-  ['Why AltComix', '/welcome'], ['Creator promise', '/p/creator-promise'], ['About', '/p/about'], ['Contact', '/p/contact'], ['Content policy', '/p/content-policy'], ['Publisher SLA', '/p/publisher-sla'],
+  ['Why NSFWComix', '/welcome'], ['Creator promise', '/p/creator-promise'], ['About', '/p/about'], ['Contact', '/p/contact'], ['Content policy', '/p/content-policy'], ['Publisher SLA', '/p/publisher-sla'],
   ['Privacy', '/p/privacy'], ['Your privacy choices', '/p/privacy-choices'], ['Terms', '/p/terms'], ['FAQ', '/p/faq'],
 ] as const;
 
-/** The keycap mark: the Alt key. `size` is its edge in px. */
-export function Keycap({ size = 36 }: { size?: number }) {
+/**
+ * The mark: a keyboard key reading "nsfw". `size` is its height in px.
+ * `square` gives the icon form (two lines, "ns" over "fw") used where the mark
+ * has to fit a square.
+ */
+export function Keycap({ size = 36, square = false }: { size?: number; square?: boolean }) {
+  const base = { height: size, borderRadius: size * 0.235, boxShadow: `inset 0 -${size * 0.095}px 0 rgb(0 0 0 / .24)` };
+  if (square) {
+    return (
+      <span aria-hidden className="flex shrink-0 flex-col items-start justify-center bg-accent" style={{ ...base, width: size, padding: `0 0 ${size * 0.08}px ${size * 0.16}px` }}>
+        <span className="font-display font-extrabold text-accent-ink" style={{ fontSize: size * 0.36, lineHeight: 0.86, letterSpacing: '-0.04em' }}>ns<br />fw</span>
+      </span>
+    );
+  }
   return (
-    <span
-      aria-hidden
-      className="flex shrink-0 items-end bg-accent"
-      style={{ width: size, height: size, borderRadius: size * 0.235, boxShadow: `inset 0 -${size * 0.095}px 0 rgb(0 0 0 / .24)`, padding: `0 0 ${size * 0.19}px ${size * 0.15}px` }}
-    >
-      <span className="font-display font-extrabold leading-none text-accent-ink" style={{ fontSize: size * 0.37, letterSpacing: '-0.04em' }}>alt</span>
+    <span aria-hidden className="flex shrink-0 items-end bg-accent" style={{ ...base, padding: `0 ${size * 0.2}px ${size * 0.2}px ${size * 0.17}px` }}>
+      <span className="font-display font-extrabold leading-none text-accent-ink" style={{ fontSize: size * 0.42, letterSpacing: '-0.04em' }}>nsfw</span>
     </span>
   );
 }
@@ -269,7 +277,7 @@ function Announcements() {
   });
   const [dismissed, setDismissed] = useState<string[]>(() => {
     try {
-      return JSON.parse(localStorage.getItem('altcomix.dismissed') ?? '[]');
+      return JSON.parse(localStorage.getItem('nsfwcomix.dismissed') ?? '[]');
     } catch {
       return [];
     }
@@ -278,7 +286,7 @@ function Announcements() {
     const next = [...dismissed, id].slice(-30);
     setDismissed(next);
     try {
-      localStorage.setItem('altcomix.dismissed', JSON.stringify(next));
+      localStorage.setItem('nsfwcomix.dismissed', JSON.stringify(next));
     } catch {
       /* private mode */
     }

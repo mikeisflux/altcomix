@@ -46,7 +46,7 @@ export function ContributorsEditor({ seriesId, releaseId, contributors, invalida
         <form onSubmit={submit} className="grid items-end gap-3 sm:grid-cols-[1fr_150px_150px_auto]">
           <Field label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} required maxLength={120} /></Field>
           <Field label="Role"><Select value={role} onChange={(e) => setRole(e.target.value)}>{meta.contributorRoles.map((r) => <option key={r}>{r}</option>)}</Select></Field>
-          <Field label="AltComix username" optional><Input value={username} onChange={(e) => setUsername(e.target.value)} maxLength={24} placeholder="@name" /></Field>
+          <Field label="NSFWComix username" optional><Input value={username} onChange={(e) => setUsername(e.target.value)} maxLength={24} placeholder="@name" /></Field>
           <Button type="submit" loading={add.isPending} icon={<UserPlus className="size-4" />}>Add</Button>
         </form>
       )}

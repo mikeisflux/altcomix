@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import pg from 'pg';
 
-const BASE = process.env.TEST_DATABASE_BASE ?? process.env.DATABASE_URL ?? 'postgres://postgres@127.0.0.1:5433/altcomix';
+const BASE = process.env.TEST_DATABASE_BASE ?? process.env.DATABASE_URL ?? 'postgres://postgres@127.0.0.1:5433/nsfwcomix';
 
 export async function useTestDatabase(name: string): Promise<void> {
   const url = new URL(BASE);
@@ -26,7 +26,7 @@ export async function useTestDatabase(name: string): Promise<void> {
   }
   url.pathname = `/${db}`;
   process.env.DATABASE_URL = url.toString();
-  process.env.STORAGE_DIR ??= mkdtempSync(join(tmpdir(), 'altcomix-test-'));
+  process.env.STORAGE_DIR ??= mkdtempSync(join(tmpdir(), 'nsfwcomix-test-'));
   process.env.NODE_ENV = 'test';
   const { migrate } = await import('../migrate.ts');
   await migrate(() => {});

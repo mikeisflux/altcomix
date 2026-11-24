@@ -284,7 +284,7 @@ export default async function (app: FastifyInstance) {
     requireVerifiedEmail(req);
     const body = parse(z.object({ publish_at: instant.nullable().optional() }), req.body ?? {});
     const series = await one('select takedown_at from series where id = $1', [r.series_id]);
-    if (series?.takedown_at) throw forbidden('This series has been taken down by AltComix. Contact support before publishing to it.');
+    if (series?.takedown_at) throw forbidden('This series has been taken down by NSFWComix. Contact support before publishing to it.');
     if (!r.page_count) throw badRequest('Add at least one page before publishing');
     if (body.publish_at && Date.parse(body.publish_at) > Date.now() + 30_000) {
       if (r.status === 'published') throw badRequest('This release is already published. Unpublish it first to schedule it.');
