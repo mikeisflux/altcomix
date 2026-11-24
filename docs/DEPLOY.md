@@ -61,7 +61,7 @@ cp .env.example .env && chmod 600 .env && nano .env
 |---|---|
 | `NODE_ENV` | `production` |
 | `PORT` | `4000` |
-| `APP_URL` | Public origin, no trailing slash, e.g. `https://nsfwcomix.example` |
+| `APP_URL` | Public origin, no trailing slash, e.g. `https://nsfwcomix.com` |
 | `DATABASE_URL` | `postgres://nsfwcomix:PASSWORD@127.0.0.1:5432/nsfwcomix` |
 | `APP_SECRET` | 32+ random bytes: `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`. **Back it up.** It encrypts every key saved in `/admin`; lose it and they all have to be re-entered |
 | `STORAGE_DIR` | Absolute path for uploaded files while storage is local, e.g. `/srv/nsfwcomix-storage` |
@@ -87,7 +87,7 @@ sudo cp scripts/deploy/nginx.conf /etc/nginx/sites-available/nsfwcomix
 sudo nano /etc/nginx/sites-available/nsfwcomix      # server_name and the /srv/nsfwcomix path
 sudo ln -s /etc/nginx/sites-available/nsfwcomix /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
-sudo certbot --nginx -d nsfwcomix.example -d www.nsfwcomix.example
+sudo certbot --nginx -d nsfwcomix.com -d www.nsfwcomix.com
 ```
 
 The API works out each visitor's address from the **last** `X-Forwarded-For`

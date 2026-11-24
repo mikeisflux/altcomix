@@ -449,7 +449,7 @@ The seeded text is a first draft marked as such, for the owner to review.
   },
   "secrets": { "storage": ["r2_secret_access_key"], "email": ["sendgrid_api_key", "..."], "payments": ["divinity_api_key", "divinity_webhook_secret"], "security": ["recaptcha_secret_key"], "site": [] },
   "info": {
-    "app_url": "https://nsfwcomix.example",
+    "app_url": "https://nsfwcomix.com",
     "environment": "production",
     "webhooks": { "divinity": "https://.../api/webhooks/divinity", "sendgrid": "https://.../api/webhooks/email/sendgrid", "mailgun": "https://.../api/webhooks/email/mailgun" },
     "cron_secret_set": true
@@ -465,7 +465,7 @@ show `divinity` on the Payments form and the email ones on the Email form.
 ### PATCH /api/admin/settings
 
 ```json
-{ "section": "email", "data": { "provider": "sendgrid", "sendgrid_api_key": "", "from_email": "hello@nsfwcomix.example" }, "clear": [] }
+{ "section": "email", "data": { "provider": "sendgrid", "sendgrid_api_key": "", "from_email": "hello@nsfwcomix.com" }, "clear": [] }
 ```
 - Send only the fields being changed. Unknown fields are a `400`.
 - **A blank secret field keeps the stored value.** To remove a secret, list it in `clear`.
