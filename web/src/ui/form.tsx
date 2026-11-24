@@ -8,7 +8,15 @@ const control =
 
 export function Field({ label, hint, error, children, className, optional }: { label?: ReactNode; hint?: ReactNode; error?: string | null; children: ReactNode; className?: string; optional?: boolean }) {
   return (
-    <label className={cx('block', className)}>
+    <label
+      className={cx('block', className)}
+      onClick={(e) => {
+        // A label activates its first control. For text inputs that is the point; for a
+        // button group (Segmented, MultiSelect) it would press the first button, so stop it.
+        if ((e.target as HTMLElement).closest('input, select, textarea, button, a')) return;
+        if (e.currentTarget.querySelector('input, select, textarea, button')?.tagName === 'BUTTON') e.preventDefault();
+      }}
+    >
       {label && (
         <span className="mb-1.5 flex items-baseline justify-between gap-2 text-[13px] font-medium text-paper">
           <span>{label}</span>

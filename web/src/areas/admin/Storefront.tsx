@@ -11,7 +11,7 @@ import {
   Tabs, Textarea, buttonClass, cx, toast, useConfirm,
 } from '@/ui';
 import {
-  DataList, FilterBar, FilterSelect, Loaded, SearchInput, Section, fromLocalInput, toLocalInput, useAct, useAdminQuery, useFilters, useList, useTitle,
+  DataList, FilterBar, FilterSelect, Group, Loaded, SearchInput, Section, fromLocalInput, toLocalInput, useAct, useAdminQuery, useFilters, useList, useTitle,
 } from './shared';
 import type { R } from './shared';
 
@@ -127,7 +127,7 @@ function FeaturedForm({ slot, item, onClose }: { slot: string; item: R | null; o
         {isHero && (
           <Segmented value={mode} onChange={setMode} options={[{ value: 'series', label: 'A series' }, { value: 'custom', label: 'Custom card' }]} />
         )}
-        {mode === 'series' && <Field label="Series"><SeriesPicker value={series} onPick={setSeries} /></Field>}
+        {mode === 'series' && <Group label="Series"><SeriesPicker value={series} onPick={setSeries} /></Group>}
         {(isHero || mode === 'custom') && (
           <>
             <Field label="Headline" optional={mode === 'series'} hint={mode === 'series' ? 'Leave empty to use the series title.' : undefined}><Input value={v.headline} maxLength={160} onChange={(e) => set({ headline: e.target.value })} /></Field>
@@ -269,9 +269,9 @@ function AnnouncementForm({ item, onClose }: { item: R | null; onClose: () => vo
   return (
     <Modal open onClose={onClose} size="lg" title={item ? 'Edit announcement' : 'New announcement'} footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" loading={busy === 'ann'} onClick={submit}>{item ? 'Save' : 'Create'}</Button></>}>
       <div className="space-y-4">
-        <Field label="Where it shows">
+        <Group label="Where it shows">
           <Segmented value={v.kind} onChange={(kind) => set({ kind })} options={[{ value: 'bar', label: 'Bar across the top' }, { value: 'modal', label: 'Pop-up, shown once per visitor' }]} />
-        </Field>
+        </Group>
         <Field label="Headline"><Input value={v.headline} maxLength={200} onChange={(e) => set({ headline: e.target.value })} /></Field>
         <Field label={v.kind === 'bar' ? 'Extra text' : 'Message'} optional><Textarea value={v.body} maxLength={2000} onChange={(e) => set({ body: e.target.value })} className={v.kind === 'bar' ? 'min-h-16' : 'min-h-28'} /></Field>
         <FormRow>

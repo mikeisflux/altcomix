@@ -38,7 +38,7 @@ function Csv({ brandId, path, q, extra }: { brandId: string; path: string; q: Ra
 
 function Panel({ title, note, actions, children }: { title: string; note?: ReactNode; actions?: ReactNode; children: ReactNode }) {
   return (
-    <Card className="p-4 sm:p-5">
+    <Card className="min-w-0 p-4 sm:p-5">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-2">
         <div><h2 className="text-base font-semibold">{title}</h2>{note && <p className="mt-0.5 text-xs text-muted">{note}</p>}</div>
         {actions}
@@ -88,7 +88,7 @@ function Overview({ brandId, q }: { brandId: string; q: RangeQuery }) {
               <Stat label="Forum posts" value={number(d.engagement.forum_posts.value)} delta={d.engagement.forum_posts.change} />
               <Stat label="Comments" value={number(d.engagement.comments.value)} delta={d.engagement.comments.change} />
             </StatGroup>
-            <StatGroup title="Emails to your followers">
+            <StatGroup title="Emails sent for your brand">
               <Stat label="Sent" value={number(d.emails.sent.value)} delta={d.emails.sent.change} />
               <Stat label="Opened" value={number(d.emails.opened.value)} delta={d.emails.opened.change} hint={rate(d.emails.opened, d.emails.sent)} />
               <Stat label="Clicked" value={number(d.emails.clicked.value)} delta={d.emails.clicked.change} hint={rate(d.emails.clicked, d.emails.sent)} />

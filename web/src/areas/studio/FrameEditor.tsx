@@ -420,7 +420,7 @@ export function FrameEditor(props: Props) {
       <div className="order-1 flex min-h-0 min-w-0 flex-1 flex-col md:order-2">
         {/* Toolbar */}
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line bg-surface px-3 py-2">
-          <div className="flex items-center gap-0.5 rounded-xl bg-ink p-1" role="toolbar" aria-label="Frame tools">
+          <div className="no-scrollbar flex max-w-full items-center gap-0.5 overflow-x-auto rounded-xl bg-ink p-1" role="toolbar" aria-label="Frame tools">
             {TOOLS.map((t) => (
               <button
                 key={t.id}
@@ -430,7 +430,7 @@ export function FrameEditor(props: Props) {
                 aria-pressed={tool === t.id}
                 disabled={t.needsSelection && selected === null}
                 onClick={() => setTool(t.id)}
-                className={cx('relative flex size-9 items-center justify-center rounded-lg transition-colors disabled:opacity-30', tool === t.id ? 'bg-accent text-accent-ink' : 'text-muted hover:bg-hover hover:text-paper')}
+                className={cx('relative flex size-9 shrink-0 items-center justify-center rounded-lg transition-colors disabled:opacity-30', tool === t.id ? 'bg-accent text-accent-ink' : 'text-muted hover:bg-hover hover:text-paper')}
               >
                 {t.icon}
                 <span className="absolute bottom-0.5 right-1 text-[8px] font-bold opacity-70">{t.key}</span>

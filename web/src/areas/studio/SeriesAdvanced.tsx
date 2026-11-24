@@ -239,7 +239,7 @@ function Embed() {
           <div>
             <div className="mb-1.5 text-[13px] font-medium">Live preview</div>
             <div className="flex min-h-24 items-center justify-center overflow-x-auto rounded-xl border border-line bg-paper/90 p-4">
-              {kind === 'button' ? <iframe key={w.data.read_now.url} src={local(w.data.read_now.url)} width={w.data.read_now.width} height={w.data.read_now.height} title="Read now button preview" style={{ border: 0 }} /> : <iframe key={cardUrl} src={local(cardUrl)} width={360} height={170} title="Cover card preview" style={{ border: 0, maxWidth: '100%' }} />}
+              {kind === 'button' ? <iframe key={w.data.read_now.url} src={local(w.data.read_now.url)} width={w.data.read_now.width} height={w.data.read_now.height} title="Read now button preview" style={{ border: 0, colorScheme: 'light' }} /> : <iframe key={cardUrl} src={local(cardUrl)} width={360} height={170} title="Cover card preview" style={{ border: 0, maxWidth: '100%', colorScheme: 'light' }} />}
             </div>
             {series.visibility === 'draft' && <p className="mt-1.5 text-xs text-warn">This series is a draft, so the widget shows “not available” until you list it as public or unlisted.</p>}
           </div>

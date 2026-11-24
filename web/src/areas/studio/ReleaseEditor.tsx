@@ -368,7 +368,7 @@ function PageGrid({ d, data, editable, base }: { d: ReleaseDetail; data: Pages; 
                   </label>
                 )}
                 <div className="absolute right-1.5 top-1.5 flex flex-col items-end gap-1">
-                  {data.access.model !== 'blocked' && <Badge tone={p.free ? 'sun' : 'neutral'}>{p.free ? 'Free' : 'Locked'}{p.is_free !== null ? ' ·set' : ''}</Badge>}
+                  {data.access.model !== 'blocked' && <Badge tone={p.free ? 'sun' : 'neutral'}>{p.is_free !== null ? 'Always ' : ''}{p.free ? 'free' : 'locked'}</Badge>}
                   {p.is_cover && <Badge tone="ok">Cover</Badge>}
                   {p.spread !== null && <Badge tone={SPREAD_TONES[p.spread % 2]}>Spread {p.spread} {p.side === 'left' ? 'L' : 'R'}</Badge>}
                   {p.side === 'wide' && <Badge tone="info">Wide</Badge>}
@@ -495,7 +495,7 @@ function Workspace({ d, editable, base }: { d: ReleaseDetail; editable: boolean;
 
       {paged && hasPages && (
         <div className="rounded-2xl border border-sun/40 bg-raised p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0 flex-1">
               <h2 className="text-base font-semibold">Frames for guided reading</h2>
               <p className="mt-0.5 text-sm text-muted">

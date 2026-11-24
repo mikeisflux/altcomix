@@ -376,6 +376,16 @@ export function EmailFrame({ html, title }: { html: string; title: string }) {
   return <iframe title={title} sandbox="" srcDoc={html} referrerPolicy="no-referrer" className="h-[520px] w-full rounded-xl border border-line bg-paper" />;
 }
 
+/** A labelled group of controls. Use instead of Field when the content is several buttons, which a <label> must not wrap. */
+export function Group({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div role="group" aria-label={label}>
+      <div className="mb-1.5 text-[13px] font-medium">{label}</div>
+      {children}
+    </div>
+  );
+}
+
 export function Mono({ children }: { children: ReactNode }) {
   return <span className="font-mono text-[12.5px]">{children}</span>;
 }

@@ -132,7 +132,7 @@ export function BulkReleases({ data }: { data: ReleaseList }) {
   if (!rows.length) return <EmptyState title="No releases yet" action={<Link className="link" to={base}>Add a release</Link>}>Once this series has releases, you can edit all of their details here in one table.</EmptyState>;
   return (
     <div>
-      <div className="overflow-x-auto rounded-xl border border-line">
+      <div className="relative overflow-x-auto rounded-xl border border-line">
         <table className="w-full min-w-max border-collapse text-sm">
           <thead>
             <tr className="border-b border-line bg-surface text-left text-[12px] uppercase tracking-wide text-muted">

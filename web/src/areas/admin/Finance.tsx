@@ -10,7 +10,7 @@ import {
 import type { Column } from '@/ui';
 import { SuperOnly } from './AdminLayout';
 import {
-  CopyButton, DataList, FilterBar, FilterSelect, Loaded, Mono, SearchInput, Section, StatusBadge, fromLocalInput, shortId, useAct, useAdminQuery, useAsk, useFilters,
+  CopyButton, DataList, FilterBar, FilterSelect, Group, Loaded, Mono, SearchInput, Section, StatusBadge, fromLocalInput, shortId, useAct, useAdminQuery, useAsk, useFilters,
   useIsSuper, useList, useTitle,
 } from './shared';
 import type { R } from './shared';
@@ -549,9 +549,9 @@ function CodeForm({ onClose, onCreated }: { onClose: () => void; onCreated: (cod
   return (
     <Modal open onClose={onClose} title="Create codes" footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" loading={busy === 'code'} onClick={submit}>Create</Button></>}>
       <div className="space-y-4">
-        <Field label="What the code gives">
+        <Group label="What the code gives">
           <Segmented value={v.kind} onChange={(kind) => set({ kind, value: kind === 'membership' ? '30' : kind === 'credits' ? '100' : '20' })} options={[{ value: 'membership', label: 'Membership days' }, { value: 'credits', label: 'Page credits' }, { value: 'discount', label: 'Percent off an order' }]} />
-        </Field>
+        </Group>
         <FormRow>
           <Field label={v.kind === 'membership' ? 'Days of membership' : v.kind === 'credits' ? 'Page credits' : 'Percent off'}>
             <Input inputMode="numeric" value={v.value} onChange={(e) => set({ value: e.target.value })} />
