@@ -31,7 +31,7 @@ type Owned = {
 type FollowedBrand = { id: string; slug: string; name: string; kind: string; avatar_url: string | null; followed_at: string };
 type Paged<T> = { items: T[]; total: number; page: number; limit: number };
 
-const SOURCE: Record<string, string> = { purchase: 'Bought', code: 'Redeemed with a code', grant: 'Gift from the creator', bundle: 'Part of a bundle' };
+const SOURCE: Record<string, string> = { purchase: 'Bought', code: 'Redeemed with a code', grant: 'Gift from the creator' };
 
 function Shelf<T>({ query, skeleton = 'grid', empty, children }: { query: { isPending: boolean; isError: boolean; error: unknown; refetch: () => void; data: T | undefined }; skeleton?: 'grid' | 'list'; empty: (d: T) => ReactNode | null; children: (d: T) => ReactNode }) {
   if (query.isPending) return skeleton === 'grid' ? <GridSkeleton /> : <ListSkeleton />;
@@ -201,7 +201,7 @@ function FollowingTab() {
                       <Avatar src={b.avatar_url} name={b.name} size={44} square />
                       <span className="min-w-0">
                         <span className="block truncate font-semibold">{b.name}</span>
-                        <span className="block text-xs capitalize text-muted">{b.kind} · followed {ago(b.followed_at)}</span>
+                        <span className="block text-xs text-muted"><span className="capitalize">{b.kind}</span> · followed {ago(b.followed_at)}</span>
                       </span>
                     </Link>
                     <Button size="sm" variant="ghost" className="h-10" disabled={unfollow.isPending} onClick={() => void ask({ kind: 'brands', slug: b.slug, name: b.name })}>Unfollow</Button>

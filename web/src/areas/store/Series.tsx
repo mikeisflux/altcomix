@@ -569,7 +569,7 @@ export function SeriesPage() {
             <Card className="p-5">
               <h2 className="flex items-center gap-2 text-lg font-semibold"><MessagesSquare className="size-5 text-muted" aria-hidden />Series forum</h2>
               <p className="mt-1.5 text-sm text-muted">{s.forum_description || 'Theories, questions and fan talk with other readers.'}</p>
-              <LinkButton to={`/forums/series/${s.slug}`} size="sm" className="mt-3">{counts.threads > 0 ? `Open the forum (${plural(counts.threads, 'thread')})` : 'Start the first thread'}</LinkButton>
+              <LinkButton to={`/series/${s.slug}/forum`} size="sm" className="mt-3">{counts.threads > 0 ? `Open the forum (${plural(counts.threads, 'thread')})` : 'Start the first thread'}</LinkButton>
             </Card>
           )}
 

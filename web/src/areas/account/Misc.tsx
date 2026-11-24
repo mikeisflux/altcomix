@@ -182,7 +182,7 @@ export function Notifications() {
           </ul>
           <Pagination
             page={data!.page}
-            pages={unreadOnly ? (data!.items.length < data!.limit && page === 1 ? 1 : Math.ceil(data!.unread / data!.limit)) : Math.ceil(data!.total / data!.limit)}
+            pages={Math.ceil((unreadOnly ? data!.unread : data!.total) / data!.limit)}
             onPage={(p) => {
               const n = new URLSearchParams(params);
               n.set('page', String(p));
