@@ -250,3 +250,14 @@ export function changed<T extends object>(before: T, after: T): Partial<T> {
   for (const k of Object.keys(after) as (keyof T)[]) if (JSON.stringify(before[k]) !== JSON.stringify(after[k])) out[k] = after[k];
   return out;
 }
+
+/** Label + hint for controls that are not a single input (button groups, multi-selects). A <label> would forward clicks to the first button. */
+export function Group({ label, hint, children, className, optional }: { label: ReactNode; hint?: ReactNode; children: ReactNode; className?: string; optional?: boolean }) {
+  return (
+    <div role="group" aria-label={typeof label === 'string' ? label : undefined} className={className}>
+      <span className="mb-1.5 flex items-baseline justify-between gap-2 text-[13px] font-medium text-paper"><span>{label}</span>{optional && <span className="text-xs font-normal text-faint">Optional</span>}</span>
+      {children}
+      {hint && <span className="mt-1.5 block text-xs text-faint">{hint}</span>}
+    </div>
+  );
+}

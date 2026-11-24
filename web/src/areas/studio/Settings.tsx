@@ -8,7 +8,7 @@ import { date, dateTime } from '@/lib/format';
 import { useSession } from '@/lib/session';
 import { Avatar, Badge, Button, Field, FormRow, IconButton, Input, MoneyInput, Notice, Segmented, Select, SideNav, Switch, Table, Textarea, toast, useConfirm } from '@/ui';
 import { SaveBar } from './SeriesDetails';
-import { BrandPage, COUNTRIES, FileButton, IMAGE_TYPES, Q, ROLE_HELP, Section, TIMEZONES, can, cap, changed, useAct, useBrand, useDraft } from './shared';
+import { BrandPage, COUNTRIES, FileButton, IMAGE_TYPES, Q, ROLE_HELP, Section, TIMEZONES, can, cap, changed, useAct, useBrand, useDraft, Group } from './shared';
 import type { Role, StudioBrand } from './shared';
 
 const brandKeys = [['studio', 'brands']];
@@ -158,7 +158,7 @@ function Payouts() {
           return (
             <form className="space-y-4" onSubmit={(e: FormEvent) => { e.preventDefault(); save.mutate(); }}>
               {d.payout.configured ? <Notice tone="ok">On file: {METHOD_LABEL[d.payout.method!] ?? d.payout.method} to {d.payout.destination_hint}, payee {d.payout.legal_name}. Updated {date(d.payout.updated_at)}.</Notice> : <Notice tone="warn">No payout details yet. Add them to be able to request payouts.</Notice>}
-              <Field label="Method"><Segmented value={m} onChange={setMethod} options={d.methods.map((x) => ({ value: x, label: METHOD_LABEL[x] ?? x }))} /></Field>
+              <Group label="Method"><Segmented value={m} onChange={setMethod} options={d.methods.map((x) => ({ value: x, label: METHOD_LABEL[x] ?? x }))} /></Group>
               <FormRow>
                 <Field label="Legal name of the payee"><Input value={legal ?? d.payout.legal_name ?? ''} onChange={(e) => setLegal(e.target.value)} required minLength={2} maxLength={120} /></Field>
                 <Field label={m === 'bank_transfer' ? 'IBAN, or account and routing numbers' : `Email of the ${METHOD_LABEL[m]} account`} hint={d.payout.configured ? 'For your security the saved value is never shown in full. Enter it again to change anything.' : undefined}>

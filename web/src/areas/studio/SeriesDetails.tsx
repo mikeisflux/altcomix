@@ -8,7 +8,7 @@ import { Badge, Button, Checkbox, EmptyState, Field, FormRow, IconButton, Input,
 import { ContributorsEditor } from './Contributors';
 import { releasesKey, seriesKey, useReleases, useSeries } from './SeriesEditor';
 import type { Edition, Release, ReleaseList, Series } from './SeriesEditor';
-import { Cover, Q, STATUS_TONE, Section, can, cap, changed, useAct, useDraft } from './shared';
+import { Cover, Q, STATUS_TONE, Section, can, cap, changed, useAct, useDraft, Group } from './shared';
 
 type Meta = Pick<Series, 'title' | 'description' | 'genre' | 'themes' | 'eras' | 'audiences' | 'art_styles' | 'advisories' | 'content_ratings' | 'tags' | 'allow_comments' | 'update_frequency' | 'mature'>;
 const pickMeta = (s: Series): Meta => ({
@@ -43,14 +43,14 @@ function MetadataForm() {
           <Field label="Update frequency"><Select value={d.update_frequency ?? ''} onChange={(e) => set({ update_frequency: e.target.value || null })}><option value="">Not set</option>{meta.updateFrequencies.map((g) => <option key={g}>{g}</option>)}</Select></Field>
         </FormRow>
         <FormRow>
-          <Field label="Themes" hint="Up to 6"><MultiSelect value={d.themes} onChange={(v) => set({ themes: v })} options={meta.themes} max={6} /></Field>
-          <Field label="Time or era"><MultiSelect value={d.eras} onChange={(v) => set({ eras: v })} options={meta.eras} /></Field>
-          <Field label="Audience" hint="Up to 3"><MultiSelect value={d.audiences} onChange={(v) => set({ audiences: v })} options={meta.audiences} max={3} /></Field>
-          <Field label="Art style" hint="Up to 2"><MultiSelect value={d.art_styles} onChange={(v) => set({ art_styles: v })} options={meta.artStyles} max={2} /></Field>
-          <Field label="Content advisories"><MultiSelect value={d.advisories} onChange={(v) => set({ advisories: v })} options={meta.advisories} placeholder="None" /></Field>
-          <Field label="Content rating"><MultiSelect value={d.content_ratings} onChange={(v) => set({ content_ratings: v })} options={meta.contentRatings} /></Field>
+          <Group label="Themes" hint="Up to 6"><MultiSelect value={d.themes} onChange={(v) => set({ themes: v })} options={meta.themes} max={6} /></Group>
+          <Group label="Time or era"><MultiSelect value={d.eras} onChange={(v) => set({ eras: v })} options={meta.eras} /></Group>
+          <Group label="Audience" hint="Up to 3"><MultiSelect value={d.audiences} onChange={(v) => set({ audiences: v })} options={meta.audiences} max={3} /></Group>
+          <Group label="Art style" hint="Up to 2"><MultiSelect value={d.art_styles} onChange={(v) => set({ art_styles: v })} options={meta.artStyles} max={2} /></Group>
+          <Group label="Content advisories"><MultiSelect value={d.advisories} onChange={(v) => set({ advisories: v })} options={meta.advisories} placeholder="None" /></Group>
+          <Group label="Content rating"><MultiSelect value={d.content_ratings} onChange={(v) => set({ content_ratings: v })} options={meta.contentRatings} /></Group>
         </FormRow>
-        <Field label="Tags" hint="Up to 20. Press Enter or comma after each."><TagInput value={d.tags} onChange={(v) => set({ tags: v })} max={20} /></Field>
+        <Group label="Tags" hint="Up to 20. Press Enter or comma after each."><TagInput value={d.tags} onChange={(v) => set({ tags: v })} max={20} /></Group>
         <div className="divide-y divide-line">
           <Switch checked={d.allow_comments} onChange={(v) => set({ allow_comments: v })} disabled={!editable} label="Allow comments" description="Readers can comment on releases of this series." />
           <Switch checked={d.mature} onChange={(v) => set({ mature: v })} disabled={!editable} label="Mature series" description="Hidden from readers who have not opted in to mature content. New releases start as mature." />
@@ -184,9 +184,9 @@ export function BulkReleases({ data }: { data: ReleaseList }) {
         {tagRelease && (
           <div className="min-h-72 space-y-4">
             <p className="text-sm text-muted">Use these when a release differs from the series as a whole. They are saved with the rest of the table.</p>
-            <Field label="Audience" hint="Up to 3"><MultiSelect value={row(tagRelease).audiences} onChange={(v) => edit(tagRelease, { audiences: v })} options={meta.audiences} max={3} /></Field>
-            <Field label="Themes" hint="Up to 6"><MultiSelect value={row(tagRelease).themes} onChange={(v) => edit(tagRelease, { themes: v })} options={meta.themes} max={6} /></Field>
-            <Field label="Content rating"><MultiSelect value={row(tagRelease).content_ratings} onChange={(v) => edit(tagRelease, { content_ratings: v })} options={meta.contentRatings} /></Field>
+            <Group label="Audience" hint="Up to 3"><MultiSelect value={row(tagRelease).audiences} onChange={(v) => edit(tagRelease, { audiences: v })} options={meta.audiences} max={3} /></Group>
+            <Group label="Themes" hint="Up to 6"><MultiSelect value={row(tagRelease).themes} onChange={(v) => edit(tagRelease, { themes: v })} options={meta.themes} max={6} /></Group>
+            <Group label="Content rating"><MultiSelect value={row(tagRelease).content_ratings} onChange={(v) => edit(tagRelease, { content_ratings: v })} options={meta.contentRatings} /></Group>
           </div>
         )}
       </Modal>

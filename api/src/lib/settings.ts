@@ -10,7 +10,7 @@ export const SETTINGS = {
   site: {
     defaults: {
       name: 'AltComix',
-      tagline: 'Comics, straight from the people who make them.',
+      tagline: 'Your comic. Your rules.',
       support_email: '',
       currency: 'usd',
       socials: {} as Record<string, string>,
@@ -164,17 +164,20 @@ export async function setSetting(key: SettingKey, patch: Record<string, unknown>
 
 /** Subset of settings the public site needs. */
 export async function publicSettings(): Promise<Record<string, unknown>> {
-  const [site, membership, payments, security, analytics] = await Promise.all([
+  const [site, membership, payments, security, analytics, revenue] = await Promise.all([
     getSetting('site'),
     getSetting('membership'),
     getSetting('payments'),
     getSetting('security'),
     getSetting('analytics'),
+    getSetting('revenue'),
   ]);
   return {
     site: { name: site.name, tagline: site.tagline, socials: site.socials, registration_open: site.registration_open, currency: site.currency },
     membership,
     payments: { provider: payments.provider },
+    // Creator shares are public: they are the pitch.
+    revenue: { sale_share_bps: revenue.sale_share_bps, sub_share_bps: revenue.sub_share_bps, tip_share_bps: revenue.tip_share_bps, payout_minimum_cents: revenue.payout_minimum_cents },
     recaptcha_site_key: security.recaptcha_site_key,
     ga_measurement_id: analytics.ga_measurement_id,
   };

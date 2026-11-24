@@ -7,10 +7,12 @@ import { GiftCards } from './GiftCards';
 import { Home } from './Home';
 import { SeriesPage } from './Series';
 import { Unlimited } from './Unlimited';
+import { Welcome } from './Welcome';
 
 /** Public storefront. Cover and release cards for other areas live in ./cards. */
 export const storeRoutes: RouteObject[] = [
   { path: '/', element: <Home /> },
+  { path: '/welcome', element: <Welcome /> },
   { path: '/browse', element: <Browse /> },
   { path: '/series/:slug', element: <SeriesPage /> },
   { path: '/checkout/return', element: <CheckoutReturn /> },

@@ -15,7 +15,7 @@ import {
 import { ContributorsEditor } from './Contributors';
 import { releasesKey, seriesKey } from './SeriesEditor';
 import type { Contributor, Release } from './SeriesEditor';
-import { CopyButton, FileButton, PAGE_TYPES, Q, STATUS_TONE, Section, can, cap, changed, fromLocalInput, toLocalInput, useAct, useBrand, useDraft, useTitle } from './shared';
+import { CopyButton, FileButton, PAGE_TYPES, Q, STATUS_TONE, Section, can, cap, changed, fromLocalInput, toLocalInput, useAct, useBrand, useDraft, useTitle, Group } from './shared';
 
 type ReleaseDetail = {
   release: Release;
@@ -260,9 +260,9 @@ function PageSettings({ page, pages, onClose, releaseId, seriesId, editable, onM
           )}
           {editable && (
             <>
-              <Field label="Free to read" hint={free === 'rule' ? `Follows the release and series paywall. Right now this page is ${page.free ? 'free' : 'locked'}.` : free === 'free' ? 'Anyone can read this page, whatever the paywall says.' : 'This page needs a membership or purchase even inside the free preview.'}>
+              <Group label="Free to read" hint={free === 'rule' ? `Follows the release and series paywall. Right now this page is ${page.free ? 'free' : 'locked'}.` : free === 'free' ? 'Anyone can read this page, whatever the paywall says.' : 'This page needs a membership or purchase even inside the free preview.'}>
                 <Segmented value={free} onChange={setFree} options={[{ value: 'rule', label: 'Follow the paywall' }, { value: 'free', label: 'Always free' }, { value: 'locked', label: 'Always locked' }]} />
-              </Field>
+              </Group>
               <div className="flex flex-wrap gap-2">
                 <Button size="sm" loading={seriesCover.isPending} onClick={() => seriesCover.mutate()}>Set as series cover</Button>
                 <Button size="sm" disabled={page.is_cover} loading={releaseCover.isPending} onClick={() => releaseCover.mutate()}>{page.is_cover ? 'This is the release cover' : 'Set as release cover'}</Button>
@@ -346,7 +346,7 @@ function PageGrid({ d, data, editable, base }: { d: ReleaseDetail; data: Pages; 
         </div>
       )}
 
-      <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">
+      <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
         {pages.map((p) => {
           const on = selected.has(p.id);
           return (
@@ -375,7 +375,7 @@ function PageGrid({ d, data, editable, base }: { d: ReleaseDetail; data: Pages; 
                 </div>
                 {paged && (
                   <div className="absolute bottom-1.5 left-1.5">
-                    {p.frames_status === 'missing' ? <Badge tone="warn">No frames</Badge> : p.frames_count === 0 ? <Badge tone="warn">0 frames found</Badge> : <Badge tone={p.frames_status === 'manual' ? 'ok' : 'info'}>{p.frames_count} {p.frames_count === 1 ? 'frame' : 'frames'} · {p.frames_status === 'manual' ? 'by hand' : 'detected'}</Badge>}
+                    {p.frames_status === 'missing' ? <Badge tone="warn">No frames</Badge> : p.frames_count === 0 ? <Badge tone="warn">0 frames found</Badge> : <Badge tone={p.frames_status === 'manual' ? 'ok' : 'info'}><span title={p.frames_status === 'manual' ? 'Frames set by hand' : 'Frames detected automatically'}>{p.frames_count} {p.frames_count === 1 ? 'frame' : 'frames'} · {p.frames_status === 'manual' ? 'manual' : 'auto'}</span></Badge>}
                   </div>
                 )}
               </div>

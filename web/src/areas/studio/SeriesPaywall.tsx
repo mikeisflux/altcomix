@@ -8,7 +8,7 @@ import { Badge, Button, Checkbox, EmptyState, Field, FormRow, IconButton, Input,
 import { SaveBar } from './SeriesDetails';
 import { releasesKey, seriesKey, useReleases, useSeries } from './SeriesEditor';
 import type { CountryRule, FreePreview, Release, ReleaseList, Series } from './SeriesEditor';
-import { COUNTRIES, Q, STATUS_TONE, Section, bps, can, cap, changed, countryName, fromLocalInput, toLocalInput, useAct, useDraft } from './shared';
+import { COUNTRIES, Q, STATUS_TONE, Section, bps, can, cap, changed, countryName, fromLocalInput, toLocalInput, useAct, useDraft, Group } from './shared';
 
 const AUTOMATIC_PAGES = 5;
 const MODES: { mode: FreePreview['mode']; label: string; help: string }[] = [
@@ -56,7 +56,7 @@ function PreviewSummary({ d, list, language, membership }: { d: Pay; list: Relea
         {MODES.find((m) => m.mode === fp.mode)!.help.replace('first pages', `first ${pages} pages`)}
         {fp.mode === 'custom_first' && ` Right now that is the first ${fp.n ?? 3}.`}
         {fp.mode === 'custom_first_last' && ` Right now that is the first ${fp.n ?? 3} and the last ${fp.m ?? fp.n ?? 3}.`}
-        {' '}Locked pages open with {d.in_subscription ? `a ${membership} membership or ` : ''}a purchase{d.paywall_expires_days ? `, and every release becomes free ${d.paywall_expires_days} days after it is published` : ''}.
+        {' '}Locked pages open with {d.in_subscription ? `${membership} membership or ` : ""}a purchase{d.paywall_expires_days ? `, and every release becomes free ${d.paywall_expires_days} days after it is published` : ''}.
       </p>
       {lines.length > 0 ? (
         <ul className="mt-3 max-h-56 space-y-1 overflow-auto">
@@ -104,9 +104,9 @@ function AccessSettings({ list }: { list: ReleaseList | undefined }) {
 
       <Section title="Who can read" description="The rule for readers everywhere, unless a country rule below says otherwise.">
         <fieldset disabled={!editable} className="space-y-4">
-          <Field label="Public access" hint={d.access_model === 'free' ? 'Free: every page is open to everyone.' : d.access_model === 'premium' ? 'Premium: a free preview, then readers need a membership or a purchase.' : 'Blocked: locked for everyone except your team.'}>
+          <Group label="Public access" hint={d.access_model === 'free' ? 'Free: every page is open to everyone.' : d.access_model === 'premium' ? 'Premium: a free preview, then readers need a membership or a purchase.' : 'Blocked: locked for everyone except your team.'}>
             <Segmented value={d.access_model} onChange={(v) => set({ access_model: v })} options={[{ value: 'free', label: 'Free' }, { value: 'premium', label: 'Premium' }, { value: 'blocked', label: 'Blocked' }]} />
-          </Field>
+          </Group>
           {d.access_model === 'premium' && (
             <>
               <Switch checked={d.in_subscription} onChange={(v) => set({ in_subscription: v })} disabled={!editable} label={`Include in ${settings.membership.name}`} description="Members read it without buying, and you are paid for the pages they read. Turn this off to sell it only release by release." />

@@ -67,7 +67,7 @@ function Register() {
   const nav = useNavigate();
   const [params] = useSearchParams();
   const next = safeNext(params.get('next'));
-  const [form, setForm] = useState({ email: '', username: '', password: '', marketing_opt_in: false, website: '' });
+  const [form, setForm] = useState({ email: '', username: '', password: '', marketing_opt_in: false, adult: false, website: '' });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const created = useRef(false);
@@ -106,7 +106,7 @@ function Register() {
     <form onSubmit={submit} className="space-y-4">
       <div>
         <h1 className="text-2xl font-bold">Create your account</h1>
-        <p className="mt-1 text-sm text-muted">Free to read, free to publish.</p>
+        <p className="mt-1 text-sm text-muted">Free to read, free to publish. Your comic, your rules.</p>
       </div>
       {error && <ErrorState message={error} />}
       <Field label="Email"><Input type="email" autoFocus autoComplete="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required /></Field>
@@ -118,6 +118,12 @@ function Register() {
       </Field>
       {/* Honeypot: hidden from people, filled by bots. */}
       <input tabIndex={-1} autoComplete="off" aria-hidden className="absolute -left-[9999px] h-0 w-0 opacity-0" name="website" value={form.website} onChange={(e) => setForm({ ...form, website: e.target.value })} />
+      <Checkbox
+        checked={form.adult}
+        onChange={(v) => setForm({ ...form, adult: v })}
+        label="I am 18 or older. Show adult titles."
+        description="Some comics here include explicit content. You can change this at any time."
+      />
       <Checkbox checked={form.marketing_opt_in} onChange={(v) => setForm({ ...form, marketing_opt_in: v })} label={`Email me the ${settings.site.name} newsletter`} />
       <Button type="submit" variant="primary" block loading={busy}>Create account</Button>
       <p className="text-xs text-faint">

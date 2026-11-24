@@ -7,7 +7,7 @@ import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { Avatar, Badge, Button, Card, EmptyState, ErrorState, Field, FormRow, Input, LinkButton, Modal, Notice, PageHeader, PageLoader, Segmented, Textarea } from '@/ui';
 import { errorMessage } from '@/lib/api';
-import { Q, SignInNeeded, useAct, useBrands, useTitle } from './shared';
+import { Q, SignInNeeded, useAct, useBrands, useTitle, Group } from './shared';
 import type { StudioBrand } from './shared';
 
 function Pitch() {
@@ -71,9 +71,9 @@ export function CreateBrandForm({ onDone }: { onDone: (b: StudioBrand) => void }
         <Input value={shownSlug} onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))} minLength={3} maxLength={60} />
       </Field>
       <Field label="Short bio" optional><Textarea value={bio} onChange={(e) => setBio(e.target.value)} maxLength={400} className="min-h-20" /></Field>
-      <Field label="I am publishing as" hint={kind === 'publisher' ? 'Publisher status is confirmed by our team. Until then the brand shows as a creator; nothing else changes.' : 'An individual creator or a creative team.'}>
+      <Group label="I am publishing as" hint={kind === 'publisher' ? 'Publisher status is confirmed by our team. Until then the brand shows as a creator; nothing else changes.' : 'An individual creator or a creative team.'}>
         <Segmented value={kind} onChange={setKind} options={[{ value: 'creator', label: 'A creator' }, { value: 'publisher', label: 'A publisher' }]} />
-      </Field>
+      </Group>
       <Button type="submit" variant="primary" loading={create.isPending}>Create brand</Button>
     </form>
   );

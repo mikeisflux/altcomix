@@ -6,7 +6,7 @@ import { api } from '@/lib/api';
 import { date, dateTime } from '@/lib/format';
 import { Badge, Button, Checkbox, EmptyState, Field, FormRow, Input, Modal, Notice, Pagination, Segmented, Select, Table, Tabs, Textarea, toast, useConfirm } from '@/ui';
 import type { ReleaseList } from './SeriesEditor';
-import { BrandPage, CopyButton, FileButton, Q, RoleNotice, can, fromLocalInput, useAct, useBrand } from './shared';
+import { BrandPage, CopyButton, FileButton, Q, RoleNotice, can, fromLocalInput, useAct, useBrand, Group } from './shared';
 
 type Code = {
   id: string; code: string; kind: 'unlock' | 'discount'; series_id: string | null; release_id: string | null; percent_off: number | null; includes_download: boolean;
@@ -42,9 +42,9 @@ function SpecFields({ s, set, brandId }: { s: Spec; set: (p: Partial<Spec>) => v
   const releases = useQuery({ queryKey: ['studio', 'releases', s.series_id], queryFn: () => api<ReleaseList>(`/api/studio/series/${s.series_id}/releases`), enabled: Boolean(s.series_id) && s.scope === 'release' });
   return (
     <div className="space-y-4">
-      <Field label="The code" hint={s.kind === 'unlock' ? 'The reader gets the comic for free, as if they had bought it.' : 'The reader pays less at checkout.'}>
+      <Group label="The code" hint={s.kind === 'unlock' ? 'The reader gets the comic for free, as if they had bought it.' : 'The reader pays less at checkout.'}>
         <Segmented value={s.kind} onChange={(kind) => set({ kind })} options={[{ value: 'unlock', label: 'Unlocks a comic' }, { value: 'discount', label: 'Gives a discount' }]} />
-      </Field>
+      </Group>
       <FormRow>
         <Field label="Series">
           <Select value={s.series_id} onChange={(e) => set({ series_id: e.target.value, release_id: '' })} required={s.kind === 'unlock'}>

@@ -7,7 +7,7 @@ import { api, errorMessage } from '@/lib/api';
 import { compact } from '@/lib/format';
 import { useSession } from '@/lib/session';
 import { Badge, Button, EmptyState, ErrorState, Field, FormRow, FormSection, Input, LinkButton, MultiSelect, Notice, Segmented, Select, Skeleton, Textarea, toast } from '@/ui';
-import { ACCESS_LABEL, BrandPage, Cover, IMAGE_TYPES, Q, VISIBILITY_LABEL, can, cap, useBrand } from './shared';
+import { ACCESS_LABEL, BrandPage, Cover, IMAGE_TYPES, Q, VISIBILITY_LABEL, can, cap, useBrand, Group } from './shared';
 
 type SeriesRow = {
   id: string; slug: string; title: string; type: string; language: string; status: string; visibility: string; access_model: string;
@@ -151,12 +151,12 @@ export function SeriesNew() {
             <Field label="Language"><Select value={f.language} onChange={(e) => set({ language: e.target.value })}>{meta.languages.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}</Select></Field>
             <Field label="Status"><Select value={f.status} onChange={(e) => set({ status: e.target.value })}>{meta.seriesStatuses.map((s) => <option key={s} value={s}>{cap(s)}</option>)}</Select></Field>
           </FormRow>
-          <Field label="Page layout" hint={LAYOUT_HELP[f.layout]}>
+          <Group label="Page layout" hint={LAYOUT_HELP[f.layout]}>
             <Segmented value={f.layout} onChange={(v) => { touched.current.layout = true; set({ layout: v }); }} options={[{ value: 'paged', label: 'Print layout' }, { value: 'vertical', label: 'Vertical scroll' }]} />
-          </Field>
-          <Field label="Reading direction" hint={DIR_HELP[f.reading_dir]}>
+          </Group>
+          <Group label="Reading direction" hint={DIR_HELP[f.reading_dir]}>
             <Segmented value={f.reading_dir} onChange={(v) => { touched.current.dir = true; set({ reading_dir: v }); }} options={[{ value: 'ltr', label: 'Left to right' }, { value: 'rtl', label: 'Right to left' }]} />
-          </Field>
+          </Group>
           <Field label="Original publishing year" optional className="max-w-56">
             <Input type="number" min={1800} max={year + 2} value={f.pub_year ?? ''} onChange={(e) => set({ pub_year: e.target.value ? Number(e.target.value) : null })} />
           </Field>
@@ -165,20 +165,20 @@ export function SeriesNew() {
         <FormSection title="Help readers find it" description="Used for browsing, search and recommendations.">
           <FormRow>
             <Field label="Genre"><Select value={f.genre} onChange={(e) => set({ genre: e.target.value })}><option value="">Choose a genre</option>{meta.genres.map((g) => <option key={g}>{g}</option>)}</Select></Field>
-            <Field label="Themes" hint="Up to 6"><MultiSelect value={f.themes} onChange={(v) => set({ themes: v })} options={meta.themes} max={6} /></Field>
-            <Field label="Art style" hint="Up to 2"><MultiSelect value={f.art_styles} onChange={(v) => set({ art_styles: v })} options={meta.artStyles} max={2} /></Field>
-            <Field label="Audience" hint="Up to 3"><MultiSelect value={f.audiences} onChange={(v) => set({ audiences: v })} options={meta.audiences} max={3} /></Field>
+            <Group label="Themes" hint="Up to 6"><MultiSelect value={f.themes} onChange={(v) => set({ themes: v })} options={meta.themes} max={6} /></Group>
+            <Group label="Art style" hint="Up to 2"><MultiSelect value={f.art_styles} onChange={(v) => set({ art_styles: v })} options={meta.artStyles} max={2} /></Group>
+            <Group label="Audience" hint="Up to 3"><MultiSelect value={f.audiences} onChange={(v) => set({ audiences: v })} options={meta.audiences} max={3} /></Group>
           </FormRow>
-          <Field label="Content advisories" hint="Tick anything a reader might want to know before starting."><MultiSelect value={f.advisories} onChange={(v) => set({ advisories: v })} options={meta.advisories} placeholder="None" /></Field>
+          <Group label="Content advisories" hint="Tick anything a reader might want to know before starting."><MultiSelect value={f.advisories} onChange={(v) => set({ advisories: v })} options={meta.advisories} placeholder="None" /></Group>
         </FormSection>
 
         <FormSection title="Access" description="Who can read it. You can fine-tune previews, prices and country rules after creating the series.">
-          <Field label="Who can read" hint={ACCESS_HELP[f.access_model]}>
+          <Group label="Who can read" hint={ACCESS_HELP[f.access_model]}>
             <Segmented value={f.access_model} onChange={(v) => set({ access_model: v })} options={[{ value: 'free', label: 'Free' }, { value: 'premium', label: 'Premium' }, { value: 'blocked', label: 'Blocked' }]} />
-          </Field>
-          <Field label="Listing" hint={f.visibility === 'public' ? 'Shown in the store and search as soon as a release is published.' : f.visibility === 'unlisted' ? 'Hidden from the store and search; anyone with the link can open it.' : 'Only your team can see it.'}>
+          </Group>
+          <Group label="Listing" hint={f.visibility === 'public' ? 'Shown in the store and search as soon as a release is published.' : f.visibility === 'unlisted' ? 'Hidden from the store and search; anyone with the link can open it.' : 'Only your team can see it.'}>
             <Segmented value={f.visibility} onChange={(v) => set({ visibility: v })} options={[{ value: 'public', label: 'Public' }, { value: 'unlisted', label: 'Unlisted' }, { value: 'draft', label: 'Draft' }]} />
-          </Field>
+          </Group>
         </FormSection>
 
         <div className="sticky bottom-0 -mx-4 flex justify-end gap-2 border-t border-line bg-ink/95 px-4 py-3 backdrop-blur sm:mx-0 sm:px-0">

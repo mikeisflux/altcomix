@@ -13,17 +13,82 @@ import { Avatar, Badge, Button, IconButton, LinkButton, Modal, Popover, cx } fro
 type Announcement = { id: string; kind: 'bar' | 'modal'; headline: string; body: string; cta_label: string | null; cta_url: string | null; image_url: string | null };
 
 const LEGAL = [
-  ['About', '/p/about'], ['Contact', '/p/contact'], ['Content policy', '/p/content-policy'], ['Publisher SLA', '/p/publisher-sla'],
+  ['Why AltComix', '/welcome'], ['Creator promise', '/p/creator-promise'], ['About', '/p/about'], ['Contact', '/p/contact'], ['Content policy', '/p/content-policy'], ['Publisher SLA', '/p/publisher-sla'],
   ['Privacy', '/p/privacy'], ['Your privacy choices', '/p/privacy-choices'], ['Terms', '/p/terms'], ['FAQ', '/p/faq'],
 ] as const;
 
-export function Logo({ className }: { className?: string }) {
+/** The keycap mark: the Alt key. `size` is its edge in px. */
+export function Keycap({ size = 36 }: { size?: number }) {
+  return (
+    <span
+      aria-hidden
+      className="flex shrink-0 items-end bg-accent"
+      style={{ width: size, height: size, borderRadius: size * 0.235, boxShadow: `inset 0 -${size * 0.095}px 0 rgb(0 0 0 / .24)`, padding: `0 0 ${size * 0.19}px ${size * 0.15}px` }}
+    >
+      <span className="font-display font-extrabold leading-none text-accent-ink" style={{ fontSize: size * 0.37, letterSpacing: '-0.04em' }}>alt</span>
+    </span>
+  );
+}
+
+/** Keycap + "comix". The second span is the wordmark, hidden by the top bar on small screens. */
+export function Logo({ className, size = 36 }: { className?: string; size?: number }) {
   const { settings } = useSession();
   return (
-    <Link to="/" className={cx('flex items-center gap-2 font-display text-xl font-extrabold tracking-tight', className)} aria-label={`${settings.site.name} home`}>
-      <span className="flex size-8 items-center justify-center rounded-lg bg-accent text-accent-ink">A</span>
-      <span>{settings.site.name}</span>
+    <Link to="/" className={cx('flex items-center gap-2', className)} aria-label={`${settings.site.name} home`}>
+      <Keycap size={size} />
+      <span className="font-display font-extrabold leading-none" style={{ fontSize: size * 0.78, letterSpacing: '-0.045em' }}>comix</span>
     </Link>
+  );
+}
+
+/** 18+ switch in the top bar: one confirmation, then adult titles show everywhere. */
+function AdultSwitch() {
+  const { adult, setAdult } = useSession();
+  const [asking, setAsking] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const apply = async (on: boolean) => {
+    setBusy(true);
+    try {
+      await setAdult(on);
+      setAsking(false);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={adult}
+        disabled={busy}
+        title={adult ? 'Adult titles are shown. Click to hide them.' : 'Show adult titles (18+)'}
+        onClick={() => (adult ? void apply(false) : setAsking(true))}
+        className={cx(
+          'flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-3 text-[13px] font-semibold transition-colors',
+          adult ? 'border-sun bg-sun text-sun-ink' : 'border-line-strong text-muted hover:border-sun hover:text-paper',
+        )}
+      >
+        18+<span className="hidden sm:inline">{adult ? ' on' : ' off'}</span>
+      </button>
+      <Modal
+        open={asking}
+        onClose={() => setAsking(false)}
+        title="Show adult titles?"
+        size="sm"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setAsking(false)}>Not now</Button>
+            <Button variant="sun" loading={busy} onClick={() => void apply(true)}>I am 18 or older</Button>
+          </>
+        }
+      >
+        <p className="text-sm text-muted">
+          Some comics here are made for adults and include explicit sexual content, nudity or graphic violence. They stay hidden until you confirm your age.
+          You can turn this off again at any time.
+        </p>
+      </Modal>
+    </>
   );
 }
 
@@ -289,6 +354,7 @@ export function AppShell() {
             </Link>
           </>
         )}
+        <AdultSwitch />
         <AccountMenu />
       </header>
       <VerifyBanner />
@@ -322,7 +388,7 @@ export function AppShell() {
 export function AuthLayout() {
   return (
     <div className="flex min-h-dvh flex-col items-center px-4 py-10">
-      <Logo className="mb-8" />
+      <Logo className="mb-8" size={44} />
       <div className="w-full max-w-md rounded-2xl border border-line bg-surface p-6 sm:p-8">
         <Outlet />
       </div>

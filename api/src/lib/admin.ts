@@ -25,7 +25,7 @@ import { storage } from './storage.ts';
  */
 
 /** The footer pages. Admins edit these; they cannot add or remove slugs. */
-export const CMS_SLUGS = ['about', 'contact', 'content-policy', 'publisher-sla', 'privacy', 'privacy-choices', 'terms', 'publisher-terms', 'faq'];
+export const CMS_SLUGS = ['about', 'creator-promise', 'contact', 'content-policy', 'publisher-sla', 'privacy', 'privacy-choices', 'terms', 'publisher-terms', 'faq'];
 
 /** Paths that stay reachable while an admin still has to enrol in 2FA. */
 const MFA_EXEMPT_PREFIX = '/api/admin/security/2fa';

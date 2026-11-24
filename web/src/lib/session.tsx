@@ -47,17 +47,22 @@ export type PublicSettings = {
   site: { name: string; tagline: string; socials: Record<string, string>; registration_open: boolean; currency: string };
   membership: { name: string; monthly_cents: number; annual_cents: number; trial_days: number; page_credit_cents: number };
   payments: { provider: string };
+  revenue: { sale_share_bps: number; sub_share_bps: number; tip_share_bps: number; payout_minimum_cents: number };
   recaptcha_site_key: string;
   ga_measurement_id: string;
 };
 
-type Bootstrap = { settings: PublicSettings; meta: Meta; user: User | null };
+type Bootstrap = { settings: PublicSettings; meta: Meta; user: User | null; adult: boolean };
 
 type Session = Bootstrap & {
   /** Re-read the signed-in user (after login, purchase, settings change ...). */
   refresh: () => Promise<void>;
   logout: () => Promise<void>;
   isStaff: boolean;
+  /** Reader has confirmed they are 18+ and adult titles are shown. */
+  adult: boolean;
+  /** Turn adult titles on (after an 18+ confirmation) or off. Works signed out too. */
+  setAdult: (on: boolean) => Promise<void>;
   currency: string;
 };
 
@@ -77,11 +82,20 @@ export function SessionProvider({ children, fallback, failure }: { children: Rea
     window.location.assign('/');
   }, [qc]);
 
+  const setAdult = useCallback(
+    async (on: boolean) => {
+      await api('/api/age-confirm', { json: { adult: on } });
+      // Everything listed may change, so drop cached catalogue data too.
+      await qc.invalidateQueries();
+    },
+    [qc],
+  );
+
   const value = useMemo<Session | null>(() => {
     if (!boot.data) return null;
     const role = boot.data.user?.role;
-    return { ...boot.data, refresh, logout, isStaff: role === 'admin' || role === 'super_admin', currency: boot.data.settings.site.currency };
-  }, [boot.data, refresh, logout]);
+    return { ...boot.data, refresh, logout, setAdult, isStaff: role === 'admin' || role === 'super_admin', currency: boot.data.settings.site.currency };
+  }, [boot.data, refresh, logout, setAdult]);
 
   if (boot.isError && !boot.data) return <>{failure((boot.error as Error).message, () => boot.refetch())}</>;
   if (!value) return <>{fallback}</>;

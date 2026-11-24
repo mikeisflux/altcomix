@@ -11,7 +11,7 @@ import { ContributorsEditor } from './Contributors';
 import { SaveBar } from './SeriesDetails';
 import { seriesKey, useSeries } from './SeriesEditor';
 import type { Crowdfunding, Series } from './SeriesEditor';
-import { CopyButton, Section, TIMEZONES, bps, can, cap, changed, fromLocalInput, toLocalInput, useAct, useDraft } from './shared';
+import { CopyButton, Section, TIMEZONES, bps, can, cap, changed, fromLocalInput, toLocalInput, useAct, useDraft, Group } from './shared';
 
 type Basic = Pick<Series, 'type' | 'layout' | 'language' | 'website' | 'pub_year' | 'status' | 'reading_dir' | 'visibility'>;
 
@@ -30,15 +30,15 @@ function Settings() {
           <Field label="Original language"><Select value={d.language} onChange={(e) => set({ language: e.target.value })}>{meta.languages.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}</Select></Field>
           <Field label="Status"><Select value={d.status} onChange={(e) => set({ status: e.target.value })}>{meta.seriesStatuses.map((s) => <option key={s} value={s}>{cap(s)}</option>)}</Select></Field>
         </FormRow>
-        <Field label="Page layout" hint={d.layout === 'paged' ? 'Separate pages, read one or two at a time, or frame by frame on phones.' : 'One long strip per episode, read by scrolling.'}>
+        <Group label="Page layout" hint={d.layout === 'paged' ? 'Separate pages, read one or two at a time, or frame by frame on phones.' : 'One long strip per episode, read by scrolling.'}>
           <Segmented value={d.layout} onChange={(v) => set({ layout: v })} options={[{ value: 'paged', label: 'Print layout' }, { value: 'vertical', label: 'Vertical scroll' }]} />
-        </Field>
-        <Field label="Reading direction" hint={d.reading_dir === 'ltr' ? 'Pages and frames run left to right.' : 'Pages and frames run right to left, as in manga. Frame detection orders panels the same way.'}>
+        </Group>
+        <Group label="Reading direction" hint={d.reading_dir === 'ltr' ? 'Pages and frames run left to right.' : 'Pages and frames run right to left, as in manga. Frame detection orders panels the same way.'}>
           <Segmented value={d.reading_dir} onChange={(v) => set({ reading_dir: v })} options={[{ value: 'ltr', label: 'Left to right' }, { value: 'rtl', label: 'Right to left' }]} />
-        </Field>
-        <Field label="Listing" hint={d.visibility === 'public' ? 'Shown in the store and search once a release is published.' : d.visibility === 'unlisted' ? 'Not shown in the store or search. Anyone with the link can open it.' : 'Only your team can see the series.'}>
+        </Group>
+        <Group label="Listing" hint={d.visibility === 'public' ? 'Shown in the store and search once a release is published.' : d.visibility === 'unlisted' ? 'Not shown in the store or search. Anyone with the link can open it.' : 'Only your team can see the series.'}>
           <Segmented value={d.visibility} onChange={(v) => set({ visibility: v })} options={[{ value: 'public', label: 'Public' }, { value: 'unlisted', label: 'Unlisted' }, { value: 'draft', label: 'Draft' }]} />
-        </Field>
+        </Group>
         <FormRow>
           <Field label="Official website" optional><Input type="url" placeholder="https://" value={d.website ?? ''} onChange={(e) => set({ website: e.target.value || null })} /></Field>
           <Field label="Original publishing year" optional><Input type="number" min={1800} max={new Date().getFullYear() + 2} value={d.pub_year ?? ''} onChange={(e) => set({ pub_year: e.target.value ? Number(e.target.value) : null })} /></Field>
@@ -230,9 +230,9 @@ function Embed() {
   return (
     <Section id="embed" title="Embed on your website" description="A Read now button or a cover card for your own site. Paste the code where you want it to appear.">
       <div className="flex flex-wrap items-end gap-4">
-        <Field label="Widget"><Segmented value={kind} onChange={setKind} options={[{ value: 'button', label: 'Read now button' }, { value: 'card', label: 'Cover card' }]} /></Field>
+        <Group label="Widget"><Segmented value={kind} onChange={setKind} options={[{ value: 'button', label: 'Read now button' }, { value: 'card', label: 'Cover card' }]} /></Group>
         <Field label="Button colour"><span className="flex h-10 items-center gap-2"><input type="color" value={color} onChange={(e) => setColor(e.target.value)} className="size-9 cursor-pointer rounded border border-line" /><span className="font-mono text-xs uppercase text-muted">{color}</span></span></Field>
-        {kind === 'button' ? <Field label="Size"><Segmented value={size} onChange={setSize} options={[{ value: 'small', label: 'Small' }, { value: 'medium', label: 'Medium' }, { value: 'large', label: 'Large' }]} /></Field> : <Field label="Card style"><Segmented value={theme} onChange={setTheme} options={[{ value: 'dark', label: 'Dark' }, { value: 'light', label: 'Light' }]} /></Field>}
+        {kind === 'button' ? <Group label="Size"><Segmented value={size} onChange={setSize} options={[{ value: 'small', label: 'Small' }, { value: 'medium', label: 'Medium' }, { value: 'large', label: 'Large' }]} /></Group> : <Group label="Card style"><Segmented value={theme} onChange={setTheme} options={[{ value: 'dark', label: 'Dark' }, { value: 'light', label: 'Light' }]} /></Group>}
       </div>
       {w.data && (
         <>
