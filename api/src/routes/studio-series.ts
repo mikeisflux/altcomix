@@ -589,8 +589,8 @@ export default async function (app: FastifyInstance) {
   // ------------------------------------------------------------ embeddable widgets: "Read now" button and cover card
 
   const WIDGET_SIZES = { small: { width: 140, height: 40 }, medium: { width: 180, height: 48 }, large: { width: 240, height: 60 } } as const;
-  // The card is 360px at most and shrinks with its container; 172px fits the 2:3 cover plus padding and border.
-  const CARD_SIZE = { width: 360, height: 172 } as const;
+  // The card is 360px at most and shrinks with its container; 180px fits the 2:3 cover, padding, border and a title that wraps.
+  const CARD_SIZE = { width: 360, height: 180 } as const;
 
   app.get('/api/studio/series/:id/widget', async (req) => {
     const s = await requireSeriesMember(req, idParam(req), 'analyst');

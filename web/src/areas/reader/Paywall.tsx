@@ -1,7 +1,8 @@
 import { Lock, Sparkles, Ticket } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router';
-import { api, errorMessage } from '@/lib/api';
+import { ConfirmEmailPrompt } from '@/areas/store/shared';
+import { ApiError, api, errorMessage } from '@/lib/api';
 import { money } from '@/lib/format';
 import { useSession } from '@/lib/session';
 import { Button, LinkButton, toast } from '@/ui';
@@ -12,6 +13,8 @@ export function Paywall({ manifest, page, onUnlocked, compact }: { manifest: Man
   const { user, settings, currency, refresh } = useSession();
   const loc = useLocation();
   const [busy, setBusy] = useState<string | null>(null);
+  // Buying needs a confirmed email; the server says so with code `email_unverified`.
+  const [unverified, setUnverified] = useState<string | null>(null);
   const { offers, release, series, access } = manifest;
   const next = encodeURIComponent(loc.pathname + loc.search);
 
@@ -29,7 +32,8 @@ export function Paywall({ manifest, page, onUnlocked, compact }: { manifest: Man
       await refresh();
       onUnlocked();
     } catch (e) {
-      toast.error(errorMessage(e));
+      if (e instanceof ApiError && e.code === 'email_unverified') setUnverified(e.message);
+      else toast.error(errorMessage(e));
     } finally {
       setBusy(null);
     }
@@ -42,7 +46,8 @@ export function Paywall({ manifest, page, onUnlocked, compact }: { manifest: Man
       await refresh();
       onUnlocked();
     } catch (e) {
-      toast.error(errorMessage(e));
+      if (e instanceof ApiError && e.code === 'email_unverified') setUnverified(e.message);
+      else toast.error(errorMessage(e));
     } finally {
       setBusy(null);
     }
@@ -59,6 +64,8 @@ export function Paywall({ manifest, page, onUnlocked, compact }: { manifest: Man
           {access.free_pages > 0 ? `That was the free preview (${access.free_pages} of ${release.page_count} pages).` : 'This release is for supporters.'}{' '}
           Your purchase goes to {series.publisher.name}.
         </p>
+
+        {unverified && <div className="mt-4 text-left"><ConfirmEmailPrompt message={unverified} onConfirmed={() => setUnverified(null)} /></div>}
 
         <div className="mt-5 space-y-2.5">
           {!user && <LinkButton to={`/login?next=${next}`} variant="secondary" block>Sign in to continue</LinkButton>}

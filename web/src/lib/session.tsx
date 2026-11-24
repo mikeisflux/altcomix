@@ -48,6 +48,7 @@ export type PublicSettings = {
   membership: { name: string; monthly_cents: number; annual_cents: number; trial_days: number; page_credit_cents: number };
   payments: { provider: string };
   revenue: { sale_share_bps: number; sub_share_bps: number; tip_share_bps: number; payout_minimum_cents: number };
+  password_min_length?: number;
   recaptcha_site_key: string;
   ga_measurement_id: string;
 };

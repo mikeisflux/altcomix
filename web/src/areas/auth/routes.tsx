@@ -113,8 +113,8 @@ function Register() {
       <Field label="Username" hint="3-24 letters, numbers or underscores. Shown on comments and your profile.">
         <Input autoComplete="username" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} required pattern="[A-Za-z0-9_]{3,24}" />
       </Field>
-      <Field label="Password" hint="At least 10 characters.">
-        <Input type="password" autoComplete="new-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required minLength={10} />
+      <Field label="Password" hint={`At least ${settings.password_min_length ?? 10} characters.`}>
+        <Input type="password" autoComplete="new-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required minLength={settings.password_min_length ?? 10} />
       </Field>
       {/* Honeypot: hidden from people, filled by bots. */}
       <input tabIndex={-1} autoComplete="off" aria-hidden className="absolute -left-[9999px] h-0 w-0 opacity-0" name="website" value={form.website} onChange={(e) => setForm({ ...form, website: e.target.value })} />
@@ -174,8 +174,9 @@ function Forgot() {
 
 function Reset() {
   const [params] = useSearchParams();
-  const { refresh } = useSession();
+  const { refresh, settings } = useSession();
   const nav = useNavigate();
+  const min = settings.password_min_length ?? 10;
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -197,7 +198,7 @@ function Reset() {
     <form onSubmit={submit} className="space-y-4">
       <h1 className="text-2xl font-bold">Choose a new password</h1>
       {error && <ErrorState message={error} />}
-      <Field label="New password" hint="At least 10 characters."><Input type="password" autoFocus autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={10} /></Field>
+      <Field label="New password" hint={`At least ${min} characters.`}><Input type="password" autoFocus autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={min} /></Field>
       <Button type="submit" variant="primary" block loading={busy}>Save and sign in</Button>
     </form>
   );

@@ -459,7 +459,8 @@ export async function completeOrder(orderId: string, opts: { paymentRef?: string
     await notify(order.user_id, 'purchase', 'Purchase complete', items.map((i) => i.description).join(', '), '/account/purchases');
     for (const t of items.filter((i) => i.kind === 'tip')) {
       const owners = await q<{ user_id: string }>(`select user_id from publisher_members where publisher_id = $1 and role in ('owner','admin')`, [t.publisher_id]);
-      for (const m of owners) await notify(m.user_id, 'tip', `You received a ${await money(t.price_cents)} tip`, String(t.meta?.message ?? ''), '/studio/earnings');
+      const brand = await one<{ slug: string }>('select slug from publishers where id = $1', [t.publisher_id]);
+      for (const m of owners) await notify(m.user_id, 'tip', `You received a ${await money(t.price_cents)} tip`, String(t.meta?.message ?? ''), brand ? `/studio/${brand.slug}/earnings` : '/studio');
     }
   } catch (e) {
     captureError(e, { source: 'api', endpoint: 'completeOrder', meta: { orderId } });

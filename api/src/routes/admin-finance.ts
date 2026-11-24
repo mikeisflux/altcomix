@@ -3,9 +3,7 @@ import { z } from 'zod';
 import { config } from '../config.ts';
 import { exec, one, q, tx } from '../db.ts';
 import type { Row } from '../db.ts';
-import {
-  adminScope, brandBalance, brandContacts, dateRange, idParam, isUuid, like, money, monthStart, query, settlementModule, where, zDate,
-} from '../lib/admin.ts';
+import { adminScope, brandBalance, brandContacts, dateRange, idParam, isUuid, like, money, monthStart, query, settlementModule, where, zDate, studioPath } from '../lib/admin.ts';
 import { randomCode } from '../lib/crypto.ts';
 import { sendTemplate } from '../lib/email.ts';
 import { HttpError, audit, badRequest, conflict, notFound, pageParams, parse, requireAdmin, requireSuperAdmin } from '../lib/http.ts';
@@ -37,7 +35,7 @@ async function payoutEmail(p: Row, status: string, note: string): Promise<void> 
     const r = await one<{ id: string; email: string; display_name: string }>('select id, email, display_name from users where id = $1 and deleted_at is null', [p.requested_by]);
     if (r) people.set(r.id, r);
   }
-  const url = `/studio/brand/${p.publisher_id}/earnings`;
+  const url = await studioPath(`/studio/brand/${p.publisher_id}/earnings`);
   for (const person of people.values()) {
     await sendTemplate(
       'payout_update',

@@ -61,6 +61,9 @@ let brand: Record<string, any>, payee: Record<string, any>, series: Record<strin
 
 before(async () => {
   await new Promise<void>((r) => fake.listen(0, '127.0.0.1', r));
+  // Leftovers from an earlier run would be picked up by the reconcile and renewal jobs under test.
+  await exec(`update orders set status = 'failed' where status = 'pending'`);
+  await exec(`delete from subscriptions where status not in ('active','canceled','expired') or current_period_end < now()`);
   await setSetting('payments', {
     provider: 'divinity', divinity_api_url: `http://127.0.0.1:${(fake.address() as AddressInfo).port}/internal`, divinity_partner_id: 'partner_altcomix',
     divinity_api_key: 'dc_live_testkey', divinity_webhook_secret: SECRET, divinity_checkout_logo_url: 'https://altcomix.example/logo.png',

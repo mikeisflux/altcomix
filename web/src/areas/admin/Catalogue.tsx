@@ -213,7 +213,7 @@ export function ReportsPage() {
                     <span className="text-muted">The reported item no longer exists.</span>
                   )}
                 </div>
-                {r.target_kind === 'comment' && t?.body && <blockquote className="mt-2 whitespace-pre-line break-words border-l-2 border-line-strong pl-3 text-sm text-muted">{t.body}</blockquote>}
+                {(r.target_kind === 'comment' || r.target_kind === 'forum_post') && t?.body && <blockquote className="mt-2 whitespace-pre-line break-words border-l-2 border-line-strong pl-3 text-sm text-muted">{t.body}</blockquote>}
                 {r.detail && <p className="mt-2 whitespace-pre-line break-words text-sm"><span className="text-muted">Reporter wrote:</span> {r.detail}</p>}
                 {open ? (
                   <div className="mt-4 flex flex-wrap gap-2">
@@ -221,6 +221,12 @@ export function ReportsPage() {
                       <>
                         <Button size="sm" loading={busy === r.id} onClick={() => step(r, { hide_comment: true }, 'Hide this comment?', 'Readers stop seeing it. The author is not told.', 'Hide comment', 'Comment hidden', false)}>Hide comment</Button>
                         <Button size="sm" variant="danger" disabled={busy === r.id} onClick={() => step(r, { hide_comment: true, ban_user: true }, `Hide the comment and ban @${t.username}?`, 'The comment is hidden and its author is signed out and blocked from signing in.', 'Hide and ban', 'Comment hidden and author banned')}>Hide and ban author</Button>
+                      </>
+                    )}
+                    {(r.target_kind === 'forum_post' || r.target_kind === 'forum_thread') && t && (
+                      <>
+                        <Button size="sm" loading={busy === r.id} onClick={() => step(r, { delete_forum_item: true }, r.target_kind === 'forum_post' ? 'Delete this forum post?' : 'Delete this forum thread?', 'It is removed from the forums. The author is not told.', 'Delete', 'Removed from the forums', false)}>{r.target_kind === 'forum_post' ? 'Delete post' : 'Delete thread'}</Button>
+                        <Button size="sm" variant="danger" disabled={busy === r.id} onClick={() => step(r, { delete_forum_item: true, ban_user: true }, `Delete it and ban @${t.username}?`, 'It is removed from the forums and its author is signed out and blocked from signing in.', 'Delete and ban', 'Removed and author banned')}>Delete and ban author</Button>
                       </>
                     )}
                     {(r.target_kind === 'series' || r.target_kind === 'release') && t && (

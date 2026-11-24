@@ -9,7 +9,7 @@ import { publicUrl } from '../lib/storage.ts';
 /** Attach a short description of what each report points at. */
 async function describeTargets(reports: Row[]): Promise<void> {
   const ids = (kind: string) => reports.filter((r) => r.target_kind === kind).map((r) => r.target_id);
-  const [series, releases, comments, publishers, users] = await Promise.all([
+  const [series, releases, comments, publishers, users, posts, threads] = await Promise.all([
     q(`select id, title, slug, takedown_at, publisher_id from series where id = any($1::uuid[])`, [ids('series')]),
     q(`select r.id, r.title, r.series_id, s.title as series_title, s.slug as series_slug, s.takedown_at
          from releases r join series s on s.id = r.series_id where r.id = any($1::uuid[])`, [ids('release')]),
@@ -17,12 +17,18 @@ async function describeTargets(reports: Row[]): Promise<void> {
          from comments c join users u on u.id = c.user_id join series s on s.id = c.series_id where c.id = any($1::uuid[])`, [ids('comment')]),
     q(`select id, name, slug, suspended_at from publishers where id = any($1::uuid[])`, [ids('publisher')]),
     q(`select id, username, email, banned_at from users where id = any($1::uuid[])`, [ids('user')]),
+    q(`select fp.id, fp.body, fp.deleted_at, fp.thread_id, fp.user_id, u.username, t.title as thread_title
+         from forum_posts fp join users u on u.id = fp.user_id join forum_threads t on t.id = fp.thread_id where fp.id = any($1::uuid[])`, [ids('forum_post')]),
+    q(`select t.id, t.title, t.deleted_at, t.user_id, u.username
+         from forum_threads t join users u on u.id = t.user_id where t.id = any($1::uuid[])`, [ids('forum_thread')]),
   ]);
   const maps: Record<string, Map<string, Row>> = {
     series: new Map(series.map((x) => [x.id, { label: x.title, url: `/series/${x.slug}`, ...x }])),
     release: new Map(releases.map((x) => [x.id, { label: `${x.series_title}: ${x.title}`, url: `/read/${x.id}`, ...x }])),
     comment: new Map(comments.map((x) => [x.id, { label: `Comment by @${x.username} on ${x.series_title}`, ...x, body: String(x.body).slice(0, 600) }])),
-    publisher: new Map(publishers.map((x) => [x.id, { label: x.name, url: `/brand/${x.slug}`, ...x }])),
+    publisher: new Map(publishers.map((x) => [x.id, { label: x.name, url: `/b/${x.slug}`, ...x }])),
+    forum_post: new Map(posts.map((x) => [x.id, { label: `Forum post by @${x.username} in “${x.thread_title}”`, url: `/forums/thread/${x.thread_id}`, ...x, body: String(x.body).slice(0, 600) }])),
+    forum_thread: new Map(threads.map((x) => [x.id, { label: `Forum thread “${x.title}” by @${x.username}`, url: `/forums/thread/${x.id}`, ...x }])),
     user: new Map(users.map((x) => [x.id, { label: `@${x.username}`, ...x }])),
   };
   for (const r of reports) r.target = maps[r.target_kind]?.get(r.target_id) ?? null;
@@ -159,6 +165,7 @@ export default async function adminCatalogueRoutes(app: FastifyInstance) {
         z.object({
           decision: z.enum(['action', 'dismiss']),
           hide_comment: z.boolean().default(false),
+          delete_forum_item: z.boolean().default(false),
           takedown_series: z.boolean().default(false),
           ban_user: z.boolean().default(false),
           suspend_brand: z.boolean().default(false),
@@ -172,7 +179,7 @@ export default async function adminCatalogueRoutes(app: FastifyInstance) {
       if (r.status !== 'open') throw badRequest('This report is already closed');
       const done: string[] = [];
       if (body.decision === 'action') {
-        const wantsStep = body.hide_comment || body.takedown_series || body.ban_user || body.suspend_brand;
+        const wantsStep = body.hide_comment || body.delete_forum_item || body.takedown_series || body.ban_user || body.suspend_brand;
         const reason = body.reason || `Reported: ${r.reason}`;
         if ((body.takedown_series || body.ban_user || body.suspend_brand) && reason.length < 3) throw badRequest('Give a reason');
         const via = { report_id: id };
@@ -185,6 +192,22 @@ export default async function adminCatalogueRoutes(app: FastifyInstance) {
           audit(req, 'comment.hide', { kind: 'comment', id: comment.id }, via);
           done.push('comment_hidden');
         }
+        let forumAuthor: string | null = null;
+        if (r.target_kind === 'forum_post') forumAuthor = (await one<{ user_id: string }>('select user_id from forum_posts where id = $1', [r.target_id]))?.user_id ?? null;
+        if (r.target_kind === 'forum_thread') forumAuthor = (await one<{ user_id: string }>('select user_id from forum_threads where id = $1', [r.target_id]))?.user_id ?? null;
+        if (body.delete_forum_item) {
+          if (r.target_kind === 'forum_post') {
+            const n = await exec('update forum_posts set deleted_at = coalesce(deleted_at, now()) where id = $1', [r.target_id]);
+            if (!n) throw badRequest('That forum post no longer exists');
+            audit(req, 'forum_post.delete', { kind: 'forum_post', id: r.target_id }, via);
+            done.push('forum_post_deleted');
+          } else if (r.target_kind === 'forum_thread') {
+            const n = await exec('update forum_threads set deleted_at = coalesce(deleted_at, now()) where id = $1', [r.target_id]);
+            if (!n) throw badRequest('That forum thread no longer exists');
+            audit(req, 'forum_thread.delete', { kind: 'forum_thread', id: r.target_id }, via);
+            done.push('forum_thread_deleted');
+          } else throw badRequest('This report is not about a forum post or thread');
+        }
         if (body.takedown_series) {
           const seriesId =
             r.target_kind === 'series' ? r.target_id
@@ -195,7 +218,7 @@ export default async function adminCatalogueRoutes(app: FastifyInstance) {
           done.push('series_taken_down');
         }
         if (body.ban_user) {
-          const userId = r.target_kind === 'user' ? r.target_id : comment?.user_id;
+          const userId = r.target_kind === 'user' ? r.target_id : (comment?.user_id ?? forumAuthor);
           if (!userId) throw badRequest('This report does not point at a user');
           await banUser(req, actor, userId, reason, via);
           done.push('user_banned');

@@ -168,7 +168,28 @@ export async function brandContacts(publisherId: string, roles: string[] = ['own
 }
 
 /** In-app notification plus a plain service email to each brand owner. */
-export async function tellBrand(publisherId: string, kind: string, title: string, body: string, path: string, label = 'Open Studio'): Promise<number> {
+/**
+ * Studio pages are addressed by slug. Turns the id-based shorthand used by
+ * callers into the real route:
+ *   /studio/brand/<brand id>/<rest>  ->  /studio/<brand slug>/<rest>
+ *   /studio/series/<series id>       ->  /studio/<brand slug>/series/<series slug>
+ */
+export async function studioPath(path: string): Promise<string> {
+  const brand = /^\/studio\/brand\/([0-9a-f-]{36})(\/.*)?$/i.exec(path);
+  if (brand) {
+    const b = await one<{ slug: string }>('select slug from publishers where id = $1', [brand[1]]);
+    return b ? `/studio/${b.slug}${brand[2] ?? ''}` : '/studio';
+  }
+  const series = /^\/studio\/series\/([0-9a-f-]{36})$/i.exec(path);
+  if (series) {
+    const s = await one<{ slug: string; brand: string }>('select s.slug, p.slug as brand from series s join publishers p on p.id = s.publisher_id where s.id = $1', [series[1]]);
+    return s ? `/studio/${s.brand}/series/${s.slug}` : '/studio';
+  }
+  return path;
+}
+
+export async function tellBrand(publisherId: string, kind: string, title: string, body: string, rawPath: string, label = 'Open Studio'): Promise<number> {
+  const path = await studioPath(rawPath);
   const people = await brandContacts(publisherId);
   for (const p of people) {
     await notify(p.id, kind, title, body, path);

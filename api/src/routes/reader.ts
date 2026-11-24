@@ -11,7 +11,7 @@ import { loadSession } from '../lib/auth.ts';
 import { rateLimit } from '../lib/botblock.ts';
 import { sha256, sign } from '../lib/crypto.ts';
 import { HttpError, forbidden, isAdmin, notFound, paymentRequired, parse, requireUser } from '../lib/http.ts';
-import { activeDiscounts, downloadPrice, readPrice, seriesPurchase } from '../lib/pricing.ts';
+import { activeDiscounts, downloadPrice, readOffer, seriesPurchase } from '../lib/pricing.ts';
 import { getSetting } from '../lib/settings.ts';
 import { publicUrl, storage } from '../lib/storage.ts';
 import { crowdfunding, isBrandMember, isUuid } from './catalog.ts';
@@ -101,11 +101,11 @@ export default async function readerRoutes(app: FastifyInstance) {
       siblings = siblings.filter((x) => mine.has(x.id));
     }
     const at = siblings.findIndex((x) => x.id === r.id);
-    const owned = a.unlock === 'owner' || a.unlock === 'purchase' || a.unlock === 'code';
-    const sellable = a.model === 'premium' && !a.releaseFree && !owned && r.status === 'published' && !s.takedown_at;
-    const read = sellable ? readPrice(s, r, discounts) : null;
+    // Prices come from the same rule as the series page and checkout (readOffer in lib/pricing.ts),
+    // so the three can never disagree. Nothing is sold from a taken-down series.
+    const read = s.takedown_at ? null : readOffer(s, r, a, discounts);
     const dl = !a.canDownload && a.model !== 'blocked' && r.status === 'published' && !s.takedown_at ? downloadPrice(s, r, discounts) : null;
-    const whole = sellable ? await seriesPurchase(s, u?.id ?? null, discounts) : null;
+    const whole = read ? await seriesPurchase(s, u?.id ?? null, discounts, undefined, { country: req.country }) : null;
 
     return {
       release: {
