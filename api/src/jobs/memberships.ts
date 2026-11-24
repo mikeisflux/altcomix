@@ -1,0 +1,98 @@
+import { exec, q } from '../db.ts';
+import { captureError } from '../lib/errors.ts';
+import { addPeriod, attemptCharge, captureCharge, captureOrder, confirmSession, failOrder } from '../lib/payments.ts';
+import type { Job } from '../server.ts';
+
+/**
+ * Billing housekeeping, every few minutes:
+ *
+ *   1. memberships with no payment method behind them (code grants) expire
+ *      when their period ends
+ *   2. memberships whose period ended: cancelled ones stop; the rest get a
+ *      charge row for the next period
+ *   3. due charges are attempted (first try, decline retries after 1/3/5
+ *      days, unanswered calls looked up and repeated) — for the sandbox
+ *      provider the charge always succeeds, so periods roll forward and
+ *      `sub_months` rows appear exactly as they do in production
+ *   4. paid orders/charges whose processor hold is not captured yet are captured
+ *   5. hosted checkouts the reader never came back from are reconciled with
+ *      the processor, and abandoned ones are closed
+ */
+export async function runMembershipCycle(): Promise<Record<string, number>> {
+  const n = { expired: 0, ended: 0, billed: 0, paid: 0, declined: 0, captured: 0, reconciled: 0 };
+  const safe = async (what: string, fn: () => Promise<unknown>) => {
+    try {
+      return await fn();
+    } catch (e) {
+      captureError(e, { source: 'job', endpoint: `memberships:${what}` });
+      return null;
+    }
+  };
+
+  n.expired = await exec(
+    `update subscriptions set status = 'expired' where status in ('active','past_due') and current_period_end <= now()
+        and (provider not in ('sandbox','divinity') or payment_method_token is null)`,
+  );
+
+  n.ended = await exec(
+    `update subscriptions set status = 'canceled', canceled_at = coalesce(canceled_at, now())
+      where status = 'active' and cancel_at_period_end and current_period_end <= now()`,
+  );
+
+  const due = await q(
+    `select s.* from subscriptions s
+      where s.status = 'active' and not s.cancel_at_period_end and s.current_period_end <= now()
+        and s.provider in ('sandbox','divinity') and s.payment_method_token is not null
+        and not exists (select 1 from subscription_charges c where c.subscription_id = s.id and c.period_start = s.current_period_end)
+      limit 200`,
+  );
+  for (const s of due) {
+    const start = new Date(s.current_period_end);
+    n.billed += await exec(
+      `insert into subscription_charges (subscription_id, user_id, period_start, period_end, amount_cents) values ($1,$2,$3,$4,$5)
+       on conflict (subscription_id, period_start) do nothing`,
+      [s.id, s.user_id, start, addPeriod(start, s.plan), s.price_cents],
+    );
+  }
+
+  const charges = await q<{ id: string }>(`select id from subscription_charges where status = 'pending' and next_attempt_at <= now() order by next_attempt_at limit 200`);
+  for (const c of charges) {
+    const r = await safe('charge', () => attemptCharge(c.id));
+    if (r === 'paid') n.paid++;
+    if (r === 'declined') n.declined++;
+  }
+
+  const holds = await q<{ id: string; t: string }>(
+    `select id, 'order' as t from orders where provider = 'divinity' and status = 'paid' and captured_at is null and total_cents > credit_cents and paid_at < now() - interval '1 minute'
+     union all
+     select c.id, 'charge' from subscription_charges c join subscriptions s on s.id = c.subscription_id
+      where s.provider = 'divinity' and c.status = 'paid' and c.captured_at is null and c.paid_at < now() - interval '1 minute'
+     limit 100`,
+  );
+  for (const h of holds) if (await safe('capture', () => (h.t === 'order' ? captureOrder(h.id) : captureCharge(h.id)))) n.captured++;
+
+  const sessions = await q<{ ref: string }>(
+    `select provider_ref as ref from orders where provider = 'divinity' and status = 'pending' and provider_ref is not null and created_at < now() - interval '10 minutes'
+     union all
+     select setup_ref from subscriptions where provider = 'divinity' and status = 'pending' and setup_ref is not null and created_at < now() - interval '10 minutes'
+     limit 100`,
+  );
+  for (const s of sessions) if (await safe('reconcile', () => confirmSession(s.ref))) n.reconciled++;
+
+  const orphans = await q<{ id: string }>(`select id from orders where status = 'pending' and provider_ref is null and created_at < now() - interval '1 hour' limit 100`);
+  for (const o of orphans) await safe('orphan', () => failOrder(o.id, 'Checkout was never started'));
+  await exec(`delete from subscriptions where status = 'pending' and created_at < now() - interval '1 day'`);
+  return n;
+}
+
+const job: Job = {
+  name: 'memberships',
+  everyMs: 5 * 60_000,
+  async run() {
+    const n = await runMembershipCycle();
+    const did = Object.entries(n).filter(([, v]) => v > 0);
+    return did.length ? did.map(([k, v]) => `${k} ${v}`).join(', ') : undefined;
+  },
+};
+
+export default job;
