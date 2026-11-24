@@ -45,7 +45,7 @@ export function GuidedView({ page, frameIndex, w, h }: { page: ReaderPage; frame
         <img
           key={page.id}
           src={src}
-          alt={`Page ${page.position + 1}${frameIndex !== null ? `, frame ${frameIndex + 1} of ${page.frames.length}` : ''}`}
+          alt={`Page ${page.position}${frameIndex !== null ? `, frame ${frameIndex + 1} of ${page.frames.length}` : ''}`}
           draggable={false}
           className="absolute max-w-none select-none"
           style={{
@@ -67,7 +67,7 @@ function PagedView({ pages, rtl, children }: { pages: ReaderPage[]; rtl: boolean
     <div className={cx('absolute inset-0 flex items-center justify-center', rtl && 'flex-row-reverse')} style={{ background: pages[0]?.bg_color }}>
       {pages.map((p) => (
         <div key={p.id} className="flex h-full min-w-0 items-center justify-center" style={{ flex: `${p.width / p.height} 1 0` }}>
-          {p.locked ? children(p) : <img src={pageSrc(p, window.innerWidth / pages.length) ?? undefined} alt={`Page ${p.position + 1}`} draggable={false} className="max-h-full max-w-full select-none object-contain" />}
+          {p.locked ? children(p) : <img src={pageSrc(p, window.innerWidth / pages.length) ?? undefined} alt={`Page ${p.position}`} draggable={false} className="max-h-full max-w-full select-none object-contain" />}
         </div>
       ))}
     </div>
@@ -99,7 +99,7 @@ function ScrollView({ manifest, onSeen, startAt, paywall }: { manifest: Manifest
             {p.locked ? (
               <div className="py-10">{paywall(p)}</div>
             ) : (
-              <img src={pageSrc(p, Math.min(768, window.innerWidth)) ?? undefined} alt={`Page ${p.position + 1}`} loading={i < 2 ? 'eager' : 'lazy'} width={p.width} height={p.height} className="block h-auto w-full" />
+              <img src={pageSrc(p, Math.min(768, window.innerWidth)) ?? undefined} alt={`Page ${p.position}`} loading={i < 2 ? 'eager' : 'lazy'} width={p.width} height={p.height} className="block h-auto w-full" />
             )}
           </div>
         ))}
