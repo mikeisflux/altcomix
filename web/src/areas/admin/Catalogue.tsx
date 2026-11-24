@@ -2,10 +2,30 @@ import { BookOpen, Flag, MessageSquare } from 'lucide-react';
 import { Link } from 'react-router';
 import { api, errorMessage } from '@/lib/api';
 import { ago, date, dateTime, number } from '@/lib/format';
-import { Badge, Button, Card, EmptyState, ErrorState, PageHeader, Pagination, Skeleton, useConfirm } from '@/ui';
+import { Badge, Button, Card, EmptyState, ErrorState, Notice, PageHeader, Pagination, Skeleton, useConfirm } from '@/ui';
 import type { Column } from '@/ui';
 import { DataList, FilterBar, FilterSelect, SearchInput, StatusBadge, useAct, useAsk, useFilters, useList, useTitle } from './shared';
-import type { R } from './shared';
+import type { AskField, R } from './shared';
+
+/**
+ * The platform's position: creators publish freely, and explicit adult work is
+ * welcome when it carries the 18+ label. Only these hard limits justify
+ * removing something, so every takedown names the one that applies.
+ */
+const HARD_LIMITS = [
+  'Sexual content involving minors',
+  'Sexual depiction of a real person without their consent',
+  'Published without the rights to the work',
+  'Illegal content',
+  'AI-generated comic',
+];
+const LIMITS_NOTE = 'Explicit adult content is allowed when it carries the 18+ label, so "too explicit" is not a reason to remove a title. If the label is simply missing, add the label instead.';
+
+const ruleFields = (detailHint: string): AskField[] => [
+  { name: 'rule', label: 'Which rule does it break?', type: 'select', required: true, initial: '', options: [{ value: '', label: 'Choose the rule that applies' }, ...HARD_LIMITS.map((r) => ({ value: r, label: r }))] },
+  { name: 'detail', label: 'What you found', type: 'textarea', required: true, minLength: 3, hint: detailHint },
+];
+const ruleReason = (v: R) => `${v.rule}. ${v.detail}`;
 
 // ---------------------------------------------------------------- series
 
@@ -20,12 +40,12 @@ export function SeriesPage() {
   const takedown = async (s: R) => {
     const v = await ask({
       title: `Take down "${s.title}"?`,
-      body: 'The series disappears from the store and from any featured rows. The brand owners are told why by email.',
-      fields: [{ name: 'reason', label: 'Reason', type: 'textarea', required: true, minLength: 3, hint: 'Sent to the brand owners.' }],
+      body: `The series leaves the store and any featured rows, and the brand owners are told which rule it broke. ${LIMITS_NOTE}`,
+      fields: ruleFields('Sent to the brand owners with the rule, so be specific about where the problem is.'),
       confirmLabel: 'Take down',
       danger: true,
     });
-    if (v) void run({ key: `td-${s.id}`, fn: () => api(`/api/admin/series/${s.id}/takedown`, { json: { reason: v.reason } }), ok: 'Series taken down' });
+    if (v) void run({ key: `td-${s.id}`, fn: () => api(`/api/admin/series/${s.id}/takedown`, { json: { reason: ruleReason(v) } }), ok: 'Series taken down' });
   };
   const restore = async (s: R) => {
     if (await confirm({ title: `Restore "${s.title}"?`, body: 'It becomes visible again and the brand owners are told.', confirmLabel: 'Restore' })) {
@@ -34,8 +54,8 @@ export function SeriesPage() {
   };
   const mature = async (s: R) => {
     const next = !s.mature;
-    if (await confirm({ title: next ? `Mark "${s.title}" as mature?` : `Remove the mature mark from "${s.title}"?`, body: next ? 'Only readers who opted in to mature content will see it. The brand owners are told.' : 'Every reader will be able to see it.', confirmLabel: next ? 'Mark as mature' : 'Remove mark' })) {
-      void run({ key: `m-${s.id}`, fn: () => api(`/api/admin/series/${s.id}/mature`, { json: { mature: next } }), ok: next ? 'Marked as mature' : 'Mature mark removed' });
+    if (await confirm({ title: next ? `Add the 18+ label to "${s.title}"?` : `Remove the 18+ label from "${s.title}"?`, body: next ? 'The series stays published and on sale. The label only means it is shown to readers who have chosen to see adult content. It is a label, not a penalty; the brand owners are told it was added.' : 'Every reader will be able to see it, including those who have not chosen to see adult content.', confirmLabel: next ? 'Add 18+ label' : 'Remove 18+ label' })) {
+      void run({ key: `m-${s.id}`, fn: () => api(`/api/admin/series/${s.id}/mature`, { json: { mature: next } }), ok: next ? '18+ label added' : '18+ label removed' });
     }
   };
   const feature = async (s: R) => {
@@ -63,7 +83,7 @@ export function SeriesPage() {
       cell: (s) => (
         <span className="flex max-w-[200px] flex-wrap gap-1">
           {s.takedown_at ? <span title={s.takedown_reason ?? ''}><StatusBadge status="taken down" /></span> : <StatusBadge status={s.visibility} />}
-          {s.mature && <Badge tone="warn">Mature</Badge>}
+          {s.mature && <Badge tone="info">18+</Badge>}
           {s.open_reports > 0 && <Badge tone="danger">{s.open_reports} {s.open_reports === 1 ? 'report' : 'reports'}</Badge>}
           {s.featured_slots.map((slot: string) => <Badge key={slot} tone="accent">{slot.replace('_', ' ')}</Badge>)}
         </span>
@@ -80,7 +100,7 @@ export function SeriesPage() {
           {s.takedown_at
             ? <Button size="sm" loading={busy === `td-${s.id}`} onClick={() => restore(s)}>Restore</Button>
             : <Button size="sm" variant="danger" loading={busy === `td-${s.id}`} onClick={() => takedown(s)}>Take down</Button>}
-          <Button size="sm" loading={busy === `m-${s.id}`} onClick={() => mature(s)}>{s.mature ? 'Not mature' : 'Mark mature'}</Button>
+          <Button size="sm" loading={busy === `m-${s.id}`} onClick={() => mature(s)}>{s.mature ? 'Remove 18+ label' : 'Add 18+ label'}</Button>
           {s.visibility === 'public' && !s.takedown_at && <Button size="sm" loading={busy === `f-${s.id}`} onClick={() => feature(s)}>{s.featured_slots.includes('staff_picks') ? 'Unpick' : 'Staff pick'}</Button>}
         </span>
       ),
@@ -88,12 +108,12 @@ export function SeriesPage() {
   ];
   return (
     <>
-      <PageHeader title="Series" description="Every series on the platform. Take down anything that breaks the content policy, or mark it as mature." />
+      <PageHeader title="Series" description="Every series on the platform. Adult work is welcome here when it carries the 18+ label. Take a series down only when it breaks one of the hard limits." />
       <FilterBar>
         <SearchInput value={f.q} onChange={(q) => setF({ q })} placeholder="Search by title, address or brand" />
         <FilterSelect label="Visibility" value={f.visibility} onChange={(visibility) => setF({ visibility })} options={[['', 'Any visibility'], ['public', 'Public'], ['unlisted', 'Unlisted'], ['draft', 'Draft']]} />
         <FilterSelect label="Access" value={f.access_model} onChange={(access_model) => setF({ access_model })} options={[['', 'Any access'], ['free', 'Free'], ['premium', 'Premium'], ['blocked', 'Blocked']]} />
-        <FilterSelect label="Mature" value={f.mature} onChange={(mature) => setF({ mature })} options={[['', 'Mature or not'], ['1', 'Mature'], ['0', 'Not mature']]} />
+        <FilterSelect label="18+ label" value={f.mature} onChange={(mature) => setF({ mature })} options={[['', 'With or without 18+ label'], ['1', 'Has the 18+ label'], ['0', 'No 18+ label']]} />
         <FilterSelect label="Moderation" value={f.takedown} onChange={(takedown) => setF({ takedown })} options={[['', 'Taken down or not'], ['1', 'Taken down'], ['0', 'Not taken down']]} />
         <FilterSelect label="Reports" value={f.reported} onChange={(reported) => setF({ reported })} options={[['', 'With or without reports'], ['1', 'Has open reports']]} />
         <FilterSelect label="Sort" value={f.sort} onChange={(sort) => setF({ sort })} options={[['', 'Newest first'], ['updated', 'Recently updated'], ['reads', 'Most read'], ['title', 'Title A-Z']]} />
@@ -122,13 +142,29 @@ export function ReportsPage() {
 
   const resolve = (r: R, body: R, ok: string) => run({ key: r.id, fn: () => api<R>(`/api/admin/reports/${r.id}/resolve`, { json: body }), ok: (res) => (res.closed > 1 ? `${ok}. ${res.closed} reports about the same thing were closed.` : ok) });
   const dismiss = async (r: R) => {
-    if (await confirm({ title: 'Dismiss this report?', body: r.open_on_target > 1 ? `Nothing is changed. All ${r.open_on_target} open reports about this are closed.` : 'Nothing is changed and the report is closed.', confirmLabel: 'Dismiss' })) void resolve(r, { decision: 'dismiss' }, 'Report dismissed');
+    if (await confirm({ title: 'Dismiss this report?', body: `${r.open_on_target > 1 ? `Nothing is changed. All ${r.open_on_target} open reports about this are closed.` : 'Nothing is changed and the report is closed.'} This is the right call when the work is within the rules, including labelled adult content.`, confirmLabel: 'Dismiss' })) void resolve(r, { decision: 'dismiss' }, 'Report dismissed');
+  };
+  /** The usual answer to "this is too explicit": label it, leave it published, close the report. */
+  const label18 = async (r: R, seriesId: string) => {
+    if (await confirm({ title: 'Add the 18+ label and close the report?', body: 'The series stays published. From now on it is only shown to readers who have chosen to see adult content, and the brand owners are told the label was added.', confirmLabel: 'Add 18+ label' })) {
+      void run({
+        key: r.id,
+        fn: async () => {
+          await api(`/api/admin/series/${seriesId}/mature`, { json: { mature: true } });
+          return api<R>(`/api/admin/reports/${r.id}/resolve`, { json: { decision: 'action', reason: 'Added the 18+ label' } });
+        },
+        ok: '18+ label added and report closed',
+      });
+    }
   };
   const noted = async (r: R) => {
     if (await confirm({ title: 'Mark as handled?', body: 'Use this when you have already dealt with it another way. The report is closed as actioned.', confirmLabel: 'Mark as handled' })) void resolve(r, { decision: 'action' }, 'Report closed');
   };
-  const step = async (r: R, flags: R, title: string, body: string, label: string, ok: string, needsReason = true) => {
-    if (needsReason) {
+  const step = async (r: R, flags: R, title: string, body: string, label: string, ok: string, needsReason: boolean | 'rule' = true) => {
+    if (needsReason === 'rule') {
+      const v = await ask({ title, body: `${body} ${LIMITS_NOTE}`, fields: ruleFields('Sent to the brand owners with the rule, and kept in the audit log.'), confirmLabel: label, danger: true });
+      if (v) void resolve(r, { decision: 'action', ...flags, reason: ruleReason(v) }, ok);
+    } else if (needsReason) {
       const v = await ask({ title, body, fields: [{ name: 'reason', label: 'Reason', type: 'textarea', required: true, minLength: 3, initial: `Reported: ${r.reason}`, hint: 'Sent to the people affected and kept in the audit log.' }], confirmLabel: label, danger: true });
       if (v) void resolve(r, { decision: 'action', ...flags, reason: v.reason }, ok);
     } else if (await confirm({ title, body, confirmLabel: label, danger: true })) {
@@ -139,6 +175,11 @@ export function ReportsPage() {
   return (
     <>
       <PageHeader title="Reports" description="What readers have flagged. Each button closes the report and carries out the step in one go." />
+      <div className="mb-4">
+        <Notice>
+          Adult and explicit work is allowed when it carries the 18+ label. Remove something only when it breaks a hard limit: {HARD_LIMITS.map((l) => l.toLowerCase()).join('; ')}. For a correctly labelled adult title reported as too explicit, dismiss the report.
+        </Notice>
+      </div>
       <FilterBar>
         <FilterSelect label="Status" value={f.status} onChange={(status) => setF({ status })} options={[['open', 'Open'], ['actioned', 'Actioned'], ['dismissed', 'Dismissed'], ['all', 'All reports']]} />
         <FilterSelect label="About" value={f.target_kind} onChange={(target_kind) => setF({ target_kind })} options={[['', 'Anything'], ['series', 'Series'], ['release', 'Releases'], ['comment', 'Comments'], ['publisher', 'Brands'], ['user', 'Users']]} />
@@ -188,13 +229,16 @@ export function ReportsPage() {
                       </>
                     )}
                     {(r.target_kind === 'series' || r.target_kind === 'release') && t && (
-                      <Button size="sm" variant="danger" loading={busy === r.id} onClick={() => step(r, { takedown_series: true }, 'Take down this series?', 'The whole series leaves the store and the brand owners are told why.', 'Take down series', 'Series taken down')}>Take down series</Button>
+                      <>
+                        {!t.takedown_at && <Button size="sm" loading={busy === r.id} onClick={() => label18(r, r.target_kind === 'series' ? r.target_id : t.series_id)}>Add 18+ label</Button>}
+                        <Button size="sm" variant="danger" disabled={busy === r.id} onClick={() => step(r, { takedown_series: true }, 'Take down this series?', 'The whole series leaves the store and the brand owners are told which rule it broke.', 'Take down series', 'Series taken down', 'rule')}>Take down series</Button>
+                      </>
                     )}
                     {r.target_kind === 'user' && t && (
                       <Button size="sm" variant="danger" loading={busy === r.id} onClick={() => step(r, { ban_user: true }, `Ban ${t.label}?`, 'They are signed out everywhere and cannot sign in again until unbanned.', 'Ban user', 'User banned')}>Ban user</Button>
                     )}
                     {r.target_kind === 'publisher' && t && (
-                      <Button size="sm" variant="danger" loading={busy === r.id} onClick={() => step(r, { suspend_brand: true }, `Suspend ${t.label}?`, 'The brand owners are told why. Payouts are held while suspended.', 'Suspend brand', 'Brand suspended')}>Suspend brand</Button>
+                      <Button size="sm" variant="danger" loading={busy === r.id} onClick={() => step(r, { suspend_brand: true }, `Suspend ${t.label}?`, 'The brand owners are told why. Payouts are held while suspended.', 'Suspend brand', 'Brand suspended', 'rule')}>Suspend brand</Button>
                     )}
                     <Button size="sm" disabled={busy === r.id} onClick={() => noted(r)}>Mark as handled</Button>
                     <Button size="sm" variant="ghost" disabled={busy === r.id} onClick={() => dismiss(r)}>Dismiss</Button>

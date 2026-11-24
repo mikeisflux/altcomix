@@ -349,7 +349,7 @@ export function AnnouncementsPage() {
 // ---------------------------------------------------------------- CMS pages
 
 const PAGE_NAMES: Record<string, string> = {
-  about: 'About', contact: 'Contact', 'content-policy': 'Content policy', 'publisher-sla': 'Publisher SLA', privacy: 'Privacy policy', 'privacy-choices': 'Your privacy choices',
+  about: 'About', 'creator-promise': 'The creator promise', contact: 'Contact', 'content-policy': 'Content policy', 'publisher-sla': 'Publisher SLA', privacy: 'Privacy policy', 'privacy-choices': 'Your privacy choices',
   terms: 'Terms of service', 'publisher-terms': 'Publisher terms', faq: 'FAQ',
 };
 
