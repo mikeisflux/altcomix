@@ -171,8 +171,15 @@ pm2 restart nsfwcomix --update-env  # full restart: needed after editing .env or
 ## 7. Deploying an update
 
 ```bash
-cd /srv/nsfwcomix && ./scripts/deploy/deploy.sh
+cd /srv/nsfwcomix && ./build-and-swap.sh
 ```
+
+`build-and-swap.sh` is the script to use day to day. It asks which branch to
+pull, installs dependencies only when the lockfile changed, type-checks,
+builds the web app beside the live one, applies database migrations, swaps
+the build in and does a rolling reload. `--branch NAME` skips the question.
+The older `scripts/deploy/deploy.sh` does the same job without the branch
+prompt or the side-by-side build.
 
 Pull (fast-forward only; refuses if the checkout has local changes) → `npm ci`
 → build the web client → run migrations → rolling reload → wait for
