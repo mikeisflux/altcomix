@@ -157,6 +157,12 @@ export const TEMPLATES: Record<string, { subject: string; html: string; vars: st
     vars: ['from', 'preview', 'url'],
     category: 'notification',
   },
+  moderation_notice: {
+    subject: '{{subject}}',
+    html: '<p>{{body}}</p><p>If you think this is a mistake, reply to this email and a person will look at it.</p>{{button:Open your studio|url}}',
+    vars: ['subject', 'body', 'url'],
+    category: 'transactional',
+  },
   admin_alert: {
     subject: '[{{site}}] {{subject}}',
     html: '<p>{{body}}</p>{{button:Open admin|url}}',
@@ -168,7 +174,7 @@ export const TEMPLATES: Record<string, { subject: string; html: string; vars: st
 /** Vars whose values are already HTML and must not be escaped. */
 const RAW_VARS = new Set(['items']);
 
-function render(tpl: string, vars: Record<string, string>, escape: boolean): string {
+export function render(tpl: string, vars: Record<string, string>, escape: boolean): string {
   return tpl
     .replace(/\{\{button:([^|}]+)\|(\w+)\}\}/g, (_m, label, key) => (escape ? button(label, vars[key] ?? '#') : `${label}: ${vars[key] ?? ''}`))
     .replace(/\{\{(\w+)\}\}/g, (_m, key) => {

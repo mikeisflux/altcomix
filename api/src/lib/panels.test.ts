@@ -104,8 +104,9 @@ test('pinwheel layout that no straight cut can split falls back to connected reg
   for (const p of panels) {
     assert.ok(frames.some((f) => [f.x - p[0], f.y - p[1], f.w - p[2], f.h - p[3]].every((d) => Math.abs(d) <= TOL)), `missing panel ${p.join(', ')}`);
   }
-  // First frame is the top-left one, last is the bottom one.
-  assertRect(frames[0], panels[0], 'first frame');
+  // Rows by top edge: top, right | left, centre | bottom.
+  assertPanels(frames, [panels[0], panels[1], panels[2], panels[3], panels[4]]);
+  assertPanels(await detectFrames(await page(panels), { dir: 'rtl' }), [panels[1], panels[0], panels[3], panels[2], panels[4]]);
 });
 
 test('page number and other small marks in the margin are ignored', async () => {

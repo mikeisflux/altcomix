@@ -472,13 +472,16 @@ export function orderFrames<T extends Frame>(frames: T[], dir: ReadingDir = 'ltr
     const other = axis === 'y' ? 'x' : 'y';
     if (groups.length > 1) return groups.flatMap((g) => walk(g, other, false));
     if (!failed) return walk(list, other, true);
-    // No clean separation either way: nearest-row order.
-    return list.slice().sort((p, q) => {
-      const dy = p.b.y + p.b.h / 2 - (q.b.y + q.b.h / 2);
-      if (Math.abs(dy) > 0.5 * Math.min(p.b.h, q.b.h)) return dy;
-      const dx = p.b.x + p.b.w / 2 - (q.b.x + q.b.w / 2);
-      return dir === 'rtl' ? -dx : dx;
-    });
+    // No clean separation either way (pinwheels, overlaps): frames whose top
+    // edges line up form a row, rows go top to bottom.
+    const byTop = list.slice().sort((p, q) => p.b.y - q.b.y);
+    const rows: Item[][] = [];
+    for (const it of byTop) {
+      const row = rows[rows.length - 1];
+      if (row && it.b.y - row[0].b.y <= 0.25 * Math.min(row[0].b.h, it.b.h)) row.push(it);
+      else rows.push([it]);
+    }
+    return rows.flatMap((row) => row.sort((p, q) => (dir === 'rtl' ? q.b.x + q.b.w - (p.b.x + p.b.w) : p.b.x - q.b.x)));
   };
 
   return walk(items, 'y', false).map((i) => i.f);

@@ -95,7 +95,7 @@ export async function fixtures() {
         );
         ids.push(p!.id);
       }
-      return { ...r!, page_ids: ids };
+      return { ...r!, id: r!.id as string, page_ids: ids } as Record<string, any> & { id: string; page_ids: string[] };
     },
   };
 }

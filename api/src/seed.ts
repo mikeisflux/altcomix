@@ -96,9 +96,9 @@ export async function imagesToPdf(images: Buffer[]): Promise<Buffer> {
   const doc = new mupdf.PDFDocument();
   for (const img of images) {
     const image = new mupdf.Image(img);
-    // 150 DPI page size in points.
-    const w = (image.getWidth() * 72) / 150;
-    const h = (image.getHeight() * 72) / 150;
+    // Page size in points for a 200 DPI image, the resolution ingestion renders at.
+    const w = (image.getWidth() * 72) / 200;
+    const h = (image.getHeight() * 72) / 200;
     const resources = doc.addObject({ XObject: { Im0: doc.addImage(image) } });
     doc.insertPage(-1, doc.addPage([0, 0, w, h], 0, resources, `q ${w} 0 0 ${h} 0 0 cm /Im0 Do Q`));
   }

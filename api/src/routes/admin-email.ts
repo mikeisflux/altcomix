@@ -62,7 +62,7 @@ export default async function adminEmailRoutes(app: FastifyInstance) {
       if (qy.status) w.add('e.status = ?', qy.status);
       if (qy.template) w.add('e.template = ?', qy.template);
       if (qy.category) w.add('e.category = ?', qy.category);
-      if (qy.to) w.add('e.to_email ilike ?', like(qy.to));
+      if (qy.recipient) w.add('e.to_email ilike ?', like(qy.recipient));
       if (qy.q) w.add('e.subject ilike ?', like(qy.q));
       if (isUuid(qy.user_id)) w.add('e.user_id = ?', qy.user_id);
       if (isUuid(qy.publisher_id)) w.add('e.publisher_id = ?', qy.publisher_id);

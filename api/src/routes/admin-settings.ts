@@ -94,7 +94,7 @@ const isSection = (s: string): s is SettingKey => Object.hasOwn(SETTINGS, s);
 const secretsOf = (section: SettingKey): readonly string[] => SETTINGS[section].secret;
 
 /** Rules that span several fields, checked against the value as it would be after the save. */
-function crossCheck(section: SettingKey, v: Record<string, unknown>): void {
+function crossCheck(section: SettingKey, v: Record<string, unknown>, sent: Record<string, unknown>): void {
   if (section === 'storage' && v.driver === 'r2' && !(v.r2_account_id && v.r2_bucket && v.r2_access_key_id && v.r2_secret_access_key)) {
     throw badRequest('To use R2, fill in the account ID, bucket, access key ID and secret access key');
   }
@@ -104,7 +104,8 @@ function crossCheck(section: SettingKey, v: Record<string, unknown>): void {
     if (v.provider === 'mailgun' && !(v.mailgun_api_key && v.mailgun_domain)) throw badRequest('Enter the Mailgun API key and sending domain');
   }
   if (section === 'payments') {
-    if (v.provider === 'sandbox' && config.isProd) throw badRequest('The sandbox payment provider cannot be used in production. Choose Divinity payments.');
+    // Only when sandbox is being chosen: other payment fields can still be filled in before switching.
+    if (sent.provider === 'sandbox' && config.isProd) throw badRequest('The sandbox payment provider cannot be used in production. Choose Divinity payments.');
     if (v.provider === 'divinity') {
       if (!(v.divinity_api_url && v.divinity_partner_id && v.divinity_api_key)) throw badRequest('Divinity payments needs the API URL, partner ID and API key');
       if (config.isProd && !String(v.divinity_api_url).startsWith('https://')) throw badRequest('The Divinity API URL must use https://');
@@ -191,7 +192,7 @@ export default async function adminSettingsRoutes(app: FastifyInstance) {
         if (before[f]) diff[f] = 'secret cleared';
         after[f] = '';
       }
-      crossCheck(section, after);
+      crossCheck(section, after, data);
 
       if (Object.keys(data).length) await setSetting(section, data, actor.id);
       if (body.clear.length) {

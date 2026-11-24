@@ -455,7 +455,7 @@ export async function completeOrder(orderId: string, opts: { paymentRef?: string
         }, { userId: g.to ? null : order.user_id });
       }
     }
-    await notify(order.user_id, 'purchase', 'Purchase complete', items.map((i) => i.description).join(', '), `/account/purchases/${orderId}`);
+    await notify(order.user_id, 'purchase', 'Purchase complete', items.map((i) => i.description).join(', '), '/account/purchases');
     for (const t of items.filter((i) => i.kind === 'tip')) {
       const owners = await q<{ user_id: string }>(`select user_id from publisher_members where publisher_id = $1 and role in ('owner','admin')`, [t.publisher_id]);
       for (const m of owners) await notify(m.user_id, 'tip', `You received a ${await money(t.price_cents)} tip`, String(t.meta?.message ?? ''), '/studio/earnings');
@@ -517,7 +517,7 @@ export async function reverseOrderBooks(orderId: string, why: { reason: string; 
     return o;
   });
   if (!done) return false;
-  await notify(done.user_id, 'refund', why.dispute ? 'A payment was disputed' : 'Your order was refunded', why.dispute ? 'Access from that order has been removed.' : 'The items from that order have been removed from your library.', `/account/purchases/${orderId}`).catch(() => {});
+  await notify(done.user_id, 'refund', why.dispute ? 'A payment was disputed' : 'Your order was refunded', why.dispute ? 'Access from that order has been removed.' : 'The items from that order have been removed from your library.', '/account/purchases').catch(() => {});
   return true;
 }
 
@@ -700,6 +700,8 @@ export async function recordDecline(chargeId: string, error: string, paymentRef:
   const out = await tx(async (db) => {
     const c = await one('select * from subscription_charges where id = $1 for update', [chargeId], db);
     if (!c || c.status !== 'pending') return null;
+    // The synchronous answer and the payment.failed webhook describe the same attempt: count it once.
+    if (paymentRef && c.payment_ref === paymentRef) return null;
     const sub = await one('select * from subscriptions where id = $1 for update', [c.subscription_id], db);
     if (!sub) return null;
     const attempts = c.attempts + 1;

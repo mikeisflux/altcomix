@@ -1,0 +1,33 @@
+# AltComix — example crontab entries. Nothing here is installed automatically.
+#
+# ---------------------------------------------------------------------------
+# 1. Firewall sync (root's crontab: sudo crontab -e)
+#    Safety net for the botblock watcher; see scripts/botblock/README.md.
+# ---------------------------------------------------------------------------
+*/5 * * * * /usr/local/bin/botblock-sync >> /var/log/botblock.log 2>&1
+
+# ---------------------------------------------------------------------------
+# 2. Application tasks (the app user's crontab: crontab -e)
+#
+#    The API already runs these itself in one of its processes, so you only
+#    need this block if you run with NO_JOBS=1 everywhere, or want a second
+#    trigger as a safety net. Every task is safe to run twice.
+#
+#    The secret is read from a file only that user can read, so it never
+#    appears in the crontab, in `ps`, or in this repository:
+#
+#      umask 077
+#      printf 'header = "Authorization: Bearer %s"\n' "$(grep '^CRON_SECRET=' /srv/altcomix/.env | cut -d= -f2-)" > ~/.altcomix-cron
+#
+#    With CRON_SECRET unset on the server, these endpoints refuse every call.
+# ---------------------------------------------------------------------------
+ALTCOMIX=http://127.0.0.1:4000/api/cron
+
+# Outbound email, every minute
+* * * * *    curl -fsS -m 55 -K ~/.altcomix-cron -X POST $ALTCOMIX/email-queue > /dev/null
+# Scheduled releases, every minute
+* * * * *    curl -fsS -m 55 -K ~/.altcomix-cron -X POST $ALTCOMIX/publish-scheduled > /dev/null
+# Housekeeping, hourly at :17
+17 * * * *   curl -fsS -m 120 -K ~/.altcomix-cron -X POST $ALTCOMIX/cleanup > /dev/null
+# Membership split for the month that just ended: 02:30 UTC on the 2nd, and again on the 3rd in case the first run failed
+30 2 2,3 * * curl -fsS -m 600 -K ~/.altcomix-cron -X POST $ALTCOMIX/settlement > /dev/null

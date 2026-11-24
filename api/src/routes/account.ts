@@ -7,7 +7,7 @@ import type { Row } from '../db.ts';
 import { hasMembership } from '../lib/access.ts';
 import { destroySession } from '../lib/auth.ts';
 import { rateLimit } from '../lib/botblock.ts';
-import { hashPassword, randomToken, verifyPassword } from '../lib/crypto.ts';
+import { hashPassword, randomToken, sha256, verifyPassword } from '../lib/crypto.ts';
 import { sendTemplate } from '../lib/email.ts';
 import { HttpError, audit, badRequest, conflict, notFound, pageParams, parse, requireUser } from '../lib/http.ts';
 import { getSetting } from '../lib/settings.ts';
@@ -137,7 +137,14 @@ export default async function accountRoutes(app: FastifyInstance) {
     if (email === u.email.toLowerCase()) throw badRequest('That is already your email address');
     if (await one('select 1 from users where lower(email) = $1', [email])) throw conflict('That email is already in use');
     if (!rateLimit('email-change', u.id, 5, 3600)) throw new HttpError(429, 'Too many requests. Try again later.');
-    const token = await app.issueEmailToken(u.id, 'email_change', 24, { email });
+    // auth.ts decorates `issueEmailToken` inside its own plugin scope, where sibling route files cannot see it;
+    // fall back to writing the same kind of token row (confirmed by POST /api/auth/confirm-email-change).
+    let token: string;
+    if (typeof app.issueEmailToken === 'function') token = await app.issueEmailToken(u.id, 'email_change', 24, { email });
+    else {
+      token = randomToken(32);
+      await exec(`insert into email_tokens (token_hash, user_id, kind, payload, expires_at) values ($1,$2,'email_change',$3, now() + interval '24 hours')`, [sha256(token), u.id, JSON.stringify({ email })]);
+    }
     await sendTemplate('email_change', email, { name: u.display_name || u.username, url: `${config.appUrl}/confirm-email?token=${token}` }, { userId: u.id });
     audit(req, 'user.email_change_requested', { kind: 'user', id: u.id });
     return { ok: true, sent_to: email };

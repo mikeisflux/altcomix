@@ -38,10 +38,11 @@ async function load(req: FastifyRequest, releaseId: string, previewToken?: strin
   return { series, release, pages, access, preview, member };
 }
 
-// Fully-unlocked answers are remembered briefly so a 40-page issue is not 40 paywall evaluations.
+// Wholly free releases are remembered briefly so a 40-page issue is not 40 paywall evaluations.
+// Anything a reader holds (purchase, membership, credit) is checked on every image, so losing it takes effect at once.
 const open = new Map<string, { until: number; vias: Map<string, Via> }>();
 function remember(key: string, l: Loaded): void {
-  if (l.access.pages.some((v) => v === null)) return;
+  if (l.access.pages.some((v) => v !== 'free')) return;
   if (open.size > 5000) open.clear();
   open.set(key, { until: Date.now() + 20_000, vias: new Map(l.pages.map((p, i) => [p.id, l.access.pages[i] as Via])) });
 }
