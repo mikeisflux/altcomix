@@ -14,21 +14,24 @@ import { hasMembership } from '../lib/access.ts';
 
 const USERNAME = /^[A-Za-z0-9_]{3,24}$/;
 
-async function verifyRecaptcha(token: string | undefined, ip: string): Promise<void> {
+const RECAPTCHA_MIN_SCORE = 0.5;
+
+/** reCAPTCHA v3: Google scores the visit 0.0 (bot) to 1.0 (human); the token must also be for this form. */
+async function verifyRecaptcha(token: string | undefined, ip: string, action: 'register' | 'forgot'): Promise<void> {
   const s = await getSetting('security');
   if (!s.recaptcha_enabled || !s.recaptcha_secret_key) return;
-  if (!token) throw badRequest('Please complete the reCAPTCHA check');
+  if (!token) throw badRequest('The spam check did not run. Reload the page and try again.');
   try {
     const res = await fetch('https://www.google.com/recaptcha/api/siteverify', {
       method: 'POST',
       body: new URLSearchParams({ secret: s.recaptcha_secret_key, response: token, remoteip: ip }),
       signal: AbortSignal.timeout(8000),
     });
-    const body = (await res.json()) as { success?: boolean };
-    if (!body.success) throw badRequest('reCAPTCHA check failed. Please try again.');
+    const body = (await res.json()) as { success?: boolean; score?: number; action?: string };
+    if (!body.success || body.action !== action || (body.score ?? 0) < RECAPTCHA_MIN_SCORE) throw badRequest('We could not confirm you are human. Please try again.');
   } catch (e) {
     if (e instanceof HttpError) throw e;
-    throw new HttpError(503, 'Could not verify reCAPTCHA. Please try again.');
+    throw new HttpError(503, 'The spam check is unavailable right now. Please try again.');
   }
 }
 
@@ -129,7 +132,7 @@ export default async function authRoutes(app: FastifyInstance) {
     );
     // Bots that fill the hidden field get a convincing success and no account.
     if (body.website) return { ok: true, user: null };
-    await verifyRecaptcha(body.recaptcha, req.clientIp);
+    await verifyRecaptcha(body.recaptcha, req.clientIp, 'register');
 
     const email = body.email.toLowerCase();
     if (await one('select 1 from users where lower(email) = $1', [email])) throw conflict('An account with that email already exists');
@@ -234,7 +237,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.post('/api/auth/forgot', async (req) => {
     const { email, recaptcha } = parse(z.object({ email: z.string().max(200), recaptcha: z.string().optional() }), req.body);
     if (!rateLimit('forgot', req.clientIp, 5, 900)) throw new HttpError(429, 'Too many requests. Try again in a few minutes.');
-    await verifyRecaptcha(recaptcha, req.clientIp);
+    await verifyRecaptcha(recaptcha, req.clientIp, 'forgot');
     const u = await one<{ id: string; email: string; display_name: string }>('select id, email, display_name from users where lower(email) = $1 and deleted_at is null', [email.trim().toLowerCase()]);
     if (u) {
       const token = await issueToken(u.id, 'reset', 2);

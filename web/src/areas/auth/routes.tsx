@@ -3,6 +3,7 @@ import type { FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import type { RouteObject } from 'react-router';
 import { ApiError, api, errorMessage } from '@/lib/api';
+import { recaptchaToken } from '@/lib/recaptcha';
 import { useSession } from '@/lib/session';
 import { Button, Checkbox, ErrorState, Field, Input, LinkButton, Notice, Spinner } from '@/ui';
 
@@ -92,7 +93,7 @@ function Register() {
     setError(null);
     try {
       created.current = true;
-      await api('/api/auth/register', { json: form });
+      await api('/api/auth/register', { json: { ...form, recaptcha: await recaptchaToken(settings.recaptcha_site_key, 'register') } });
       await refresh();
     } catch (err) {
       created.current = false;
@@ -135,6 +136,7 @@ function Register() {
 }
 
 function Forgot() {
+  const { settings } = useSession();
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -144,7 +146,7 @@ function Forgot() {
     setBusy(true);
     setError(null);
     try {
-      await api('/api/auth/forgot', { json: { email } });
+      await api('/api/auth/forgot', { json: { email, recaptcha: await recaptchaToken(settings.recaptcha_site_key, 'forgot') } });
       setSent(true);
     } catch (err) {
       setError(errorMessage(err));

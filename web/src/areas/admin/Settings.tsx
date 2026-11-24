@@ -420,7 +420,7 @@ function SecurityTab({ value, secrets }: TabProps) {
         <Switch checked={f.bot_blocker_enabled} onChange={(v) => s.set({ bot_blocker_enabled: v })} label="Bot blocker" description="Automatically blocks addresses that probe for vulnerabilities or hammer the site." />
         <Field label="Requests allowed per address, per minute" hint="Between 30 and 100,000. Going over this is counted as suspicious." className="max-w-sm"><Input inputMode="numeric" value={f.rate} onChange={(e) => s.set({ rate: e.target.value })} /></Field>
       </FormSection>
-      <FormSection title="reCAPTCHA" description="Google's invisible check on sign-up and sign-in forms. Create a v3 key pair for your domain in the reCAPTCHA admin console.">
+      <FormSection title="reCAPTCHA" description="Google's invisible, score-based check on the sign-up and forgot-password forms. Create a v3 (score based) key pair for your domain in the reCAPTCHA admin console.">
         <Field label="Site key"><Input value={f.recaptcha_site_key} spellCheck={false} autoComplete="off" onChange={(e) => s.set({ recaptcha_site_key: e.target.value })} /></Field>
         <SecretInput label="Secret key" s={s.secret('recaptcha_secret_key')} />
         <TestButton path="/api/admin/settings/test/recaptcha" body={s.testForm(['recaptcha_site_key', 'recaptcha_secret_key'])} label="Check keys" note="Checks the values typed above with Google." />

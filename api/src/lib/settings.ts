@@ -178,7 +178,8 @@ export async function publicSettings(): Promise<Record<string, unknown>> {
     payments: { provider: payments.provider },
     // Creator shares are public: they are the pitch.
     revenue: { sale_share_bps: revenue.sale_share_bps, sub_share_bps: revenue.sub_share_bps, tip_share_bps: revenue.tip_share_bps, payout_minimum_cents: revenue.payout_minimum_cents },
-    recaptcha_site_key: security.recaptcha_site_key,
+    // Only handed out while the check is on, so the forms know whether to run it.
+    recaptcha_site_key: security.recaptcha_enabled ? security.recaptcha_site_key : '',
     ga_measurement_id: analytics.ga_measurement_id,
   };
 }
