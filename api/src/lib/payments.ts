@@ -142,6 +142,25 @@ export function verifyDivinitySignature(rawBody: string, header: string, secret:
 
 // ------------------------------------------------------------------ providers
 
+/**
+ * Our colors for the processor's checkout page, so it sits in our dialog (or opens as a page)
+ * in the site's dark look instead of its default light one: the surface the form sits on, the
+ * text color and the accent for the pay button. Hex without "#", as the processor expects.
+ * Keep in step with --color-surface / --color-paper / --color-accent in web/src/styles.css.
+ */
+export const CHECKOUT_THEME = { bg: '191714', text: 'f4eee1', accent: 'ff2e88' } as const;
+
+/** The checkout address with our colors added. An address we cannot parse is returned untouched. */
+export function themedCheckoutUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    for (const [k, v] of Object.entries(CHECKOUT_THEME)) if (!u.searchParams.has(k)) u.searchParams.set(k, v);
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
 export type Origin = { ip: string | null; userAgent: string | null };
 /**
  * How the reader's browser shows the hosted checkout page. The browser
@@ -312,7 +331,7 @@ const divinity: PaymentProvider = {
       ...originFields(a.origin),
     });
     if (!r.ok || !r.data.sessionId || !r.data.checkoutUrl) throw startFailed(r);
-    return { ref: String(r.data.sessionId), url: String(r.data.checkoutUrl), state: r.data.status === 'complete' ? 'complete' : 'pending' };
+    return { ref: String(r.data.sessionId), url: themedCheckoutUrl(String(r.data.checkoutUrl)), state: r.data.status === 'complete' ? 'complete' : 'pending' };
   },
   async startSetup(a) {
     const s = await getSetting('payments');
@@ -331,7 +350,7 @@ const divinity: PaymentProvider = {
       ...originFields(a.origin),
     });
     if (!r.ok || !r.data.sessionId || !r.data.checkoutUrl) throw startFailed(r);
-    return { ref: String(r.data.sessionId), url: String(r.data.checkoutUrl), token: null };
+    return { ref: String(r.data.sessionId), url: themedCheckoutUrl(String(r.data.checkoutUrl)), token: null };
   },
   async getSession(ref) {
     const r = await dcCall('get-checkout-session', { sessionId: ref });

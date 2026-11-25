@@ -403,7 +403,8 @@ test('hosted checkout over HTTP: the browser names its surface, gets the session
     assert.equal(start.status, 200, start.res.payload);
     assert.deepEqual(Object.keys(start.json).sort(), ['amount_cents', 'order_id', 'return_to', 'session_id', 'surface', 'url']);
     assert.deepEqual([start.json.surface, start.json.amount_cents, start.json.return_to], ['embed', 199, `/read/${r2.id}`]);
-    assert.equal(start.json.url, `https://pay.example/checkout/${start.json.session_id}`);
+    // the address carries the site's colors so the payment page is not shown in its default light look
+    assert.equal(start.json.url, `https://pay.example/checkout/${start.json.session_id}?bg=191714&text=f4eee1&accent=ff2e88`);
     assert.equal(created[0].disableAutoRedirect, true);
 
     // while the buyer is still typing, every ask says "pending" and changes nothing

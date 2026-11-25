@@ -56,6 +56,8 @@ export type SecurePaymentRequest = {
 };
 
 /** The message namespace the hosted payment page uses. Never shown to anyone. */
+/** Our dialog's surface, text and accent colors, for the payment form inside the frame (see styles.css). */
+const FRAME_THEME = { bg: '#191714', text: '#f4eee1', accent: '#ff2e88' };
 const MESSAGE_NAMESPACE = 'divinitycoin-checkout';
 /** Height of the frame until the page reports its own. */
 const INITIAL_FRAME_HEIGHT = 480;
@@ -177,7 +179,12 @@ function PaymentFrame({ session, onReady, onComplete }: { session: PaymentSessio
       if (!d || typeof d !== 'object' || d.namespace !== MESSAGE_NAMESPACE) return;
       // A message about some other session (an earlier attempt still open in the page's history).
       if (d.sessionId !== session.session_id) return;
-      if (d.type === 'ready') setReady(true);
+      if (d.type === 'ready') {
+        setReady(true);
+        // Answer every "ready" (it is sent again after a bank verification step) with our colors,
+        // so the form keeps the site's dark look. The same colors are on the address already.
+        frame.current?.contentWindow?.postMessage({ namespace: MESSAGE_NAMESPACE, type: 'theme', ...FRAME_THEME }, origin);
+      }
       else if (d.type === 'resize') {
         if (typeof d.height === 'number' && d.height > 0) setHeight(Math.min(Math.max(Math.ceil(d.height), 240), 2400));
       } else if (d.type === 'complete') {
@@ -205,7 +212,7 @@ function PaymentFrame({ session, onReady, onComplete }: { session: PaymentSessio
   }, [ready, onReady]);
 
   return (
-    <div className="relative w-full overflow-hidden rounded-xl border border-line bg-paper">
+    <div className="relative w-full overflow-hidden rounded-xl border border-line bg-surface">
       {!ready && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-surface px-6 text-center" data-testid="payment-veil">
           <Spinner className="size-7" />

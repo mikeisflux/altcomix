@@ -274,7 +274,7 @@ test('membership start honors a same-site next path and hands it to the hosted f
   try {
     await setSetting('payments', { provider: 'divinity', divinity_api_url: `http://127.0.0.1:${(fake.address() as { port: number }).port}/internal`, divinity_partner_id: 'p', divinity_api_key: 'k' }, null);
     const h = await (await signedIn()).c.post('/api/membership/start', { plan: 'annual', next: '/series/paper-robots?tab=releases' });
-    assert.deepEqual([h.json.url, h.json.status, h.json.next], ['https://pay.example/checkout/x', 'pending', '/series/paper-robots?tab=releases']);
+    assert.deepEqual([h.json.url, h.json.status, h.json.next], ['https://pay.example/checkout/x?bg=191714&text=f4eee1&accent=ff2e88', 'pending', '/series/paper-robots?tab=releases']);
     assert.match(seen[0].returnUrl, /\/account\/membership\?next=%2Fseries%2Fpaper-robots%3Ftab%3Dreleases$/);
     assert.match(seen[0].cancelUrl, /\/account\/membership\?cancelled=1&next=%2Fseries%2Fpaper-robots%3Ftab%3Dreleases$/);
     await (await signedIn()).c.post('/api/membership/start', { plan: 'annual' });
