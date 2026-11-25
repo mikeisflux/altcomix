@@ -114,7 +114,7 @@ We aim to keep the store, the reader and Studio available around the clock. Plan
 
 ## Support
 
-*[Owner: state the support channel and the response time you can actually meet.]*
+Email [support@nsfwcomix.com](mailto:support@nsfwcomix.com).
 
 ## Moderation
 
