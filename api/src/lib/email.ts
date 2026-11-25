@@ -133,6 +133,7 @@ export const TEMPLATES: Record<string, { subject: string; html: string; vars: st
   },
   receipt: {
     subject: 'Your {{site}} receipt',
+    // `items` is the list of lines; when sales tax was charged it ends with "Subtotal" and "Sales tax (State N%)" rows. `total` includes the tax.
     html: '<p>Hi {{name}},</p><p>Thanks for your purchase.</p>{{items}}<p><strong>Total: {{total}}</strong></p>{{button:Go to your library|url}}',
     vars: ['name', 'items', 'total', 'url', 'site'],
     category: 'transactional',
@@ -181,8 +182,9 @@ export const TEMPLATES: Record<string, { subject: string; html: string; vars: st
   },
   membership_started: {
     subject: 'Your {{plan}} membership is active',
-    html: '<p>Hi {{name}},</p><p>Your membership is active and renews on {{renews}}.</p>{{button:Start reading|url}}',
-    vars: ['name', 'plan', 'renews', 'url'],
+    // `summary` is empty unless the first charge carried sales tax; then it is one line with the amount and the tax.
+    html: '<p>Hi {{name}},</p><p>Your membership is active and renews on {{renews}}.</p>{{summary}}{{button:Start reading|url}}',
+    vars: ['name', 'plan', 'renews', 'summary', 'url'],
     category: 'transactional',
   },
   new_message: {

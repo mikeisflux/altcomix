@@ -3,7 +3,7 @@ import { BookOpen, Check, HandCoins, PieChart, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { api, errorMessage } from '@/lib/api';
-import { date, money, percent } from '@/lib/format';
+import { date, money, moneyExact, percent } from '@/lib/format';
 import { useSession } from '@/lib/session';
 import { Badge, Button, Card, ErrorState, LinkButton, Notice, cx, toast } from '@/ui';
 import { membershipCheck, useCheckoutSurface, useSecureCheckout } from './SecureCheckout';
@@ -11,6 +11,8 @@ import type { CheckoutSurface } from './SecureCheckout';
 import { CoverCard } from './cards';
 import type { SeriesCard } from './cards';
 import { ConfirmEmailPrompt, SHELF_ITEM, SectionLink, Shelf, isEmailUnverified, safeNext, useLoginLink, useTitle } from './shared';
+import { LocationFields, useBillingLocation } from './tax';
+import type { TaxQuote } from './tax';
 
 type Plan = 'monthly' | 'annual';
 type Membership = {
@@ -22,6 +24,9 @@ type Membership = {
     payment_problem: { attempts: number; next_attempt_at: string | null; message: string | null } | null;
   } | null;
 };
+/** POST /api/membership/quote: each plan with sales tax at a billing location. `tax` is null while sales tax is off. */
+type PlanTax = TaxQuote & { price_cents: number; total_cents: number };
+type MembershipQuote = { tax: { monthly: PlanTax; annual: PlanTax } | null };
 type StartResult = { completed?: boolean; url?: string; session_id?: string; surface?: CheckoutSurface; status?: string; next?: string | null };
 
 export function Unlimited() {
@@ -44,20 +49,37 @@ export function Unlimited() {
   const [unverified, setUnverified] = useState<string | null>(null);
   const surface = useCheckoutSurface();
   const secure = useSecureCheckout();
+  const notMember = Boolean(user) && mine.isSuccess && !mine.data.member;
+  // Sales tax: where the member is decides the tax on the first charge and on every renewal. Nothing here exists while it is off.
+  const billing = useBillingLocation(notMember);
+  const taxQuote = useQuery({
+    queryKey: ['membership-quote', billing.location],
+    queryFn: () => api<MembershipQuote>('/api/membership/quote', { json: { location: billing.location ?? undefined } }),
+    enabled: billing.enabled && billing.ready,
+    retry: false,
+    placeholderData: (prev) => prev,
+  });
+  const locationError = taxQuote.isError && (taxQuote.error as { code?: string } | null)?.code === 'location_invalid' ? errorMessage(taxQuote.error) : null;
+  const planTax = billing.enabled && billing.location && !taxQuote.isError && !taxQuote.isPlaceholderData ? taxQuote.data?.tax?.[plan] ?? null : null;
   const start = useMutation({
     // `next` goes with the request so a reader who pays on the checkout page is brought back to where they were.
-    mutationFn: () => api<StartResult>('/api/membership/start', { json: { plan, next: safeNext(next, '') || undefined, surface } }),
+    mutationFn: () => api<StartResult>('/api/membership/start', { json: { plan, next: safeNext(next, '') || undefined, surface, location: billing.enabled ? billing.location ?? undefined : undefined } }),
     onMutate: () => setUnverified(null),
     onSuccess: async (r) => {
       if (r.url && r.session_id) {
         const yearly = plan === 'annual';
-        const price = money(yearly ? m.annual_cents : m.monthly_cents, currency);
+        const taxed = planTax && planTax.tax_cents > 0 && planTax.label ? planTax : null;
+        // With sales tax, what is charged each time is the plan price plus the tax.
+        const price = taxed ? moneyExact(taxed.total_cents, currency) : money(yearly ? m.annual_cents : m.monthly_cents, currency);
         const every = yearly ? 'year' : 'month';
         const onward = safeNext(r.next ?? next, '/browse?access=membership');
         secure.open({
           session: { url: r.url, session_id: r.session_id, surface: r.surface ?? 'redirect' },
-          lines: [{ label: m.name, detail: `${yearly ? 'Yearly' : 'Monthly'} plan, renews until you cancel`, amount: `${price} a ${every}` }],
-          totals: [{ label: m.trial_days > 0 ? `Due today (${m.trial_days} days free first)` : 'Due today', amount: m.trial_days > 0 ? money(0, currency) : price }],
+          lines: [{ label: m.name, detail: `${yearly ? 'Yearly' : 'Monthly'} plan, renews until you cancel`, amount: `${money(yearly ? m.annual_cents : m.monthly_cents, currency)} a ${every}` }],
+          totals: [
+            ...(taxed ? [{ label: 'Subtotal', amount: moneyExact(taxed.price_cents, currency) }, { label: taxed.label!, amount: moneyExact(taxed.tax_cents, currency) }] : []),
+            { label: m.trial_days > 0 ? `Due today (${m.trial_days} days free first)` : 'Due today', amount: m.trial_days > 0 ? money(0, currency) : price },
+          ],
           payLabel: m.trial_days > 0 ? undefined : price,
           note: m.trial_days > 0
             ? `Your card is saved now and first charged ${price} when your ${m.trial_days} free days end, then every ${every} until you cancel.`
@@ -112,7 +134,7 @@ export function Unlimited() {
             <h2 className="mt-3 text-2xl font-bold">You are a member</h2>
             {sub && (
               <p className="mt-2 text-muted">
-                {sub.from_code ? 'Membership from a code' : `${sub.plan === 'annual' ? 'Yearly' : 'Monthly'} plan, ${money(sub.price_cents, currency)}`}.{' '}
+                {sub.from_code ? 'Membership from a code' : `${sub.plan === 'annual' ? 'Yearly' : 'Monthly'} plan, ${money(sub.price_cents, currency)}${settings.tax?.enabled ? ' plus tax where it applies' : ''}`}.{' '}
                 {sub.renews_at ? `Renews on ${date(sub.renews_at)}.` : `Access runs until ${date(sub.current_period_end)} and will not renew.`}
               </p>
             )}
@@ -139,16 +161,37 @@ export function Unlimited() {
                     <span className="font-semibold">{p.title}</span>
                     {p.id === 'annual' && saving > 0 && <Badge tone="sun">Save {percent(saving / yearAtMonthly)}</Badge>}
                   </span>
-                  <span className="mt-2 block"><span className="font-display text-3xl font-extrabold">{p.price}</span> <span className="text-sm text-muted">{p.per}</span></span>
+                  <span className="mt-2 block"><span className="font-display text-3xl font-extrabold">{p.price}</span> <span className="text-sm text-muted">{p.per}{settings.tax?.enabled ? ', plus tax where it applies' : ''}</span></span>
                   <span className="mt-1 block text-sm text-muted">{p.note}{p.id === 'annual' && saving > 0 ? `, ${money(saving, currency)} less than paying monthly` : ''}</span>
                 </button>
               ))}
             </div>
             {m.trial_days > 0 && <p className="mt-3 text-sm text-muted">New members get {m.trial_days} days free before the first payment.</p>}
+            {billing.enabled && (
+              <div className="mt-5 space-y-3" data-testid="membership-tax">
+                <LocationFields value={billing.draft} onChange={billing.change} error={locationError} disabled={start.isPending} note="Used to work out sales tax on each payment. You can change it later from your account." />
+                {planTax && (
+                  <dl className="space-y-1.5 border-t border-line pt-3 text-sm" aria-live="polite">
+                    {planTax.tax_cents > 0 && planTax.label && (
+                      <>
+                        <div className="flex justify-between gap-4"><dt className="text-muted">Subtotal</dt><dd className="tabular-nums">{moneyExact(planTax.price_cents, currency)}</dd></div>
+                        <div className="flex justify-between gap-4"><dt className="text-muted">{planTax.label}</dt><dd className="tabular-nums">{moneyExact(planTax.tax_cents, currency)}</dd></div>
+                      </>
+                    )}
+                    <div className="flex justify-between gap-4 text-base font-semibold">
+                      <dt>Total {plan === 'annual' ? 'per year' : 'per month'}</dt>
+                      <dd className="tabular-nums">{moneyExact(planTax.total_cents, currency)}</dd>
+                    </div>
+                  </dl>
+                )}
+              </div>
+            )}
             <div className="mt-5">
               {user ? (
-                <Button variant="primary" size="lg" block loading={start.isPending} disabled={!user.email_verified} onClick={() => start.mutate()}>
-                  Start {plan === 'annual' ? 'yearly' : 'monthly'} membership · {money(plan === 'annual' ? m.annual_cents : m.monthly_cents, currency)}
+                <Button variant="primary" size="lg" block loading={start.isPending} disabled={!user.email_verified || (billing.enabled && !planTax)} onClick={() => start.mutate()}>
+                  {billing.enabled && !planTax
+                    ? billing.location && !taxQuote.isError ? 'Working out the tax…' : 'Add your location to continue'
+                    : <>Start {plan === 'annual' ? 'yearly' : 'monthly'} membership · {planTax ? moneyExact(planTax.total_cents, currency) : money(plan === 'annual' ? m.annual_cents : m.monthly_cents, currency)}</>}
                 </Button>
               ) : (
                 <LinkButton to={login} variant="primary" size="lg" block>Sign in to become a member</LinkButton>

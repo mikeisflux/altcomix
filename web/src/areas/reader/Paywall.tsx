@@ -1,7 +1,8 @@
 import { Lock, Sparkles, Ticket } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router';
-import { useOrderPayment } from '@/areas/store/Checkout';
+import { useCheckout, useOrderPayment } from '@/areas/store/Checkout';
+import { useSalesTaxEnabled } from '@/areas/store/tax';
 import { ConfirmEmailPrompt } from '@/areas/store/shared';
 import { ApiError, api, errorMessage } from '@/lib/api';
 import { money } from '@/lib/format';
@@ -19,13 +20,28 @@ export function Paywall({ manifest, page, onUnlocked, compact }: { manifest: Man
   const { offers, release, series, access } = manifest;
   const next = encodeURIComponent(loc.pathname + loc.search);
   const payment = useOrderPayment();
+  const unlocked = () => {
+    toast.success('Unlocked. Enjoy!');
+    onUnlocked();
+  };
+  // With sales tax on, the purchase goes through the confirmation dialog, which asks where the buyer is and shows the tax before they pay.
+  const taxOn = useSalesTaxEnabled();
+  const confirmFirst = useCheckout(unlocked);
 
   const checkout = async (kind: 'release' | 'series') => {
+    if (taxOn) {
+      confirmFirst.open({
+        lines: [
+          kind === 'release'
+            ? { item: { kind, id: release.id }, label: release.title, detail: series.title, price_cents: offers.read_price_cents ?? 0, list_price_cents: offers.read_list_price_cents }
+            : { item: { kind, id: series.id }, label: series.title, detail: 'Every release in the series', price_cents: offers.series_price_cents ?? 0 },
+        ],
+        returnTo: loc.pathname,
+        allowCode: false,
+      });
+      return;
+    }
     setBusy(kind);
-    const unlocked = () => {
-      toast.success('Unlocked. Enjoy!');
-      onUnlocked();
-    };
     try {
       const outcome = await payment.pay(
         { items: [{ kind, id: kind === 'release' ? release.id : series.id }], return_to: loc.pathname },
@@ -67,6 +83,7 @@ export function Paywall({ manifest, page, onUnlocked, compact }: { manifest: Man
   return (
     <div className={compact ? 'mx-auto w-full max-w-md p-5' : 'mx-auto flex h-full w-full max-w-md flex-col justify-center p-5'}>
       {payment.dialog}
+      {confirmFirst.dialog}
       <div className="rounded-2xl border border-line-strong bg-surface p-6 text-center shadow-pop">
         <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-full bg-accent-soft text-accent-hover"><Lock className="size-5" /></div>
         <h2 className="text-xl font-bold">Keep reading {release.title}</h2>

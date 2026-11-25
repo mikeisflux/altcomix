@@ -9,12 +9,14 @@ import { HttpError, badRequest, conflict, forbidden, notFound, parse, paymentReq
 import type { SessionUser } from '../lib/http.ts';
 import { creditSale } from '../lib/ledger.ts';
 import {
-  changePaymentMethod, confirmSession, getProvider, handleDivinityEvent, money, startMembership, startOrderPayment, verifyDivinitySignature, walletAdd,
+  changePaymentMethod, chargeTotal, confirmSession, getProvider, handleDivinityEvent, money, orderCharge, startMembership, startOrderPayment, verifyDivinitySignature, walletAdd,
 } from '../lib/payments.ts';
 import type { Origin } from '../lib/payments.ts';
 import { FAILURE_TEXT } from '../lib/payments.ts';
 import { activeDiscounts, applyCode, bundlePrice, codeCovers, downloadPrice, readOffer, seriesPurchase } from '../lib/pricing.ts';
 import type { Line } from '../lib/pricing.ts';
+import { computeTax, parseLocation, saveLocation, savedLocation, stateName, taxLabel, taxSettings, taxView } from '../lib/salestax.ts';
+import type { Tax, TaxLocation } from '../lib/salestax.ts';
 import { getSetting } from '../lib/settings.ts';
 import { assertViewable, findPublisher, findSeries, isUuid } from './catalog.ts';
 
@@ -66,7 +68,7 @@ async function usableCode(code: string, user: SessionUser, db?: Queryable): Prom
 export async function orderItems(orderIds: string[]): Promise<Row[]> {
   if (!orderIds.length) return [];
   return q(
-    `select i.id, i.order_id, i.kind, i.description, i.price_cents, i.release_id, i.series_id, i.publisher_id, i.bundle_id,
+    `select i.id, i.order_id, i.kind, i.description, i.price_cents, i.tax_cents, i.release_id, i.series_id, i.publisher_id, i.bundle_id,
             s.slug as series_slug, s.title as series_title, p.slug as publisher_slug, p.name as publisher_name,
             case when i.kind = 'series' then coalesce(i.meta->'release_ids', '[]'::jsonb)
                  when i.kind = 'bundle' then coalesce((select jsonb_agg(x->>'id') from jsonb_array_elements(i.meta->'releases') x), '[]'::jsonb)
@@ -90,6 +92,8 @@ const surfaceSchema = z.enum(['embed', 'redirect'], 'surface must be "embed" or 
 const basketSchema = z.object({
   items: z.array(itemSchema).min(1, 'Your basket is empty').max(20), code: z.string().trim().max(40).optional(), use_credit: z.boolean().optional(), return_to: z.string().max(300).optional(),
   surface: surfaceSchema,
+  // Billing location for sales tax: { country, state?, zip? }. Checked by `parseLocation`; ignored while sales tax is off.
+  location: z.unknown().optional(),
 });
 
 /** Only same-site paths are followed after a payment. */
@@ -212,11 +216,30 @@ async function priceBasket(req: FastifyRequest, u: SessionUser, body: z.infer<ty
   return { drafts, code, code_discount_cents: discount, total_cents: drafts.reduce((n, d) => n + d.price_cents, 0) };
 }
 
-/** How a total is paid: store credit first (when asked), the card for the rest. */
-function settle(total: number, creditAvailable: number, useCredit: boolean | undefined): { credit: number; charge: number; below_minimum: boolean } {
-  const credit = useCredit ? Math.min(Math.max(0, creditAvailable), total) : 0;
-  const charge = total - credit;
+/**
+ * How a total is paid: store credit first (when asked), the card for the
+ * rest. Sales tax is owed on top of the price whatever pays for it, so
+ * credit can cover the tax too and the card takes what credit does not.
+ */
+function settle(total: number, tax: number, creditAvailable: number, useCredit: boolean | undefined): { credit: number; charge: number; below_minimum: boolean } {
+  const due = total + tax;
+  const credit = useCredit ? Math.min(Math.max(0, creditAvailable), due) : 0;
+  const charge = due - credit;
   return { credit, charge, below_minimum: charge > 0 && charge < MIN_CARD_CHARGE };
+}
+
+const LOCATION_REQUIRED = 'Choose your country (and, in the United States, your state and ZIP code) so sales tax can be worked out.';
+
+/**
+ * Sales tax for whatever is being bought, at the location the browser sent
+ * or, failing that, the one this buyer used last time. With sales tax off
+ * nothing is read or checked: the answer is the empty `Tax`.
+ */
+async function taxFor(u: SessionUser, lines: { kind: string; price_cents: number }[], sent: unknown): Promise<{ tax: Tax; given: TaxLocation | null }> {
+  const cfg = await taxSettings();
+  if (!cfg.enabled) return { tax: computeTax(lines, null, cfg), given: null };
+  const given = parseLocation(sent);
+  return { tax: computeTax(lines, given ?? (await savedLocation(u.id)), cfg), given };
 }
 const belowMinimum = async () => `The smallest card payment is ${await money(MIN_CARD_CHARGE)}. Add something else to your basket.`;
 
@@ -233,15 +256,16 @@ export default async function commerceRoutes(app: FastifyInstance) {
     const body = parse(basketSchema, req.body);
     if (!rateLimit('quote', u.id, 120, 600)) throw new HttpError(429, 'Too many price checks. Try again in a few minutes.');
     const b = await priceBasket(req, u, body, { quote: true });
+    const { tax } = await taxFor(u, b.drafts, body.location);
     const w = await one<{ credit_cents: number }>('select credit_cents from wallets where user_id = $1', [u.id]);
     const available = w?.credit_cents ?? 0;
-    const pay = settle(b.total_cents, available, body.use_credit);
-    const lines = b.drafts.map((d) => {
+    const pay = settle(b.total_cents, tax.tax_cents, available, body.use_credit);
+    const lines = b.drafts.map((d, n) => {
       const codeOff = Number(d.meta.code_discount_cents ?? 0);
       const list = Number(d.meta.list_price_cents ?? d.price_cents + codeOff);
       return {
         kind: d.kind, description: d.description, release_id: d.release_id, series_id: d.series_id, publisher_id: d.publisher_id, bundle_id: d.bundle_id,
-        list_price_cents: list, sale_discount_cents: list - d.price_cents - codeOff, code_discount_cents: codeOff, price_cents: d.price_cents,
+        list_price_cents: list, sale_discount_cents: list - d.price_cents - codeOff, code_discount_cents: codeOff, price_cents: d.price_cents, tax_cents: tax.lines[n],
       };
     });
     return {
@@ -249,12 +273,17 @@ export default async function commerceRoutes(app: FastifyInstance) {
       list_price_cents: lines.reduce((n, l) => n + l.list_price_cents, 0),
       discounts: { sale_cents: lines.reduce((n, l) => n + l.sale_discount_cents, 0), code_cents: b.code_discount_cents },
       code: b.code ? { code: b.code.code, percent_off: b.code.percent_off } : null,
+      // The price of everything, before sales tax (the "Subtotal" line when tax is shown).
       total_cents: b.total_cents,
+      // null while sales tax is off. Otherwise what was worked out, and whether a billing location is still needed.
+      tax: tax.enabled ? taxView(tax) : null,
+      tax_cents: tax.tax_cents,
+      total_with_tax_cents: b.total_cents + tax.tax_cents,
       credit_available_cents: available,
       credit_applied_cents: pay.credit,
       amount_due_cents: pay.charge,
       // Set when this basket cannot be paid as it stands (the checkout would answer 400 with the same code).
-      problem: pay.below_minimum ? { code: 'below_minimum', message: await belowMinimum() } : null,
+      problem: tax.needs_location ? { code: 'location_required', message: LOCATION_REQUIRED } : pay.below_minimum ? { code: 'below_minimum', message: await belowMinimum() } : null,
     };
   });
 
@@ -267,26 +296,34 @@ export default async function commerceRoutes(app: FastifyInstance) {
     const returnTo = sameSite(body.return_to, '/library');
     const { drafts, code, code_discount_cents: discount, total_cents: total } = await priceBasket(req, u, body, { quote: false });
     const codeId: string | null = code?.id ?? null;
+    const { tax, given } = await taxFor(u, drafts, body.location);
+    if (tax.needs_location) throw badRequest(LOCATION_REQUIRED, 'location_required');
 
     const pay = await getSetting('payments');
     const orderId = await tx(async (db) => {
       await db.query('insert into wallets (user_id) values ($1) on conflict do nothing', [u.id]);
       const w = await one<{ credit_cents: number }>('select credit_cents from wallets where user_id = $1 for update', [u.id], db);
-      const { credit, charge, below_minimum } = settle(total, w?.credit_cents ?? 0, body.use_credit);
+      const { credit, charge, below_minimum } = settle(total, tax.tax_cents, w?.credit_cents ?? 0, body.use_credit);
       if (below_minimum) throw badRequest(await belowMinimum(), 'below_minimum');
       // Fail before anything is written if a card payment is needed and none can be taken.
       if (charge > 0) await getProvider();
       const o = await one<{ id: string }>(
-        `insert into orders (user_id, status, total_cents, credit_cents, provider, discount_code_id, ip, user_agent, meta) values ($1,'pending',$2,$3,$4,$5,$6,$7,$8) returning id`,
-        [u.id, total, credit, charge > 0 ? pay.provider : 'credit', codeId, req.clientIp, origin(req).userAgent, JSON.stringify({ return_to: returnTo, code_discount_cents: discount })],
+        // total_cents is the pre-tax total, as always; the tax sits beside it and the card is asked for total + tax - credit.
+        `insert into orders (user_id, status, total_cents, credit_cents, provider, discount_code_id, ip, user_agent, meta,
+                             tax_cents, taxable_cents, tax_country, tax_state, tax_zip, tax_rate_bps)
+         values ($1,'pending',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) returning id`,
+        [u.id, total, credit, charge > 0 ? pay.provider : 'credit', codeId, req.clientIp, origin(req).userAgent, JSON.stringify({ return_to: returnTo, code_discount_cents: discount }),
+         tax.tax_cents, tax.country ? tax.taxable_cents : 0, tax.country, tax.state, tax.zip, tax.rate_bps],
         db,
       );
+      // Remembered for the next checkout and for membership renewals.
+      if (given) await saveLocation(u.id, given, db);
       // Store credit is taken now so it cannot be spent twice while the reader is at the checkout; an unpaid order gives it back.
       if (credit > 0) await walletAdd(db, u.id, 'purchase', -credit, 0, `Store credit used on order ${o!.id.slice(-8)}`);
-      for (const d of drafts) {
+      for (const [n, d] of drafts.entries()) {
         await db.query(
-          'insert into order_items (order_id, kind, release_id, series_id, publisher_id, bundle_id, description, price_cents, meta) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
-          [o!.id, d.kind, d.release_id, d.series_id, d.publisher_id, d.bundle_id, d.description, d.price_cents, JSON.stringify(d.meta)],
+          'insert into order_items (order_id, kind, release_id, series_id, publisher_id, bundle_id, description, price_cents, meta, tax_cents) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
+          [o!.id, d.kind, d.release_id, d.series_id, d.publisher_id, d.bundle_id, d.description, d.price_cents, JSON.stringify(d.meta), tax.lines[n]],
         );
       }
       return o!.id;
@@ -299,12 +336,15 @@ export default async function commerceRoutes(app: FastifyInstance) {
   const paymentState = (o: Row): string => (o.status === 'failed' ? (['expired', 'canceled'].includes(o.meta?.failure_state) ? o.meta.failure_state : 'failed') : o.status);
 
   const orderView = async (o: Row) => ({
-    id: o.id, status: o.status, total_cents: o.total_cents, credit_cents: o.credit_cents, charged_cents: o.total_cents - o.credit_cents, provider: o.provider,
+    id: o.id, status: o.status, total_cents: o.total_cents, credit_cents: o.credit_cents, charged_cents: orderCharge(o), provider: o.provider,
+    // Sales tax, charged on top of total_cents. tax_label is the line to show ("Sales tax (Indiana 7%)"), null when no tax was charged.
+    tax_cents: o.tax_cents, tax_state: o.tax_state, tax_rate_bps: o.tax_rate_bps, tax_label: o.tax_cents > 0 ? taxLabel(o.tax_state, o.tax_rate_bps) : null,
+    tax_refunded_cents: o.tax_refunded_cents,
     created_at: o.created_at, paid_at: o.paid_at, refunded_at: o.refunded_at, return_to: o.meta?.return_to ?? '/library',
     payment_state: paymentState(o),
     // One sentence for the buyer about why it was not paid; null unless the order failed.
     failure: o.status === 'failed' ? (o.meta?.failure ?? FAILURE_TEXT.failed) : null,
-    refunded_cents: o.status === 'refunded' ? o.total_cents - o.credit_cents : (o.refunded_cents ?? 0),
+    refunded_cents: o.status === 'refunded' ? orderCharge(o) : (o.refunded_cents ?? 0),
     partial_refunds: ((o.meta?.partial_refunds as Row[] | undefined) ?? []).map((r) => ({ amount_cents: r.amount_cents, reason: r.reason ?? null, at: r.at })),
     items: await orderItems([o.id]),
   });
@@ -353,6 +393,24 @@ export default async function commerceRoutes(app: FastifyInstance) {
 
   // ---------------------------------------------------------------- membership
 
+  /**
+   * Sales tax on each membership plan for this reader: at `sent` (a location
+   * being tried out in the form) or else their saved one. null while sales
+   * tax is off.
+   */
+  const membershipTaxView = async (u: SessionUser, sent: unknown) => {
+    const cfg = await taxSettings();
+    if (!cfg.enabled) return null;
+    const mem = await getSetting('membership');
+    const saved = await savedLocation(u.id);
+    const loc = parseLocation(sent) ?? saved;
+    const plan = (price: number) => {
+      const t = computeTax([{ kind: 'membership', price_cents: price }], loc, cfg);
+      return { price_cents: price, ...taxView(t), total_cents: price + t.tax_cents };
+    };
+    return { enabled: true, location: saved, state_name: saved?.state ? stateName(saved.state) : null, monthly: plan(mem.monthly_cents), annual: plan(mem.annual_cents) };
+  };
+
   const membershipView = async (u: SessionUser) => {
     const mem = await getSetting('membership');
     const pay = await getSetting('payments');
@@ -362,9 +420,12 @@ export default async function commerceRoutes(app: FastifyInstance) {
       [u.id],
     );
     const charge = sub ? await one(`select status, attempts, next_attempt_at, last_error from subscription_charges where subscription_id = $1 order by created_at desc limit 1`, [sub.id]) : null;
+    const paid = sub ? await one(`select * from subscription_charges where subscription_id = $1 and status = 'paid' order by paid_at desc limit 1`, [sub.id]) : null;
     return {
       member: await hasMembership(u.id),
       plans: { name: mem.name, monthly_cents: mem.monthly_cents, annual_cents: mem.annual_cents, trial_days: mem.trial_days },
+      // null while sales tax is off; otherwise the saved billing location and what each plan costs with tax there.
+      tax: await membershipTaxView(u, undefined),
       provider: pay.provider,
       subscription: sub && {
         id: sub.id, plan: sub.plan, status: sub.status, price_cents: sub.price_cents, provider: sub.provider,
@@ -373,6 +434,11 @@ export default async function commerceRoutes(app: FastifyInstance) {
         renews_at: ['active', 'past_due'].includes(sub.status) && !sub.cancel_at_period_end && sub.payment_method_token ? sub.current_period_end : null,
         has_payment_method: Boolean(sub.payment_method_token), from_code: sub.provider === 'code',
         payment_problem: sub.status === 'past_due' && charge ? { attempts: charge.attempts, next_attempt_at: charge.next_attempt_at, message: charge.last_error } : null,
+        // The most recent payment that went through, with the sales tax that was part of it.
+        last_charge: paid && {
+          paid_at: paid.paid_at, amount_cents: paid.amount_cents, tax_cents: paid.tax_cents, total_cents: chargeTotal(paid),
+          tax_label: paid.tax_cents > 0 ? taxLabel(paid.tax_state, paid.tax_rate_bps) : null,
+        },
       },
     };
   };
@@ -393,13 +459,52 @@ export default async function commerceRoutes(app: FastifyInstance) {
 
   app.post('/api/membership/start', async (req) => {
     const u = requireUser(req);
-    const { plan, next, surface } = parse(z.object({ plan: z.enum(['monthly', 'annual']), next: z.string().max(300).optional(), surface: surfaceSchema }), req.body);
+    const { plan, next, surface, location } = parse(z.object({ plan: z.enum(['monthly', 'annual']), next: z.string().max(300).optional(), surface: surfaceSchema, location: z.unknown().optional() }), req.body);
     requireConfirmedEmail(u, 'start a membership');
     if (!rateLimit('membership', u.id, 10, 3600)) throw new HttpError(429, 'Too many attempts. Try again later.');
+    // With sales tax on, the first charge and every renewal are taxed at the member's saved billing location, so there has to be one.
+    if ((await taxSettings()).enabled) {
+      const given = parseLocation(location);
+      if (given) await saveLocation(u.id, given);
+      else if (!(await savedLocation(u.id))) throw badRequest(LOCATION_REQUIRED, 'location_required');
+    }
     // Where to send the reader once the membership is confirmed; only same-site paths survive.
     const onward = sameSite(next, '') || null;
     const r = await startMembership(u, plan, origin(req), onward, surface);
     return r.completed ? { completed: true, next: onward, ...(await membershipView(u)) } : { url: r.url, session_id: r.session_id, surface: r.surface, status: r.status, next: onward };
+  });
+
+  /**
+   * What each plan would cost with sales tax at a billing location, without
+   * saving anything: the membership form asks again whenever the reader
+   * changes country, state or ZIP. `tax` is null while sales tax is off.
+   */
+  app.post('/api/membership/quote', async (req) => {
+    const u = requireUser(req);
+    const { location } = parse(z.object({ location: z.unknown().optional() }), req.body ?? {});
+    if (!rateLimit('quote', u.id, 120, 600)) throw new HttpError(429, 'Too many price checks. Try again in a few minutes.');
+    const mem = await getSetting('membership');
+    return { plans: { name: mem.name, monthly_cents: mem.monthly_cents, annual_cents: mem.annual_cents, trial_days: mem.trial_days }, tax: await membershipTaxView(u, location) };
+  });
+
+  /** The billing location this reader last used (null if none), and whether sales tax is on. */
+  app.get('/api/billing-location', async (req) => {
+    const u = requireUser(req);
+    return { enabled: (await taxSettings()).enabled, location: await savedLocation(u.id) };
+  });
+
+  /**
+   * Change the saved billing location: { country, state?, zip? }. It is what
+   * the next checkout starts from and where the next membership renewal is
+   * taxed.
+   */
+  app.put('/api/billing-location', async (req) => {
+    const u = requireUser(req);
+    const location = parseLocation((req.body as Row | null)?.location ?? req.body);
+    if (!location) throw badRequest('Choose your country', 'location_invalid');
+    if (!rateLimit('billing-location', u.id, 30, 3600)) throw new HttpError(429, 'Too many changes. Try again later.');
+    await saveLocation(u.id, location);
+    return { ok: true, enabled: (await taxSettings()).enabled, location, ...(await membershipView(u)) };
   });
 
   /** Stop renewing; access continues until the paid period ends. */

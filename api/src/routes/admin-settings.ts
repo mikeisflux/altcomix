@@ -5,6 +5,7 @@ import { exec } from '../db.ts';
 import { adminScope } from '../lib/admin.ts';
 import { sendTemplate } from '../lib/email.ts';
 import { audit, badRequest, parse, requireSuperAdmin } from '../lib/http.ts';
+import { MAX_RATE_BPS, isUsState } from '../lib/salestax.ts';
 import { SETTINGS, getSetting, getSettingMasked, invalidateSettings, setSetting } from '../lib/settings.ts';
 import type { SettingKey } from '../lib/settings.ts';
 import { testR2 } from '../lib/storage.ts';
@@ -92,6 +93,13 @@ const SCHEMAS: Record<SettingKey, z.ZodObject> = {
   analytics: z.object({
     ga_measurement_id: z.union([z.literal(''), z.string().trim().regex(/^G-[A-Z0-9]{4,}$/, 'Measurement IDs look like G-XXXXXXXXXX')]),
     sentry_dsn: httpsUrlOrBlank,
+  }),
+  tax: z.object({
+    enabled: z.boolean(),
+    // The whole table is sent each time; a state left out is 0.
+    rates: z
+      .record(z.string(), z.number('Enter each rate as a number').int('Rates are whole basis points (700 = 7%)').min(0, 'A rate cannot be below 0%').max(MAX_RATE_BPS, `A rate cannot be above ${MAX_RATE_BPS / 100}%`))
+      .refine((r) => Object.keys(r).every(isUsState), 'Rates can only be set for the 50 states and the District of Columbia'),
   }),
 };
 

@@ -474,8 +474,8 @@ The creators directory is `GET /api/brands`.
 | POST | `/api/account/sessions/revoke-others` | user | Sign out everywhere else |
 | POST | `/api/account/delete` | user | Delete the account |
 | GET | `/api/account/wallet` | user | Store credit, page credits, log |
-| GET | `/api/account/orders` | user | Purchases with their lines |
-| GET | `/api/account/membership-payments` | user | Membership charges |
+| GET | `/api/account/orders` | user | Purchases with their lines. Each order also has `tax_cents`, `tax_state`, `tax_rate_bps`, `tax_refunded_cents`, `tax_label` ("Sales tax (Indiana 7%)", null when no tax) and `charged_cents` = `total_cents + tax_cents − credit_cents`; `total_cents` is before sales tax |
+| GET | `/api/account/membership-payments` | user | Membership charges. `amount_cents` is the plan price; `tax_cents`, `tax_label` and `total_cents` (= price + tax) say what was charged |
 | GET | `/api/account/2fa` | user | Two-factor sign-in status |
 | POST | `/api/account/2fa/begin` | user | Start (or restart) setup |
 | POST | `/api/account/2fa/confirm` | user | `{ "code" }` → turns it on, returns backup codes once |
@@ -551,7 +551,10 @@ OrderLine = { "id", "kind", "description", "price_cents",
 | GET | `/api/orders/:id[?session_id=cs_...]` | user (owner) | Order status / receipt |
 | POST | `/api/checkout/confirm` | user | Confirm any hosted session `{ session_id }` |
 | GET | `/api/membership[?session_id=cs_...]` | user | Plans + my membership |
-| POST | `/api/membership/start` | user (confirmed email) | `{ "plan": "monthly"|"annual", "next"?: "/same-site/path", "surface"?: "embed"|"redirect" }` |
+| POST | `/api/membership/start` | user (confirmed email) | `{ "plan": "monthly"|"annual", "next"?: "/same-site/path", "surface"?: "embed"|"redirect", "location"?: Location }` |
+| POST | `/api/membership/quote` | user | `{ "location"?: Location }` → what each plan costs with sales tax there; nothing is saved |
+| GET | `/api/billing-location` | user | `{ "enabled": bool, "location": Location \| null }`: whether sales tax is on, and the location this reader used last |
+| PUT | `/api/billing-location` | user | Body: a Location. Saves it (used to prefill the next checkout and to tax the next membership renewal) → `{ ok, enabled, location, ...GET /api/membership }` |
 | POST | `/api/membership/cancel` | user | Stop renewing |
 | POST | `/api/membership/resume` | user | Undo a cancel |
 | POST | `/api/membership/payment-method` | user | Replace the saved card: `{ "surface"?: "embed"|"redirect" }` |
@@ -575,7 +578,8 @@ OrderLine = { "id", "kind", "description", "price_cents",
   "code"?: "SAVE-20",          // a discount promo code
   "use_credit"?: true,         // spend store credit first
   "return_to"?: "/read/<id>",  // same-site path to land on afterwards; anything else becomes /library
-  "surface"?: "embed"          // how the browser will show the card form: "embed" | "redirect" (default "redirect")
+  "surface"?: "embed",         // how the browser will show the card form: "embed" | "redirect" (default "redirect")
+  "location"?: { "country": "US", "state": "IN", "zip": "46204" }   // billing location for sales tax, see "Sales tax"
 }
 ```
 
@@ -587,7 +591,7 @@ Response when a card payment is needed:
   "session_id": "cs_…",               // what the form's messages carry, and what the confirm calls take
   "order_id": "<uuid>",
   "surface": "embed" | "redirect",    // what the session was really created for (see below): act on this, not on what was asked
-  "amount_cents": 484,                // what the card will be charged (total − store credit)
+  "amount_cents": 484,                // what the card will be charged (total + sales tax − store credit)
   "return_to": "/read/<id>"
 }
 ```
@@ -653,15 +657,27 @@ paying, and call it again whenever the code or the credit choice changes.
                "list_price_cents",       // before any discount
                "sale_discount_cents",    // taken off by the brand's sale / download discount
                "code_discount_cents",    // taken off by the promo code
-               "price_cents" } ],        // what this line costs; same order as `items`
+               "price_cents",            // what this line costs; same order as `items`
+               "tax_cents" } ],          // this line's share of the sales tax (0 for tips, gift cards and when there is none)
   "list_price_cents": 699,
   "discounts": { "sale_cents": 20, "code_cents": 45 },
   "code": { "code": "SAVE-25", "percent_off": 25 } | null,
-  "total_cents": 634,                    // list − sale − code
+  "total_cents": 634,                    // list − sale − code: the price before sales tax (the "Subtotal")
+  "tax": null | {                        // null while sales tax is off (then nothing below about tax applies)
+    "needs_location": false,             // true: something in the basket is taxed and no billing location is known yet
+    "location": { "country": "US", "state": "IN", "zip": "46204" } | null,   // the location the tax was worked out for
+    "state_name": "Indiana" | null,
+    "rate_bps": 700,
+    "taxable_cents": 634,                // the taxed lines, after discounts, before store credit
+    "tax_cents": 44,
+    "label": "Sales tax (Indiana 7%)" | null   // the line to show; null when the tax is 0 (show no tax line)
+  },
+  "tax_cents": 44,                       // 0 while sales tax is off
+  "total_with_tax_cents": 678,           // total_cents + tax_cents (the "Total")
   "credit_available_cents": 150,
-  "credit_applied_cents": 150,           // 0 unless use_credit
-  "amount_due_cents": 484,               // what the card is charged = total − credit applied
-  "problem": null | { "code": "below_minimum", "message" }   // the checkout would refuse this basket as it stands
+  "credit_applied_cents": 150,           // 0 unless use_credit; store credit can pay for the tax as well
+  "amount_due_cents": 528,               // what the card is charged = total + tax − credit applied
+  "problem": null | { "code": "location_required" | "below_minimum", "message" }   // the checkout would refuse this basket as it stands
 }
 ```
 
@@ -685,7 +701,11 @@ minutes; beyond that the stored state is returned without asking the processor).
 
 ```jsonc
 { "order": { "id", "status": "pending"|"paid"|"failed"|"refunded", "total_cents", "credit_cents",
-             "charged_cents", "provider", "created_at", "paid_at", "refunded_at",
+             "charged_cents",                        // total_cents + tax_cents − credit_cents
+             "tax_cents", "tax_state", "tax_rate_bps",   // sales tax charged on top of total_cents (0 / null / 0 when none)
+             "tax_label": "Sales tax (Indiana 7%)"|null, // the line to show; null when no tax was charged
+             "tax_refunded_cents",                   // how much of the tax has gone back to the buyer
+             "provider", "created_at", "paid_at", "refunded_at",
              "return_to",
              "payment_state": "pending"|"paid"|"failed"|"expired"|"canceled"|"refunded",
                                                      // `failed` = the card was not accepted; `expired` = the session timed out;
@@ -779,7 +799,15 @@ A page credit pays the creators `page_credit_cents × sale share` when it is spe
     "id", "plan", "status": "active"|"past_due"|"canceled"|"expired", "price_cents", "provider",
     "current_period_start", "current_period_end", "cancel_at_period_end", "canceled_at",
     "renews_at": iso | null, "has_payment_method": bool, "from_code": bool,
-    "payment_problem": null | { "attempts", "next_attempt_at", "message" }
+    "payment_problem": null | { "attempts", "next_attempt_at", "message" },
+    "last_charge": null | { "paid_at", "amount_cents", "tax_cents", "total_cents", "tax_label" }   // the latest payment that went through
+  },
+  "tax": null | {                       // null while sales tax is off
+    "enabled": true,
+    "location": Location | null,        // the saved billing location; the next renewal is taxed there
+    "state_name": "Indiana" | null,
+    "monthly": { "price_cents", "tax_cents", "total_cents", "rate_bps", "label", "needs_location", "location", "state_name", "taxable_cents" },
+    "annual":  { ...same }              // each plan with tax at the saved location (POST /api/membership/quote: at the location sent)
   },
   // only with ?session_id= (null when the session is not this reader's):
   "confirmation": null | "active"|"updated"|"pending"|"declined"|"failed"|"expired"|"canceled",
@@ -846,6 +874,61 @@ No body. Spends one page credit on one locked page →
 `{ "ok": true, "page_credits": <balance>, "spent": 1 }`. A page that is already
 readable costs nothing (`spent: 0`). 402 with no credits.
 
+### Sales tax (`lib/salestax.ts`)
+
+Off by default (`settings.tax.enabled`, public as `settings.tax.enabled` in
+`GET /api/bootstrap`; the rate table never leaves the server). While it is off
+no endpoint asks for, checks or stores a location, `quote.tax` and
+`membership.tax` are `null`, and every amount is what it was before the
+feature existed.
+
+`Location` is `{ "country": "US", "state": "IN", "zip": "46204" }` or, outside
+the United States, `{ "country": "FR" }`. `country` is a two-letter ISO code;
+in the US `state` must be one of the 50 states or `DC` and `zip` five digits or
+ZIP+4. The ZIP is only sanity-checked against the state by its first digit (a
+ZIP from the wrong region of the country is refused; a ZIP from a neighboring
+state is not). Anything invalid is `400` with `code: "location_invalid"` and a
+sentence for the field.
+
+- **Who is taxed.** The buyer's US state, at the rate the owner entered for it
+  (basis points). A state without a rate is 0. Buyers outside the US pay none.
+- **What is taxed.** `release`, `download`, `series`, `bundle`, `credits` lines
+  and membership charges. `tip` and `gift_card` lines are never taxed.
+- **How much.** `taxable = sum of the taxed lines after sales and discount
+  codes, before store credit`; `tax = round half up(taxable × rate)`, once per
+  order. The tax is then shared over the taxed lines by largest remainder (ties
+  to the earlier line), so the `tax_cents` of the lines add up to the order's.
+- **Store credit** is a way of paying, not a discount: it does not lower the
+  tax, and it can pay for the tax. `card charge = total + tax − credit`.
+- **Which location.** The `location` sent with the request, else the one saved
+  on the account. `POST /api/checkout` and `POST /api/membership/start` save
+  the location they are given; the quotes save nothing. With taxed lines and
+  no location at all, the quote answers `tax.needs_location: true` and
+  `problem.code: "location_required"`, and the checkout / membership start is a
+  `400` with `code: "location_required"`. A basket of tips and gift cards
+  needs no location.
+- **Memberships.** The first charge and every renewal are taxed on the plan
+  price at the member's saved location and the rate in force when the charge
+  is created (`billPeriod` in `lib/payments.ts`); retries of a declined card
+  ask for the same amount. A member who changes location with
+  `PUT /api/billing-location` is taxed there from the next renewal. A member
+  with no saved location (joined while sales tax was off) is not taxed.
+- **Stored** on the order / membership charge: `tax_cents`, `taxable_cents`,
+  `tax_country`, `tax_state`, `tax_zip`, `tax_rate_bps`, `tax_refunded_cents`
+  (and `order_items.tax_cents`). `orders.total_cents` and
+  `subscription_charges.amount_cents` stay pre-tax: creator shares, the fee
+  estimate, ledger rows, the membership pool and every revenue figure are
+  worked out on them exactly as without tax. The tax is the platform's to remit.
+- **Refunds.** A full refund (or chargeback) returns all the tax that has not
+  gone back yet. A partial refund of `R` cents returns
+  `round half up(running R × tax ÷ (total + tax))` in running totals, never more
+  than was collected; only the rest of the refund is taken from creators,
+  platform and fee. Each return is a row in `sales_tax_refunds`, which the
+  admin sales tax report nets out.
+- **Emails.** The receipt lists "Subtotal" and "Sales tax (State N%)" before
+  the total; the membership welcome email and a renewal receipt (sent only for
+  renewals that carried tax, template `membership_billing`) state the tax.
+
 ### Partial refunds
 
 `refund.completed` with `partial: true` and `amount` (cents) for an order
@@ -860,8 +943,11 @@ readable costs nothing (`spent: 0`). 402 with no credits.
 - Creator part: negative `refund` ledger rows, spread over the order's payees
   (owner and revenue-split payees) in proportion to what each earned; `gross`
   goes down by the refund.
+- On an order that carried sales tax, the tax share of the refund comes off
+  first (see "Sales tax"); the split above is of the remaining, pre-tax part,
+  and `tax + creator + platform + fee = refund`.
 - Recorded on the order: `orders.refunded_cents` (running total) and
-  `orders.meta.partial_refunds[]` = `{ ref, amount_cents, creator_cents, platform_cents, fee_cents, reason, at }`.
+  `orders.meta.partial_refunds[]` = `{ ref, amount_cents, tax_cents?, creator_cents, platform_cents, fee_cents, reason, at }`.
   The reader gets a `refund` notification.
 - Idempotent per `refundId` (without one, the same amount again within ten
   minutes is treated as a redelivery).

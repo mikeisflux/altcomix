@@ -213,7 +213,7 @@ You are responsible for your account and for keeping your password safe. Give ac
 
 - When you buy a release you get a personal, non-transferable license to read it on NSFWComix for as long as the service offers it. Where a download is included, the file is for your personal use.
 - Membership gives access to the membership catalog while your membership is active. The catalog can change.
-- Prices are shown before you pay.
+- Prices are shown before you pay and do not include sales tax. Where tax applies, it is added at checkout and shown before you confirm.
 
 ## 4. Refunds
 

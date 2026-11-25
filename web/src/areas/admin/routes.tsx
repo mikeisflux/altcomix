@@ -4,7 +4,7 @@ import { CommentsPage, ReportsPage, SeriesPage } from './Catalog';
 import { Dashboard } from './Dashboard';
 import { EmailQueuePage, EmailTemplatesPage, SuppressionsPage } from './Email';
 import { InboxPage, MailboxesPage } from './Inbox';
-import { CodesPage, MembershipsPage, OrderDetail, OrdersPage, PayoutsPage, SettlementPage } from './Finance';
+import { CodesPage, MembershipsPage, OrderDetail, OrdersPage, PayoutsPage, SalesTaxPage, SettlementPage } from './Finance';
 import { AuditPage, CronPage, ErrorsPage } from './Logs';
 import { BrandDetail, BrandsPage, UserDetail, UsersPage } from './People';
 import { SecurityPage, TwoFactorPage } from './Security';
@@ -37,6 +37,7 @@ export const adminRoutes: RouteObject[] = [
       { path: 'memberships', element: <MembershipsPage /> },
       { path: 'payouts', element: <PayoutsPage /> },
       { path: 'settlement', element: <SettlementPage /> },
+      { path: 'sales-tax', element: <SalesTaxPage /> },
       { path: 'tax', element: <TaxPage /> },
       { path: 'codes', element: <CodesPage /> },
       { path: 'featured', element: <FeaturedPage /> },

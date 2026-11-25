@@ -240,8 +240,8 @@ Audit: `report.actioned` / `report.dismissed`, plus the audit row of each step.
 **GET /api/admin/orders** — admin. Filters: `status` (`pending|paid|failed|refunded`),
 `provider`, `user_id`, `publisher_id`, `q` (buyer email/username, exact
 processor reference or order id), `from`, `to`.
-Returns list + `paid_cents` (sum of paid orders matching the filter).
-Item: `{ id, status, total_cents, fee_cents, provider, provider_ref, created_at, paid_at, refunded_at, user_id, email, username, item_count, summary }`.
+Returns list + `paid_cents` (sum of paid orders matching the filter, before sales tax).
+Item: `{ id, status, total_cents, tax_cents, fee_cents, provider, provider_ref, created_at, paid_at, refunded_at, user_id, email, username, item_count, summary }`.
 
 **GET /api/admin/orders/:id** — admin.
 
@@ -250,7 +250,9 @@ Item: `{ id, status, total_cents, fee_cents, provider, provider_ref, created_at,
   "order": { "id": "", "user_id": "", "status": "paid", "total_cents": 0, "fee_cents": 0, "credit_cents": 0, "provider": "", "provider_ref": null,
              "payment_ref": null, "discount_code_id": null, "discount_code": null, "ip": null, "meta": {}, "created_at": "", "paid_at": null,
              "refunded_at": null, "email": "", "username": "", "display_name": "" },
-  "items": [{ "id": "", "kind": "release", "description": "", "price_cents": 0, "creator_cents": 0, "release_id": null, "series_id": null,
+  "tax": { "tax_cents": 14, "taxable_cents": 199, "country": "US", "state": "IN", "state_name": "Indiana", "zip": "46204", "rate_bps": 700,
+           "label": "Sales tax (Indiana 7%)", "refunded_cents": 0, "charged_cents": 213 },
+  "items": [{ "id": "", "kind": "release", "description": "", "price_cents": 0, "tax_cents": 0, "creator_cents": 0, "release_id": null, "series_id": null,
               "publisher_id": null, "bundle_id": null, "publisher_name": null, "series_title": null }],
   "ledger": [{ "id": "", "kind": "sale", "amount_cents": 0, "gross_cents": 0, "note": "", "created_at": "", "publisher_id": "", "publisher_name": "" }],
   "entitlements": [{ "release_id": "", "source": "purchase", "can_download": false, "title": "" }],
@@ -258,6 +260,9 @@ Item: `{ id, status, total_cents, fee_cents, provider, provider_ref, created_at,
 }
 ```
 `order` is the full `orders` row plus the buyer's `email`, `username`, `display_name` and the `discount_code` text.
+`order.total_cents` is before sales tax. `tax` is the sales tax collected on top of it (all zero / null when none):
+`label` is null when no tax was charged, `refunded_cents` is the tax already returned to the buyer and
+`charged_cents` = `total_cents + tax_cents − credit_cents`. Tax is not revenue: no creator share, fee or ledger row includes it.
 
 **POST /api/admin/orders/:id/refund** — admin.
 Body: `{ reason (3+ chars), to_wallet?: boolean, provider_refunded?: boolean }`.
@@ -271,7 +276,8 @@ Body: `{ reason (3+ chars), to_wallet?: boolean, provider_refunded?: boolean }`.
   Without it such an install answers `409 code: "provider_refund_unavailable"`.
 
 Either way creator earnings are reversed in the ledger and the reader loses
-ownership of the releases. `409` if already refunded, `400` if not paid.
+ownership of the releases. The buyer gets back what they paid including the
+sales tax, and the tax is recorded as refunded for the sales tax report. `409` if already refunded, `400` if not paid.
 Response: `{ ok, method: "provider"|"wallet"|"recorded"|"none", creator_cents_reversed, warnings: [] }`
 (`none` = nothing had been charged to a card, e.g. sandbox or fully paid with store credit).
 Audit: `order.refund`.
@@ -285,12 +291,44 @@ Returns list + `summary: { active_members, past_due, canceling, complimentary, m
 Item: `{ id, plan, status, provider, provider_ref, price_cents, current_period_start, current_period_end, cancel_at_period_end, canceled_at, created_at, user_id, email, username }`.
 
 **GET /api/admin/memberships/:id** — admin.
-`{ membership: <item>, charges: [{ id, period_start, period_end, amount_cents, fee_cents, status, attempts, last_error, payment_ref, paid_at, refunded_at, created_at }], months: [{ month: "2026-10", gross_cents, fee_cents, settled_at }] }`.
+`amount_cents` is the plan price; `tax_cents` was charged on top of it.
+`{ membership: <item>, charges: [{ id, period_start, period_end, amount_cents, tax_cents, tax_state, tax_rate_bps, tax_refunded_cents, fee_cents, status, attempts, last_error, payment_ref, paid_at, refunded_at, created_at }], months: [{ month: "2026-10", gross_cents, fee_cents, settled_at }] }`.
 
 **POST /api/admin/membership-charges/:id/refund** — admin. Body `{ reason }`.
-Refunds that payment through the processor and ends the membership.
+Refunds that payment (plan price plus any sales tax) through the processor and ends the membership.
 `{ ok }`; `409` if the charge is not paid; `502` if the processor refuses.
 Audit: `membership_charge.refund`.
+
+### Sales tax report
+
+**GET /api/admin/sales-tax** — admin. Query: `from`, `to` (`YYYY-MM-DD`, whole
+days in UTC, both included; default: the last full calendar month),
+`format=csv`.
+
+```json
+{
+  "from": "2026-10-01", "to": "2026-10-31", "enabled": true,
+  "states": [{ "state": "IN", "state_name": "Indiana", "rate_bps": 700, "taxable_cents": 1997, "tax_collected_cents": 140,
+               "tax_refunded_cents": 14, "net_tax_cents": 126, "orders": 4 }],
+  "totals": { "taxable_cents": 1997, "tax_collected_cents": 140, "tax_refunded_cents": 14, "net_tax_cents": 126, "orders": 4 }
+}
+```
+- Covers store orders and membership charges whose buyer gave a US state.
+  A sale counts on the day it was paid (`paid_at`); tax that went back to a
+  buyer counts on the day of the refund (`sales_tax_refunds.created_at`).
+- `taxable_cents` is what tax was worked out on: the taxed lines after
+  discounts, before store credit, without tips and gift cards. A state at 0%
+  still appears with its taxable sales. `orders` counts orders and membership
+  charges. `rate_bps` is the rate set for the state now, not at the time of sale.
+- States are listed in alphabetical order; only states with sales or refunds
+  in the range appear. `enabled` says whether sales tax is switched on now.
+- `format=csv` answers `text/csv` (`sales-tax-<from>-to-<to>.csv`) with columns
+  `state,state_name,taxable_sales,tax_collected,tax_refunded,net_tax,orders`
+  (amounts in currency units with two decimals) and a last `TOTAL` row.
+- `400` for a date that is not `YYYY-MM-DD` or a start after the end.
+
+The sales and revenue figures everywhere else in admin (dashboard, orders
+`paid_cents`, memberships, a user's `spent_cents`) are before sales tax.
 
 ### Payouts — super
 
@@ -498,7 +536,8 @@ The seeded text is a first draft marked as such, for the owner to review.
                   "divinity_embed_checkout": true },   // false = redirect-only checkout (public as settings.payments.embed_checkout)
     "security": { "recaptcha_site_key": "", "recaptcha_secret_key": { "set": false }, "recaptcha_enabled": false, "bot_blocker_enabled": true,
                   "rate_limit_per_minute": 240, "admin_2fa_required": false, "max_login_attempts": 8, "password_min_length": 10 },
-    "analytics": { "ga_measurement_id": "", "sentry_dsn": "" }
+    "analytics": { "ga_measurement_id": "", "sentry_dsn": "" },
+    "tax": { "enabled": false, "rates": { "IN": 700 } }   // sales tax at checkout: on/off, and a rate per US state in basis points (700 = 7%)
   },
   "secrets": { "storage": ["r2_secret_access_key"], "email": ["sendgrid_api_key", "..."], "payments": ["divinity_api_key", "divinity_webhook_secret"], "security": ["recaptcha_secret_key"], "site": [] },
   "info": {
@@ -528,6 +567,11 @@ show `divinity` on the Payments form and the email ones on the Email form.
   (https in production), partner ID and API key; **`payments.provider =
   sandbox` is refused in production**; `recaptcha_enabled` needs both keys;
   `socials` is `{ name: "https://..." }`.
+- `tax`: `enabled` is a boolean (default false). `rates` is sent whole each
+  time, as `{ "<state code>": <basis points> }` for any of the 50 states and
+  `DC`; each rate is a whole number from 0 to 2000 (20%) and a state left out
+  is 0. Any other key, a fraction or a rate out of range is a `400`. The public
+  site only ever learns `settings.tax.enabled`.
 - Response: `{ ok, section, changed: ["field"], value: <masked section>, notes: ["sentence"] }`.
   Show `notes` to the user (e.g. switching storage driver does not move files;
   turning on required 2FA while you have none).

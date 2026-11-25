@@ -111,6 +111,16 @@ export const SETTINGS = {
     defaults: { ga_measurement_id: '', sentry_dsn: '' },
     secret: [],
   },
+  tax: {
+    defaults: {
+      // Sales tax at checkout (lib/salestax.ts). Off = no location is asked for and nothing is charged.
+      enabled: false as boolean,
+      // Rate per US state (two-letter code, 50 states + DC) in basis points: 700 = 7%. A state not listed is 0.
+      // The owner decides with their accountant where they must collect.
+      rates: {} as Record<string, number>,
+    },
+    secret: [],
+  },
 } as const;
 
 export type SettingKey = keyof typeof SETTINGS;
@@ -174,13 +184,14 @@ export async function setSetting(key: SettingKey, patch: Record<string, unknown>
 
 /** Subset of settings the public site needs. */
 export async function publicSettings(): Promise<Record<string, unknown>> {
-  const [site, membership, payments, security, analytics, revenue] = await Promise.all([
+  const [site, membership, payments, security, analytics, revenue, tax] = await Promise.all([
     getSetting('site'),
     getSetting('membership'),
     getSetting('payments'),
     getSetting('security'),
     getSetting('analytics'),
     getSetting('revenue'),
+    getSetting('tax'),
   ]);
   return {
     site: { name: site.name, tagline: site.tagline, socials: site.socials, registration_open: site.registration_open, currency: site.currency },
@@ -191,5 +202,7 @@ export async function publicSettings(): Promise<Record<string, unknown>> {
     // Only handed out while the check is on, so the forms know whether to run it.
     recaptcha_site_key: security.recaptcha_enabled ? security.recaptcha_site_key : '',
     ga_measurement_id: analytics.ga_measurement_id,
+    // Whether checkout asks for a billing location and may add sales tax. The rates stay on the server.
+    tax: { enabled: tax.enabled === true },
   };
 }

@@ -5,10 +5,12 @@ import { exec, one, q, tx } from '../db.ts';
 import type { Row } from '../db.ts';
 import { adminScope, brandBalance, brandContacts, dateRange, idParam, isUuid, like, money, monthStart, query, settlementModule, where, zDate, studioPath } from '../lib/admin.ts';
 import { randomCode } from '../lib/crypto.ts';
+import { sendCsv } from '../lib/ingest.ts';
 import { sendTemplate } from '../lib/email.ts';
 import { HttpError, audit, badRequest, conflict, notFound, pageParams, parse, requireAdmin, requireSuperAdmin } from '../lib/http.ts';
 import { reverseOrder } from '../lib/ledger.ts';
 import { notify } from '../lib/notify.ts';
+import { US_STATES, stateName, taxLabel } from '../lib/salestax.ts';
 import { getSetting } from '../lib/settings.ts';
 import { taxStatus, taxStatuses, taxWarning } from '../lib/tax.ts';
 
@@ -121,7 +123,7 @@ export default async function adminFinanceRoutes(app: FastifyInstance) {
       const agg = (await one<{ n: number; gross: number }>(
         `select count(*)::int as n, coalesce(sum(o.total_cents) filter (where o.status = 'paid'),0)::float8 as gross ${from} ${w.sql}`, w.values))!;
       const items = await q(
-        `select o.id, o.status, o.total_cents, o.fee_cents, o.provider, o.provider_ref, o.created_at, o.paid_at, o.refunded_at,
+        `select o.id, o.status, o.total_cents, o.tax_cents, o.fee_cents, o.provider, o.provider_ref, o.created_at, o.paid_at, o.refunded_at,
                 o.user_id, u.email, u.username,
                 (select count(*) from order_items i where i.order_id = o.id)::int as item_count,
                 (select string_agg(i.description, ', ') from order_items i where i.order_id = o.id) as summary
@@ -142,7 +144,7 @@ export default async function adminFinanceRoutes(app: FastifyInstance) {
       if (!order) throw notFound('Order not found');
       const [items, ledger, entitlements, giftCards] = await Promise.all([
         q(
-          `select i.id, i.kind, i.description, i.price_cents, i.creator_cents, i.release_id, i.series_id, i.publisher_id, i.bundle_id,
+          `select i.id, i.kind, i.description, i.price_cents, i.tax_cents, i.creator_cents, i.release_id, i.series_id, i.publisher_id, i.bundle_id,
                   p.name as publisher_name, sr.title as series_title
              from order_items i left join publishers p on p.id = i.publisher_id left join series sr on sr.id = i.series_id
             where i.order_id = $1 order by i.id`,
@@ -156,7 +158,13 @@ export default async function adminFinanceRoutes(app: FastifyInstance) {
         q(`select e.release_id, e.source, e.can_download, r.title from entitlements e join releases r on r.id = e.release_id where e.order_id = $1`, [id]),
         q('select id, amount_cents, balance_cents, recipient_email, redeemed_at from gift_cards where order_id = $1', [id]),
       ]);
-      return { order, items, ledger, entitlements, gift_cards: giftCards };
+      // total_cents is before sales tax. The tax the platform holds to remit is shown apart from it and is nobody's revenue.
+      const tax = {
+        tax_cents: order.tax_cents, taxable_cents: order.taxable_cents, country: order.tax_country, state: order.tax_state, state_name: order.tax_state ? stateName(order.tax_state) : null,
+        zip: order.tax_zip, rate_bps: order.tax_rate_bps, label: order.tax_cents > 0 ? taxLabel(order.tax_state, order.tax_rate_bps) : null,
+        refunded_cents: order.tax_refunded_cents, charged_cents: Math.max(0, order.total_cents + order.tax_cents - (order.credit_cents ?? 0)),
+      };
+      return { order, tax, items, ledger, entitlements, gift_cards: giftCards };
     });
 
     /**
@@ -184,7 +192,9 @@ export default async function adminFinanceRoutes(app: FastifyInstance) {
       if (order.status !== 'paid') throw badRequest('Only paid orders can be refunded');
 
       const pay = await payments();
-      const external = order.provider !== 'sandbox' && order.total_cents - (order.credit_cents ?? 0) > 0;
+      // What the card paid: the pre-tax total plus sales tax, less store credit.
+      const cardPaid = order.total_cents + (order.tax_cents ?? 0) - (order.credit_cents ?? 0);
+      const external = order.provider !== 'sandbox' && cardPaid > 0;
       let method: 'provider' | 'wallet' | 'recorded' | 'none';
       if (body.to_wallet) method = 'wallet';
       else if (!external) method = 'none'; // nothing was charged to a card
@@ -219,7 +229,8 @@ export default async function adminFinanceRoutes(app: FastifyInstance) {
         if (booksBy === 'admin') await exec('update gift_cards set balance_cents = 0 where order_id = $1 and redeemed_at is null', [id], db);
         if (method === 'wallet') {
           // The payments module already hands back any store credit spent on the order.
-          const back = booksBy === 'payments' ? order.total_cents - (order.credit_cents ?? 0) : order.total_cents;
+          // The buyer gets back everything they paid, sales tax included.
+          const back = booksBy === 'payments' ? cardPaid : order.total_cents + (order.tax_cents ?? 0);
           if (back > 0) {
             await exec(
               `insert into wallets (user_id, credit_cents) values ($1, $2)
@@ -238,6 +249,65 @@ export default async function adminFinanceRoutes(app: FastifyInstance) {
       const ledgerReversed = await one<{ cents: number }>(`select coalesce(-sum(amount_cents),0)::float8 as cents from ledger where order_id = $1 and kind = 'refund'`, [id]);
       audit(req, 'order.refund', { kind: 'order', id }, { reason: body.reason, method, total_cents: order.total_cents, creator_cents_reversed: ledgerReversed?.cents ?? reversed });
       return { ok: true, method, creator_cents_reversed: ledgerReversed?.cents ?? reversed, warnings };
+    });
+
+    // ------------------------------------------------------------ sales tax report
+    /**
+     * Sales tax by state for a date range (`from` and `to` are whole days, UTC,
+     * both included; default: the last full calendar month). Covers store
+     * orders and membership charges. A sale counts on the day it was paid; tax
+     * that went back to a buyer counts on the day of the refund. Every state
+     * with taxed-kind sales appears, including states at 0%.
+     * `?format=csv` downloads the same rows.
+     */
+    s.get('/api/admin/sales-tax', async (req, reply) => {
+      requireAdmin(req);
+      const qy = query(req);
+      const day = /^\d{4}-\d{2}-\d{2}$/;
+      const now = new Date();
+      const firstOfThisMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+      const from = qy.from ?? new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)).toISOString().slice(0, 10);
+      const to = qy.to ?? new Date(firstOfThisMonth.getTime() - 86_400_000).toISOString().slice(0, 10);
+      if (!day.test(from) || !day.test(to) || Number.isNaN(Date.parse(from)) || Number.isNaN(Date.parse(to))) throw badRequest('Choose the dates as YYYY-MM-DD');
+      if (from > to) throw badRequest('The start date is after the end date');
+      const start = new Date(`${from}T00:00:00Z`);
+      const end = new Date(new Date(`${to}T00:00:00Z`).getTime() + 86_400_000);
+      const found = await q<{ state: string; taxable_cents: number; tax_collected_cents: number; tax_refunded_cents: number; orders: number }>(
+        `with sales as (
+           select tax_state as state, taxable_cents, tax_cents from orders
+            where tax_state is not null and status in ('paid','refunded') and paid_at >= $1 and paid_at < $2
+           union all
+           select tax_state, taxable_cents, tax_cents from subscription_charges
+            where tax_state is not null and status in ('paid','refunded') and paid_at >= $1 and paid_at < $2),
+         s as (select state, sum(taxable_cents)::float8 as taxable_cents, sum(tax_cents)::float8 as tax_collected_cents, count(*)::int as orders from sales group by state),
+         r as (select state, sum(tax_cents)::float8 as tax_refunded_cents from sales_tax_refunds where created_at >= $1 and created_at < $2 group by state)
+         select coalesce(s.state, r.state) as state, coalesce(s.taxable_cents, 0) as taxable_cents, coalesce(s.tax_collected_cents, 0) as tax_collected_cents,
+                coalesce(r.tax_refunded_cents, 0) as tax_refunded_cents, coalesce(s.orders, 0) as orders
+           from s full join r on r.state = s.state`,
+        [start, end],
+      );
+      const by = new Map(found.map((r) => [r.state, r]));
+      const rates = (await getSetting('tax')).rates ?? {};
+      const states = US_STATES.filter((st) => by.has(st.code)).map((st) => {
+        const r = by.get(st.code)!;
+        return {
+          state: st.code, state_name: st.name, rate_bps: Number(rates[st.code] ?? 0), taxable_cents: r.taxable_cents, tax_collected_cents: r.tax_collected_cents,
+          tax_refunded_cents: r.tax_refunded_cents, net_tax_cents: r.tax_collected_cents - r.tax_refunded_cents, orders: r.orders,
+        };
+      });
+      const sum = (k: 'taxable_cents' | 'tax_collected_cents' | 'tax_refunded_cents' | 'net_tax_cents' | 'orders') => states.reduce((n, r) => n + r[k], 0);
+      const totals = { taxable_cents: sum('taxable_cents'), tax_collected_cents: sum('tax_collected_cents'), tax_refunded_cents: sum('tax_refunded_cents'), net_tax_cents: sum('net_tax_cents'), orders: sum('orders') };
+      if (qy.format === 'csv') {
+        const cents = (n: number) => (n / 100).toFixed(2);
+        const row = (r: { taxable_cents: number; tax_collected_cents: number; tax_refunded_cents: number; net_tax_cents: number; orders: number }) => ({
+          taxable_sales: cents(r.taxable_cents), tax_collected: cents(r.tax_collected_cents), tax_refunded: cents(r.tax_refunded_cents), net_tax: cents(r.net_tax_cents), orders: r.orders,
+        });
+        return sendCsv(reply, `sales-tax-${from}-to-${to}.csv`, [
+          ...states.map((r) => ({ state: r.state, state_name: r.state_name, ...row(r) })),
+          { state: 'TOTAL', state_name: 'All states', ...row(totals) },
+        ], ['state', 'state_name', 'taxable_sales', 'tax_collected', 'tax_refunded', 'net_tax', 'orders']);
+      }
+      return { from, to, enabled: (await getSetting('tax')).enabled === true, states, totals };
     });
 
     // ------------------------------------------------------------ memberships
@@ -286,7 +356,7 @@ export default async function adminFinanceRoutes(app: FastifyInstance) {
       );
       if (!membership) throw notFound('Membership not found');
       const charges = await q(
-        `select id, period_start, period_end, amount_cents, fee_cents, status, attempts, last_error, payment_ref, paid_at, refunded_at, created_at
+        `select id, period_start, period_end, amount_cents, tax_cents, tax_state, tax_rate_bps, tax_refunded_cents, fee_cents, status, attempts, last_error, payment_ref, paid_at, refunded_at, created_at
            from subscription_charges where subscription_id = $1 order by period_start desc limit 60`,
         [id],
       );

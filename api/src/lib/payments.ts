@@ -8,6 +8,7 @@ import { captureError } from './errors.ts';
 import { HttpError, conflict } from './http.ts';
 import { allocate, creditSale, creditTip, estimateFee, refundParts, reverseOrder, reverseOrderPartly } from './ledger.ts';
 import { notify } from './notify.ts';
+import { membershipTax, recordTaxRefund, taxLabel, taxRefunded } from './salestax.ts';
 import { getSetting } from './settings.ts';
 
 /**
@@ -32,7 +33,32 @@ import { getSetting } from './settings.ts';
  * Whatever path reports a payment (the reader returning from checkout, a
  * webhook, the reconciliation job) ends in `completeOrder` /
  * `markChargePaid`, which are idempotent.
+ *
+ * Sales tax (lib/salestax.ts) rides beside the pre-tax amounts and never
+ * enters them: `orders.total_cents` and `subscription_charges.amount_cents`
+ * are what creator earnings, fees and the membership pool are worked out on,
+ * exactly as without tax. Only the amount sent to the processor includes it:
+ * `orderCharge` / `chargeTotal` below.
  */
+
+/** What an order takes from the card: pre-tax total + sales tax - store credit. */
+export function orderCharge(o: Row): number {
+  return Math.max(0, o.total_cents + (o.tax_cents ?? 0) - (o.credit_cents ?? 0));
+}
+
+/**
+ * The card charge an order's processing fee and creator shares are worked out
+ * on: the pre-tax total less store credit, as if no tax existed. Store credit
+ * that went toward the tax does not reduce it below zero.
+ */
+function preTaxCharge(o: Row): number {
+  return Math.max(0, o.total_cents - (o.credit_cents ?? 0));
+}
+
+/** What a membership charge takes from the card: the plan price + sales tax. */
+export function chargeTotal(c: Row): number {
+  return c.amount_cents + (c.tax_cents ?? 0);
+}
 
 // ------------------------------------------------------------------ Divinity client
 
@@ -409,7 +435,7 @@ export type OrderResult = { completed: boolean; order_id: string; status: string
 export async function startOrderPayment(orderId: string, surface: Surface = 'redirect'): Promise<OrderResult> {
   const o = await one('select o.*, u.email from orders o join users u on u.id = o.user_id where o.id = $1', [orderId]);
   if (!o) throw new HttpError(404, 'Order not found');
-  const charge = o.total_cents - o.credit_cents;
+  const charge = orderCharge(o);
   if (charge <= 0) {
     await exec(`update orders set provider = 'credit', provider_ref = $2 where id = $1`, [orderId, `free_${orderId}`]);
     await completeOrder(orderId);
@@ -457,8 +483,8 @@ export async function completeOrder(orderId: string, opts: { paymentRef?: string
       if (take > 0) await walletAdd(db, o.user_id, 'purchase', -take, 0, `Store credit used on order ${orderId.slice(-8)}`);
     }
     const items = await q('select * from order_items where order_id = $1 order by id', [orderId], db);
-    const charge = Math.max(0, o.total_cents - o.credit_cents);
-    const fee = o.provider === 'credit' ? 0 : estimateFee(charge, rev);
+    // Pre-tax, so the fee estimate and every creator share are the same with and without sales tax.
+    const fee = o.provider === 'credit' ? 0 : estimateFee(preTaxCharge(o), rev);
     const fees = allocate(fee, items.map((i) => i.price_cents), items.map((i) => i.id));
 
     for (const [n, it] of items.entries()) {
@@ -528,10 +554,14 @@ export async function completeOrder(orderId: string, opts: { paymentRef?: string
     const u = await one<{ email: string; display_name: string }>('select email, display_name from users where id = $1', [order.user_id]);
     if (u) {
       const rows = await Promise.all(items.map(async (i) => `<tr><td style="padding:4px 12px 4px 0">${escapeHtml(i.description)}</td><td align="right">${await money(i.price_cents)}</td></tr>`));
+      if (order.tax_cents > 0) {
+        rows.push(`<tr><td style="padding:4px 12px 4px 0">Subtotal</td><td align="right">${await money(order.total_cents)}</td></tr>`);
+        rows.push(`<tr><td style="padding:4px 12px 4px 0">${escapeHtml(taxLabel(order.tax_state, order.tax_rate_bps))}</td><td align="right">${await money(order.tax_cents)}</td></tr>`);
+      }
       if (order.credit_cents > 0) rows.push(`<tr><td style="padding:4px 12px 4px 0">Store credit</td><td align="right">-${await money(order.credit_cents)}</td></tr>`);
       await sendTemplate('receipt', u.email, {
         name: u.display_name, items: `<table role="presentation" cellpadding="0" cellspacing="0" width="100%">${rows.join('')}</table>`,
-        total: await money(order.total_cents - order.credit_cents), url: `${config.appUrl}/library`,
+        total: await money(orderCharge(order)), url: `${config.appUrl}/library`,
       }, { userId: order.user_id });
       for (const g of giftCards) {
         await sendTemplate('gift_card', g.to || u.email, {
@@ -609,7 +639,9 @@ export async function reverseOrderBooks(orderId: string, why: { reason: string; 
     }
     // Store credit comes back for a refund; a chargeback forfeits nothing extra but returns nothing either.
     if (o.credit_cents > 0 && !why.dispute) await walletAdd(db, o.user_id, 'refund', o.credit_cents, 0, `Store credit returned from refunded order ${orderId.slice(-8)}`);
-    await db.query(`update orders set status = 'refunded', refunded_at = now(), meta = meta || $2::jsonb where id = $1`, [
+    // The sales tax goes back with the rest: whatever earlier partial refunds have not already returned.
+    await recordTaxRefund(db, { orderId, state: o.tax_state, taxCents: (o.tax_cents ?? 0) - (o.tax_refunded_cents ?? 0) });
+    await db.query(`update orders set status = 'refunded', refunded_at = now(), tax_refunded_cents = tax_cents, meta = meta || $2::jsonb where id = $1`, [
       orderId, JSON.stringify(why.dispute ? { dispute: why.dispute, refund_reason: why.reason } : { refund_reason: why.reason }),
     ]);
     return o;
@@ -619,7 +651,7 @@ export async function reverseOrderBooks(orderId: string, why: { reason: string; 
   return true;
 }
 
-export type PartialRefund = { ref: string | null; amount_cents: number; creator_cents: number; platform_cents: number; fee_cents: number; reason: string; at: string };
+export type PartialRefund = { ref: string | null; amount_cents: number; tax_cents?: number; creator_cents: number; platform_cents: number; fee_cents: number; reason: string; at: string };
 
 /**
  * Part of an order's card payment went back to the reader (reported by the
@@ -628,6 +660,12 @@ export type PartialRefund = { ref: string | null; amount_cents: number; creator_
  * they took of the order, and the three parts add up to exactly the refund.
  * The reader keeps everything the order unlocked and the order stays `paid`;
  * `orders.refunded_cents` and `orders.meta.partial_refunds` record it.
+ *
+ * On an order that carried sales tax, the same proportion of the tax goes
+ * back first (`taxRefunded`, running totals, never more than was collected)
+ * and is recorded in `orders.tax_refunded_cents` / `sales_tax_refunds`; only
+ * the rest of the refund is taken from creators, platform and fee, so the
+ * tax is never anyone's share.
  *
  * Idempotent per processor refund id. `full` means the refunds now add up to
  * the whole card charge: nothing is written and the caller treats it as a
@@ -641,20 +679,26 @@ export async function partialRefundOrder(orderId: string, a: { amountCents: numb
     if (!o || o.status !== 'paid') return { result: 'ignored' as const };
     const earlier = ((o.meta?.partial_refunds as PartialRefund[] | undefined) ?? []).slice();
     if (a.ref ? earlier.some((r) => r.ref === a.ref) : earlier.some((r) => !r.ref && r.amount_cents === a.amountCents && Date.parse(r.at) > Date.now() - 600_000)) return { result: 'duplicate' as const };
-    const charge = o.total_cents - o.credit_cents;
+    const charge = orderCharge(o);
     const running = (o.refunded_cents as number) + a.amountCents;
     if (running >= charge) return { result: 'full' as const };
+    const taxBack = taxRefunded({ total_cents: o.total_cents, tax_cents: o.tax_cents ?? 0 }, running);
+    const taxNow = taxBack - (o.tax_refunded_cents ?? 0);
+    // What has gone back of the pre-tax price, running: the books below only ever see this.
+    const runningNet = running - taxBack;
+    const net = a.amountCents - taxNow;
     const earned = await one<{ cents: number }>(`select coalesce(sum(amount_cents), 0)::int as cents from ledger where order_id = $1 and kind in ('sale','tip')`, [orderId], db);
     // Running totals, so several partial refunds can never drift by a cent.
-    const target = refundParts({ total_cents: o.total_cents, fee_cents: o.fee_cents, creator_cents: earned?.cents ?? 0 }, running);
+    const target = refundParts({ total_cents: o.total_cents, fee_cents: o.fee_cents, creator_cents: earned?.cents ?? 0 }, runningNet);
     const before = earlier.reduce((n, r) => ({ creator: n.creator + r.creator_cents, platform: n.platform + r.platform_cents, fee: n.fee + r.fee_cents }), { creator: 0, platform: 0, fee: 0 });
-    const creator = await reverseOrderPartly(db, orderId, target.creator_cents, running, `Partial refund: ${reason}`);
+    const creator = await reverseOrderPartly(db, orderId, target.creator_cents, runningNet, `Partial refund: ${reason}`);
     const entry: PartialRefund = {
-      ref: a.ref ?? null, amount_cents: a.amountCents, creator_cents: creator,
-      platform_cents: target.platform_cents - before.platform, fee_cents: a.amountCents - creator - (target.platform_cents - before.platform),
+      ref: a.ref ?? null, amount_cents: a.amountCents, ...(taxNow > 0 ? { tax_cents: taxNow } : {}), creator_cents: creator,
+      platform_cents: target.platform_cents - before.platform, fee_cents: net - creator - (target.platform_cents - before.platform),
       reason, at: new Date().toISOString(),
     };
-    await db.query(`update orders set refunded_cents = $2, meta = meta || $3::jsonb where id = $1`, [orderId, running, JSON.stringify({ partial_refunds: [...earlier, entry] })]);
+    await recordTaxRefund(db, { orderId, state: o.tax_state, taxCents: taxNow });
+    await db.query(`update orders set refunded_cents = $2, tax_refunded_cents = $4, meta = meta || $3::jsonb where id = $1`, [orderId, running, JSON.stringify({ partial_refunds: [...earlier, entry] }), taxBack]);
     return { result: 'applied' as const, order: o };
   });
   if (out.result === 'applied') {
@@ -675,7 +719,7 @@ export async function refundOrder(orderId: string, opts: { reason?: string } = {
   if (o.status !== 'paid') throw conflict('Only a paid order can be refunded');
   const reason = opts.reason?.trim() || 'Refunded by support';
   // Whatever earlier partial refunds already sent back is not asked for again.
-  const charge = o.total_cents - o.credit_cents - (o.refunded_cents ?? 0);
+  const charge = orderCharge(o) - (o.refunded_cents ?? 0);
   if (o.provider === 'divinity' && charge > 0) {
     if (!o.payment_ref) throw conflict('This order has no processor payment reference yet, so it cannot be refunded automatically');
     const r = await (await getProvider('divinity')).refund({ paymentRef: o.payment_ref, id: orderId, amountCents: charge, reason });
@@ -756,17 +800,29 @@ export async function markChargePaid(chargeId: string, paymentRef: string | null
   });
   if (!done) return false;
   try {
-    if (done.first) await welcomeMember(done.sub.user_id, done.sub.plan, new Date(done.c.period_end));
+    if (done.first) await welcomeMember(done.sub.user_id, done.sub.plan, new Date(done.c.period_end), done.c);
+    else if (done.c.tax_cents > 0) {
+      // A renewal that carried sales tax gets a receipt, so the member has the tax in writing.
+      const mem = await getSetting('membership');
+      await memberMail(done.sub.user_id, `Your ${mem.name} membership renewed`, `${await chargeSentence(done.c)} Your membership now runs until ${new Date(done.c.period_end).toISOString().slice(0, 10)}.`);
+    }
   } catch (e) {
     captureError(e, { source: 'api', endpoint: 'markChargePaid' });
   }
   return true;
 }
 
-async function welcomeMember(userId: string, plan: string, renews: Date): Promise<void> {
+/** "You were charged $6.41: $5.99 for the membership plus $0.42 sales tax (Indiana 7%)." */
+async function chargeSentence(c: Row): Promise<string> {
+  return `You were charged ${await money(chargeTotal(c))}: ${await money(c.amount_cents)} for the membership plus ${await money(c.tax_cents)} ${taxLabel(c.tax_state, c.tax_rate_bps).replace(/^S/, 's')}.`;
+}
+
+async function welcomeMember(userId: string, plan: string, renews: Date, charge?: Row): Promise<void> {
   const u = await one<{ email: string; display_name: string }>('select email, display_name from users where id = $1', [userId]);
   const m = await getSetting('membership');
-  if (u) await sendTemplate('membership_started', u.email, { name: u.display_name, plan: `${m.name} ${plan}`, renews: renews.toISOString().slice(0, 10), url: config.appUrl }, { userId });
+  // Only a first charge that carried sales tax adds a line; otherwise the message is what it always was.
+  const summary = charge && charge.tax_cents > 0 ? `<p>${escapeHtml(await chargeSentence(charge))}</p>` : '';
+  if (u) await sendTemplate('membership_started', u.email, { name: u.display_name, plan: `${m.name} ${plan}`, renews: renews.toISOString().slice(0, 10), summary, url: config.appUrl }, { userId });
   await notify(userId, 'membership', `${m.name} is active`, `Your ${plan} membership renews on ${renews.toISOString().slice(0, 10)}.`, '/account/membership');
 }
 
@@ -819,7 +875,7 @@ export async function attemptCharge(chargeId: string): Promise<'paid' | 'decline
     }
   }
   const r = await p.charge({
-    chargeId, userId: sub.user_id, token: sub.payment_method_token, amountCents: c.amount_cents, currency: site.currency, attempt: c.attempts + 1,
+    chargeId, userId: sub.user_id, token: sub.payment_method_token, amountCents: chargeTotal(c), currency: site.currency, attempt: c.attempts + 1,
     description: `${mem.name} (${sub.plan})`, origin: { ip: sub.origin_ip, userAgent: sub.origin_user_agent },
   });
   if (r.outcome === 'paid') {
@@ -872,6 +928,25 @@ export async function recordDecline(chargeId: string, error: string, paymentRef:
   }
 }
 
+/**
+ * Create the charge for one membership period starting at `start` (the first
+ * period and every renewal come through here). Sales tax is worked out now,
+ * on the plan price, at the member's saved billing location and the rate in
+ * force today, and is stored on the charge: retries of a declined card ask
+ * for the same amount. Returns the new charge id, or null when the period
+ * already has a charge.
+ */
+export async function billPeriod(sub: Row, start: Date): Promise<string | null> {
+  const t = await membershipTax(sub.user_id, sub.price_cents);
+  const c = await one<{ id: string }>(
+    `insert into subscription_charges (subscription_id, user_id, period_start, period_end, amount_cents, tax_cents, taxable_cents, tax_country, tax_state, tax_zip, tax_rate_bps)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+     on conflict (subscription_id, period_start) do nothing returning id`,
+    [sub.id, sub.user_id, start, addPeriod(start, sub.plan), sub.price_cents, t.tax_cents, t.taxable_cents, t.country, t.state, t.zip, t.rate_bps],
+  );
+  return c?.id ?? null;
+}
+
 /** A saved payment method arrived for a pending membership: bill the first period (or start the trial). */
 export async function activateMembership(subId: string, token: string): Promise<'active' | 'declined' | 'pending' | 'skipped'> {
   const sub = await one(`update subscriptions set payment_method_token = $2 where id = $1 and status = 'pending' and payment_method_token is null returning *`, [subId, token]);
@@ -885,13 +960,9 @@ export async function activateMembership(subId: string, token: string): Promise<
     await welcomeMember(sub.user_id, sub.plan, end).catch(() => {});
     return 'active';
   }
-  const c = await one<{ id: string }>(
-    `insert into subscription_charges (subscription_id, user_id, period_start, period_end, amount_cents) values ($1,$2,$3,$4,$5)
-     on conflict (subscription_id, period_start) do nothing returning id`,
-    [subId, sub.user_id, now, addPeriod(now, sub.plan), sub.price_cents],
-  );
-  if (!c) return 'skipped';
-  const r = await attemptCharge(c.id);
+  const id = await billPeriod(sub, now);
+  if (!id) return 'skipped';
+  const r = await attemptCharge(id);
   return r === 'paid' ? 'active' : r === 'declined' ? 'declined' : 'pending';
 }
 
@@ -951,7 +1022,8 @@ export async function reverseChargeBooks(chargeId: string, why: { reason: string
   const done = await tx(async (db) => {
     const c = await one('select * from subscription_charges where id = $1 for update', [chargeId], db);
     if (!c || c.status !== 'paid') return null;
-    await db.query(`update subscription_charges set status = 'refunded', refunded_at = now(), last_error = $2 where id = $1`, [chargeId, why.reason.slice(0, 300)]);
+    await recordTaxRefund(db, { chargeId, state: c.tax_state, taxCents: (c.tax_cents ?? 0) - (c.tax_refunded_cents ?? 0) });
+    await db.query(`update subscription_charges set status = 'refunded', refunded_at = now(), tax_refunded_cents = tax_cents, last_error = $2 where id = $1`, [chargeId, why.reason.slice(0, 300)]);
     const open = await db.query('delete from sub_months where charge_id = $1 and settled_at is null returning id', [chargeId]);
     const settled = await one<{ n: number }>('select count(*)::int as n from sub_months where charge_id = $1', [chargeId], db);
     await db.query(`update subscriptions set status = 'canceled', canceled_at = now(), cancel_at_period_end = true, current_period_end = least(current_period_end, now()) where id = $1`, [c.subscription_id]);
@@ -974,7 +1046,7 @@ export async function refundCharge(chargeId: string, reason = 'Refunded by suppo
   if (c.status !== 'paid') return { refunded: false };
   if (c.provider === 'divinity') {
     if (!c.payment_ref) throw conflict('This charge has no processor payment reference');
-    const r = await (await getProvider('divinity')).refund({ paymentRef: c.payment_ref, id: chargeId, amountCents: c.amount_cents, reason });
+    const r = await (await getProvider('divinity')).refund({ paymentRef: c.payment_ref, id: chargeId, amountCents: chargeTotal(c), reason });
     if (!r.ok) throw new HttpError(502, `The payment processor did not accept the refund: ${r.error ?? 'unknown error'}. Nothing was changed.`);
   }
   return { refunded: await reverseChargeBooks(chargeId, { reason }) };

@@ -232,6 +232,44 @@ after saving. A blank secret field keeps what is stored.
 - The notice is sent by the in-process `tax-notices` job (every 10 minutes).
   It has no `/api/cron` endpoint, so it needs the jobs process running.
 
+### Sales tax
+
+- **Off by default.** A new install charges no tax and asks no buyer where
+  they are. Nothing changes until you turn it on under Settings > Sales tax.
+- **The rates are yours to set, with your accountant.** They decide in which
+  states you must collect and at what rate. Enter a rate only for those
+  states; every state starts at 0% and stays there until you change it. The
+  site knows one rate per state: it does not look up county or city rates, and
+  it does not know the tax rules of any state. Rates are stored in hundredths
+  of a percent, so 7% and 6.25% can be entered but 6.625% cannot.
+- With it on, checkout asks for the buyer's country and, in the United States,
+  their state and ZIP code, and adds the tax as its own line before they pay.
+  Buyers outside the United States are not charged. The location is whatever
+  the buyer enters; it is not checked against their card or their network
+  address.
+- Taxed: comics (releases, downloads, whole series, bundles), page-credit
+  packs and memberships (the first payment and every renewal, at the member's
+  saved state). Not taxed: tips and gift cards. Paying with store credit does
+  not remove the tax.
+- **The tax is not revenue and not creator money.** Creator earnings, revenue
+  splits, the membership pool, processing-fee estimates and the sales figures
+  in admin are all worked out on the price before tax. The payment processor's
+  fee on the tax portion of a charge is the platform's cost.
+- Members who joined before you turned sales tax on have no saved location and
+  are not taxed at renewal until they add one on their Membership page.
+- Finance > Sales tax shows, for any date range (it opens on the last full
+  month), taxable sales, tax collected, tax refunded and net tax per state,
+  and exports them as a CSV. Dates are in UTC.
+- **The site collects the tax and reports it. It does not register you with
+  any state, file returns or pay the states.** That is done by you or your
+  accountant from the report.
+- Changing a rate affects orders and membership charges created from then on;
+  it never changes what an existing order was charged.
+- The Terms page says prices do not include sales tax (migration
+  `088_terms_sales_tax.sql`; fresh installs get the same sentence from the
+  seed). If you have rewritten that sentence yourself, the migration leaves
+  your text alone: add the wording by hand under Pages.
+
 ## 6. Processes
 
 ```bash

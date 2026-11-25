@@ -49,6 +49,8 @@ export type PublicSettings = {
   /** `embed_checkout` false: the owner has switched the in-page payment form off, so every payment is a visit to the checkout page. */
   payments: { provider: string; embed_checkout?: boolean };
   revenue: { sale_share_bps: number; sub_share_bps: number; tip_share_bps: number; payout_minimum_cents: number };
+  /** Sales tax at checkout. Off (or absent): no billing location is asked for and no tax is shown. */
+  tax?: { enabled: boolean };
   password_min_length?: number;
   recaptcha_site_key: string;
   ga_measurement_id: string;

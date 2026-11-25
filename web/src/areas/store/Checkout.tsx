@@ -10,6 +10,8 @@ import { Button, Card, Checkbox, ErrorState, Field, Input, LinkButton, Modal, No
 import { orderCheck, useCheckoutSurface, useSecureCheckout } from './SecureCheckout';
 import type { CheckoutSurface } from './SecureCheckout';
 import { ConfirmEmailPrompt, isEmailUnverified, safeNext, useLoginLink, useTitle } from './shared';
+import { LocationFields, useBillingLocation } from './tax';
+import type { BillingLocation, TaxQuote } from './tax';
 
 /** One basket line exactly as POST /api/checkout accepts it. */
 export type CheckoutItem =
@@ -28,12 +30,14 @@ type CheckoutResponse =
   | { completed: true; order_id: string; return_to?: string }
   | { completed?: false; url: string; session_id: string; surface: CheckoutSurface; amount_cents: number; order_id: string; return_to?: string };
 
-export type CheckoutBody = { items: CheckoutItem[]; code?: string; use_credit?: boolean; return_to: string };
+export type CheckoutBody = { items: CheckoutItem[]; code?: string; use_credit?: boolean; return_to: string; location?: BillingLocation };
 
 /** How a card payment for an order is presented in the secure payment dialog. */
 export type OrderDisplay = {
   /** What is being bought. A price is shown beside a line only when given. */
   lines: { label: string; detail?: string; price_cents?: number }[];
+  /** Sales tax charged on top of the lines: shown as "Subtotal" and the tax's own row. */
+  tax?: { subtotal_cents: number; tax_cents: number; label: string };
   /** Store credit going towards it, shown as its own row. */
   credit_cents?: number;
   /** Runs once the payment is confirmed (the session and all queries are already refreshed). */
@@ -67,6 +71,9 @@ export function useOrderPayment() {
       session: { url: r.url, session_id: r.session_id, surface: r.surface },
       lines: display.lines.map((l) => ({ label: l.label, detail: l.detail, amount: l.price_cents != null ? moneyExact(l.price_cents, currency) : undefined })),
       totals: [
+        ...(display.tax && display.tax.tax_cents > 0
+          ? [{ label: 'Subtotal', amount: moneyExact(display.tax.subtotal_cents, currency) }, { label: display.tax.label, amount: moneyExact(display.tax.tax_cents, currency) }]
+          : []),
         ...(display.credit_cents ? [{ label: 'Store credit', amount: `−${moneyExact(display.credit_cents, currency)}` }] : []),
         { label: 'To pay', amount: due },
       ],
@@ -104,18 +111,23 @@ export function CreditChoice({ total, checked, onChange }: { total: number; chec
 
 /** POST /api/checkout/quote: the server's price for a basket, with nothing written. */
 export type Quote = {
-  lines: { kind: string; description: string; list_price_cents: number; sale_discount_cents: number; code_discount_cents: number; price_cents: number }[];
+  lines: { kind: string; description: string; list_price_cents: number; sale_discount_cents: number; code_discount_cents: number; price_cents: number; tax_cents: number }[];
   list_price_cents: number;
   discounts: { sale_cents: number; code_cents: number };
   code: { code: string; percent_off: number } | null;
+  /** The price of everything before sales tax. */
   total_cents: number;
+  /** null while sales tax is off. */
+  tax: TaxQuote | null;
+  tax_cents: number;
+  total_with_tax_cents: number;
   credit_available_cents: number;
   credit_applied_cents: number;
   amount_due_cents: number;
   problem: { code: string; message: string } | null;
 };
 
-export function fetchQuote(body: { items: CheckoutItem[]; code?: string; use_credit?: boolean }, signal?: AbortSignal): Promise<Quote> {
+export function fetchQuote(body: { items: CheckoutItem[]; code?: string; use_credit?: boolean; location?: BillingLocation }, signal?: AbortSignal): Promise<Quote> {
   return api<Quote>('/api/checkout/quote', { json: body, signal });
 }
 
@@ -150,9 +162,11 @@ export function CheckoutDialog({ request, onClose, onPaid }: { request: Checkout
   // The secure payment dialog has taken over from this one.
   const [paying, setPaying] = useState(false);
   const payment = useOrderPayment();
+  const taxApplies = useRef(false);
 
   useEffect(() => {
     if (request) {
+      taxApplies.current = false;
       setPaying(false);
       setUseCredit(true);
       setCode('');
@@ -168,10 +182,13 @@ export function CheckoutDialog({ request, onClose, onPaid }: { request: Checkout
 
   const lines = request?.lines ?? [];
   const items = lines.map((l) => l.item);
+  // Sales tax: the billing location is part of the quote. With sales tax off none of this is asked for or sent.
+  const billing = useBillingLocation(Boolean(request && user));
+  const location = billing.enabled ? billing.location ?? undefined : undefined;
   const quote = useQuery({
-    queryKey: ['checkout-quote', items, applied, useCredit],
-    queryFn: ({ signal }) => fetchQuote({ items, code: applied || undefined, use_credit: useCredit }, signal),
-    enabled: Boolean(request && user && !done && !paying),
+    queryKey: ['checkout-quote', items, applied, useCredit, location ?? null],
+    queryFn: ({ signal }) => fetchQuote({ items, code: applied || undefined, use_credit: useCredit, location }, signal),
+    enabled: Boolean(request && user && !done && !paying && billing.ready),
     retry: false,
     staleTime: 0,
     gcTime: 0,
@@ -179,7 +196,8 @@ export function CheckoutDialog({ request, onClose, onPaid }: { request: Checkout
   });
 
   // A code the server refuses is taken back off, with the server's reason shown at the field; nothing has been charged.
-  const refused = applied && quote.isError ? errorMessage(quote.error) : null;
+  const locationError = quote.isError && (quote.error as { code?: string } | null)?.code === 'location_invalid' ? errorMessage(quote.error) : null;
+  const refused = applied && quote.isError && !locationError ? errorMessage(quote.error) : null;
   useEffect(() => {
     if (!refused) return;
     setCodeError(refused);
@@ -191,7 +209,12 @@ export function CheckoutDialog({ request, onClose, onPaid }: { request: Checkout
   const due = q ? q.amount_due_cents : fallbackTotal;
   const checking = Boolean(user) && (quote.isPending || quote.isFetching);
   const needsEmail = Boolean(user && !user.email_verified);
-  const blocked = !q || checking || Boolean(q.problem) || needsEmail || quote.isError;
+  // Tax applies to this basket: the location row is shown, and paying waits until it is filled in.
+  // Remembered from the last good quote, so the row stays put while a location the server refused is corrected.
+  if (q?.tax) taxApplies.current = q.tax.taxable_cents > 0;
+  const taxed = billing.enabled && taxApplies.current;
+  const needsLocation = taxed && !billing.location;
+  const blocked = !q || checking || Boolean(q.problem) || needsEmail || quote.isError || needsLocation;
 
   const applyCode = () => {
     const c = code.trim();
@@ -206,10 +229,11 @@ export function CheckoutDialog({ request, onClose, onPaid }: { request: Checkout
     setUnverified(null);
     try {
       const outcome = await payment.pay(
-        { items, code: applied || undefined, use_credit: useCredit && q.credit_applied_cents > 0, return_to: request.returnTo },
+        { items, code: applied || undefined, use_credit: useCredit && q.credit_applied_cents > 0, return_to: request.returnTo, location: taxed ? location : undefined },
         {
           // Same order as the items sent, so line i of the quote prices line i here.
           lines: lines.map((l, i) => ({ label: l.label, detail: l.detail, price_cents: q.lines[i]?.price_cents ?? l.price_cents })),
+          tax: q.tax?.label ? { subtotal_cents: q.total_cents, tax_cents: q.tax_cents, label: q.tax.label } : undefined,
           credit_cents: q.credit_applied_cents,
           onPaid: () => onPaid?.(),
           // Back to this dialog for another go; the failed order is finished with and a new one is made.
@@ -240,7 +264,7 @@ export function CheckoutDialog({ request, onClose, onPaid }: { request: Checkout
   ) : (
     <>
       <Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
-      <Button variant="primary" loading={busy} disabled={blocked} onClick={pay}>{!q ? 'Checking the price…' : due > 0 ? `Pay ${moneyExact(due, currency)}` : 'Confirm'}</Button>
+      <Button variant="primary" loading={busy} disabled={blocked} onClick={pay}>{needsLocation ? 'Add your location' : !q ? 'Checking the price…' : due > 0 ? `Pay ${moneyExact(due, currency)}` : 'Confirm'}</Button>
     </>
   );
 
@@ -282,7 +306,7 @@ export function CheckoutDialog({ request, onClose, onPaid }: { request: Checkout
                   checked={useCredit}
                   onChange={setUseCredit}
                   label={<span className="inline-flex items-center gap-1.5"><Wallet className="size-4 text-muted" aria-hidden /> Use store credit</span>}
-                  description={`You have ${moneyExact(q.credit_available_cents, currency)}. ${moneyExact(Math.min(q.credit_available_cents, q.total_cents), currency)} would go towards this.`}
+                  description={`You have ${moneyExact(q.credit_available_cents, currency)}. ${moneyExact(Math.min(q.credit_available_cents, q.total_with_tax_cents), currency)} would go towards this.`}
                 />
               </div>
             )}
@@ -315,15 +339,19 @@ export function CheckoutDialog({ request, onClose, onPaid }: { request: Checkout
               )
             )}
 
+            {taxed && <LocationFields value={billing.draft} onChange={billing.change} error={locationError} disabled={busy} />}
+
             <dl className={cx('space-y-1.5 border-t border-line pt-3 text-sm transition-opacity', checking && q && 'opacity-60')} aria-live="polite" aria-busy={checking}>
               {q ? (
                 <>
                   {(q.discounts.sale_cents > 0 || q.discounts.code_cents > 0) && <Row label="List price" value={moneyExact(q.list_price_cents, currency)} muted />}
                   {q.discounts.sale_cents > 0 && <Row label="Sale discount" value={`−${moneyExact(q.discounts.sale_cents, currency)}`} />}
                   {q.discounts.code_cents > 0 && <Row label={`Promo code ${q.code?.code ?? ''}`} value={`−${moneyExact(q.discounts.code_cents, currency)}`} />}
-                  {q.credit_applied_cents > 0 && <Row label="Total" value={moneyExact(q.total_cents, currency)} />}
+                  {q.tax?.label && !needsLocation && <Row label="Subtotal" value={moneyExact(q.total_cents, currency)} />}
+                  {q.tax?.label && !needsLocation && <Row label={q.tax.label} value={moneyExact(q.tax_cents, currency)} />}
+                  {q.credit_applied_cents > 0 && <Row label="Total" value={moneyExact(q.total_with_tax_cents, currency)} />}
                   {q.credit_applied_cents > 0 && <Row label="Store credit" value={`−${moneyExact(q.credit_applied_cents, currency)}`} />}
-                  <Row strong label="To pay" value={moneyExact(q.amount_due_cents, currency)} />
+                  <Row strong label={q.tax?.label && !needsLocation && q.credit_applied_cents === 0 ? 'Total' : 'To pay'} value={moneyExact(q.amount_due_cents, currency)} />
                 </>
               ) : user && !quote.isError ? (
                 <div className="flex items-center gap-2 text-muted"><Spinner className="size-4" /> Checking the price…</div>
@@ -333,9 +361,9 @@ export function CheckoutDialog({ request, onClose, onPaid }: { request: Checkout
             </dl>
 
             {!user && <Notice tone="info">Sign in or create a free account to buy. Purchases are kept in your library.</Notice>}
-            {q?.problem && <Notice tone="warn">{q.problem.message}</Notice>}
+            {q?.problem && q.problem.code !== 'location_required' && <Notice tone="warn">{q.problem.message}</Notice>}
             {(needsEmail || unverified) && <ConfirmEmailPrompt message={unverified ?? 'Confirm your email to buy things. We sent a link to your address when you signed up.'} onConfirmed={() => setUnverified(null)} />}
-            {!applied && quote.isError && <ErrorState message={errorMessage(quote.error)} retry={() => void quote.refetch()} />}
+            {!applied && quote.isError && !locationError && <ErrorState message={errorMessage(quote.error)} retry={() => void quote.refetch()} />}
             {error && <ErrorState message={error} />}
           </div>
         )}
@@ -364,6 +392,9 @@ type Order = {
   charged_cents: number;
   return_to: string;
   failure: string | null;
+  /** Sales tax charged on top of total_cents; tax_label is its line ("Sales tax (Indiana 7%)"), null when there was none. */
+  tax_cents: number;
+  tax_label: string | null;
   items: { id: string; kind: string; description: string; price_cents: number }[];
 };
 
@@ -458,6 +489,9 @@ export function CheckoutReturn() {
           {order.items.map((i) => (
             <li key={i.id} className="flex justify-between gap-3 px-3.5 py-2.5"><span className="min-w-0">{i.description}</span><span className="shrink-0 tabular-nums">{moneyExact(i.price_cents, currency)}</span></li>
           ))}
+          {order.tax_label && (
+            <li className="flex justify-between gap-3 px-3.5 py-2.5"><span className="min-w-0">{order.tax_label}</span><span className="shrink-0 tabular-nums">{moneyExact(order.tax_cents, currency)}</span></li>
+          )}
           <li className="flex justify-between gap-3 px-3.5 py-2.5 font-semibold">
             <span>Charged{order.credit_cents > 0 ? ` (after ${moneyExact(order.credit_cents, currency)} store credit)` : ''}</span>
             <span className="tabular-nums">{moneyExact(order.charged_cents, currency)}</span>

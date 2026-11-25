@@ -11,6 +11,8 @@ import { Badge, Button, Card, CardHeader, DefList, EmptyState, ErrorState, Field
 import type { Column } from '@/ui';
 import { useCheckout } from '../store/Checkout';
 import { membershipCheck, useCheckoutSurface, useSecureCheckout } from '../store/SecureCheckout';
+import { LocationFields, describeLocation, locationBody } from '../store/tax';
+import type { BillingLocation, LocationDraft, TaxQuote } from '../store/tax';
 import type { CheckoutSurface } from '../store/SecureCheckout';
 import { ListSkeleton, safePath, useTitle } from './shared';
 
@@ -266,6 +268,8 @@ type OrderItem = {
 };
 type Order = {
   id: string; status: string; total_cents: number; credit_cents: number; charged_cents: number; refunded_cents: number; provider: string;
+  /** Sales tax charged on top of total_cents; tax_label is its line ("Sales tax (Indiana 7%)"), null when there was none. */
+  tax_cents: number; tax_label: string | null;
   created_at: string; paid_at: string | null; refunded_at: string | null; items: OrderItem[];
   partial_refunds?: { amount_cents: number; reason: string | null; at: string }[];
 };
@@ -307,7 +311,15 @@ function ItemLines({ order, currency }: { order: Order; currency: string }) {
 function Totals({ order, currency }: { order: Order; currency: string }) {
   return (
     <dl className="ml-auto w-full max-w-xs space-y-1 text-sm">
-      <div className="flex justify-between gap-4"><dt className="text-muted">Total</dt><dd className="tabular-nums">{moneyExact(order.total_cents, currency)}</dd></div>
+      {order.tax_label ? (
+        <>
+          <div className="flex justify-between gap-4"><dt className="text-muted">Subtotal</dt><dd className="tabular-nums">{moneyExact(order.total_cents, currency)}</dd></div>
+          <div className="flex justify-between gap-4"><dt className="text-muted">{order.tax_label}</dt><dd className="tabular-nums">{moneyExact(order.tax_cents, currency)}</dd></div>
+          {order.credit_cents > 0 && <div className="flex justify-between gap-4"><dt className="text-muted">Total</dt><dd className="tabular-nums">{moneyExact(order.total_cents + order.tax_cents, currency)}</dd></div>}
+        </>
+      ) : (
+        <div className="flex justify-between gap-4"><dt className="text-muted">Total</dt><dd className="tabular-nums">{moneyExact(order.total_cents, currency)}</dd></div>
+      )}
       {order.credit_cents > 0 && <div className="flex justify-between gap-4"><dt className="text-muted">Store credit used</dt><dd className="tabular-nums">−{moneyExact(order.credit_cents, currency)}</dd></div>}
       <div className="flex justify-between gap-4 border-t border-line pt-1 font-semibold"><dt>{order.status === 'pending' ? 'To pay' : 'Charged'}</dt><dd className="tabular-nums">{moneyExact(order.charged_cents, currency)}</dd></div>
       {order.status === 'paid' && order.refunded_cents > 0 && (
@@ -472,11 +484,16 @@ type Subscription = {
   id: string; plan: 'monthly' | 'annual'; status: 'active' | 'past_due' | 'canceled' | 'expired'; price_cents: number; provider: string;
   current_period_start: string; current_period_end: string; cancel_at_period_end: boolean; canceled_at: string | null; renews_at: string | null;
   has_payment_method: boolean; from_code: boolean; payment_problem: { attempts: number; next_attempt_at: string | null; message: string | null } | null;
+  /** The most recent payment that went through; tax_label is null when it carried no sales tax. */
+  last_charge: { paid_at: string; amount_cents: number; tax_cents: number; total_cents: number; tax_label: string | null } | null;
 };
+type PlanTax = TaxQuote & { price_cents: number; total_cents: number };
 type MembershipView = {
   member: boolean;
   plans: { name: string; monthly_cents: number; annual_cents: number; trial_days: number };
   provider: string;
+  /** null while sales tax is off. Otherwise the saved billing location and each plan with tax there. */
+  tax: { location: BillingLocation | null; monthly: PlanTax; annual: PlanTax } | null;
   subscription: Subscription | null;
   /** How the card session named in `?session_id=` ended: active | updated | pending | declined | failed | expired | canceled. */
   confirmation?: string | null;
@@ -486,6 +503,8 @@ type MembershipView = {
 
 type Payment = {
   id: string; status: 'pending' | 'paid' | 'failed' | 'refunded'; amount_cents: number; plan: 'monthly' | 'annual'; provider: string;
+  /** amount_cents is the plan price; total_cents adds the sales tax. */
+  tax_cents: number; tax_label: string | null; total_cents: number;
   period_start: string; period_end: string; date: string; paid_at: string | null; refunded_at: string | null; retrying: boolean; next_attempt_at: string | null;
 };
 
@@ -503,7 +522,12 @@ function MembershipPayments({ currency }: { currency: string }) {
   const columns: Column<Payment>[] = [
     { key: 'date', header: 'Date', cell: (p) => <span className="whitespace-nowrap">{date(p.date)}</span> },
     { key: 'what', header: 'For', cell: (p) => <span className="whitespace-nowrap text-muted">{p.plan === 'annual' ? 'Yearly' : 'Monthly'} · {date(p.period_start)} to {date(p.period_end)}</span>, hideOnMobile: true },
-    { key: 'amount', header: 'Amount', align: 'right', cell: (p) => moneyExact(p.amount_cents, currency) },
+    {
+      key: 'amount', header: 'Amount', align: 'right',
+      cell: (p) => (p.tax_cents > 0
+        ? <span className="whitespace-nowrap">{moneyExact(p.total_cents, currency)}<span className="block text-xs text-muted">incl. {moneyExact(p.tax_cents, currency)} sales tax</span></span>
+        : moneyExact(p.amount_cents, currency)),
+    },
     { key: 'status', header: 'Status', cell: (p) => <PaymentStatus p={p} /> },
   ];
   return (
@@ -525,6 +549,34 @@ function MembershipPayments({ currency }: { currency: string }) {
   );
 }
 
+/**
+ * Change where the member is billed, which decides the sales tax on each
+ * renewal. Shown only while sales tax is on. Saving answers with the
+ * membership view again, so the "next payment" figure follows.
+ */
+function BillingLocationEditor({ location, onSaved, onClose }: { location: BillingLocation | null; onSaved: (view: MembershipView) => void | Promise<void>; onClose: () => void }) {
+  const [draft, setDraft] = useState<LocationDraft>({ country: location?.country ?? '', state: location?.state ?? '', zip: location?.zip ?? '' });
+  const body = locationBody(draft);
+  const save = useMutation({
+    mutationFn: () => api<MembershipView>('/api/billing-location', { method: 'PUT', json: body }),
+    onSuccess: async (v) => {
+      await onSaved(v);
+      onClose();
+      toast.success('Billing location saved. It applies from your next payment.');
+    },
+  });
+  return (
+    <div className="mt-4 max-w-md space-y-3 rounded-xl border border-line bg-ink p-4">
+      <h3 className="text-sm font-semibold">Billing location</h3>
+      <LocationFields value={draft} onChange={(d) => { setDraft(d); save.reset(); }} error={save.isError ? errorMessage(save.error) : null} disabled={save.isPending} note="Sales tax on your next payment is worked out from this." />
+      <div className="flex gap-2">
+        <Button variant="primary" size="sm" className="h-10" loading={save.isPending} disabled={!body} onClick={() => save.mutate()}>Save location</Button>
+        <Button variant="ghost" size="sm" className="h-10" disabled={save.isPending} onClick={onClose}>Cancel</Button>
+      </div>
+    </div>
+  );
+}
+
 export function Membership() {
   useTitle('Membership');
   const qc = useQueryClient();
@@ -536,6 +588,7 @@ export function Membership() {
   const [sessionId, setSessionId] = useState(() => params.get('session_id'));
   const [onward] = useState(() => (params.get('next') ? safePath(params.get('next'), '') || null : null));
   const [cancelled] = useState(() => params.get('cancelled') === '1');
+  const [editingLocation, setEditingLocation] = useState(false);
   const membership = useQuery({ queryKey: ['membership'], queryFn: () => api<MembershipView>('/api/membership', { query: { session_id: sessionId } }) });
 
   // Back from the hosted card page: the load confirmed the session. Tidy the URL, update the shell, and when the
@@ -614,7 +667,14 @@ export function Membership() {
   if (membership.isPending) body = <PageLoader label="Loading your membership" />;
   else if (membership.isError) body = <ErrorState message={errorMessage(membership.error)} retry={() => membership.refetch()} />;
   else {
-    const { member, plans, subscription: sub } = membership.data;
+    const { member, plans, subscription: sub, tax } = membership.data;
+    // What the next renewal will take: the plan price, plus sales tax at the saved location while sales tax is on.
+    const renewal = sub && tax ? tax[sub.plan] : null;
+    const renewalText = sub
+      ? renewal && renewal.tax_cents > 0
+        ? `${moneyExact(sub.price_cents + renewal.tax_cents, currency)} (${moneyExact(sub.price_cents, currency)} plus ${moneyExact(renewal.tax_cents, currency)} sales tax)`
+        : `${moneyExact(sub.price_cents, currency)}${tax && !tax.location ? ' plus tax where it applies' : ''}`
+      : '';
     const conf = membership.data.confirmation;
     const returned = conf === 'active' ? <Notice tone="ok">Welcome aboard. Your membership is active.</Notice>
       : conf === 'updated' ? <Notice tone="ok">Your new payment method is saved.</Notice>
@@ -641,6 +701,7 @@ export function Membership() {
             action={<LinkButton to={onward ? `/unlimited?next=${encodeURIComponent(onward)}` : '/unlimited'} variant="primary" size="lg">See what {plans.name} includes</LinkButton>}
           >
             Read everything in the membership catalog for {money(plans.monthly_cents, currency)} a month{plans.annual_cents ? ` or ${money(plans.annual_cents, currency)} a year` : ''}
+            {tax ? ', plus tax where it applies' : ''}
             {plans.trial_days ? `, with ${plans.trial_days} days free to start` : ''}. Your reading pays the creators you actually read. Have a membership code?{' '}
             <Link className="link" to="/account/codes">Redeem it</Link>.
           </EmptyState>
@@ -673,18 +734,32 @@ export function Membership() {
                   ? `From a code. It ends on ${date(sub.current_period_end)} and nothing is charged.`
                   : ending
                     ? `You canceled renewal. You keep full access until ${date(sub.current_period_end)}, then it ends.`
-                    : `Renews on ${date(sub.renews_at)} for ${moneyExact(sub.price_cents, currency)}.`
+                    : `Renews on ${date(sub.renews_at)} for ${renewalText}.`
               }
             />
             <div className="px-5 py-5">
               <DefList
                 items={[
-                  ['Plan', sub.from_code ? 'Membership code' : sub.plan === 'annual' ? `Annual, ${moneyExact(sub.price_cents, currency)} a year` : `Monthly, ${moneyExact(sub.price_cents, currency)} a month`],
+                  ['Plan', sub.from_code ? 'Membership code' : `${sub.plan === 'annual' ? `Annual, ${moneyExact(sub.price_cents, currency)} a year` : `Monthly, ${moneyExact(sub.price_cents, currency)} a month`}${tax ? ', plus tax where it applies' : ''}`],
                   ['Current period', `${date(sub.current_period_start)} to ${date(sub.current_period_end)}`],
                   [pastDue ? 'Payment was due' : ending ? 'Access ends' : 'Next payment', date(pastDue || ending ? sub.current_period_end : sub.renews_at)],
                   ...(sub.from_code ? [] : ([['Payment method', sub.has_payment_method ? (sub.provider === 'sandbox' ? 'Test card (sandbox)' : 'Card on file') : 'None saved']] as [ReactNode, ReactNode][])),
+                  ...(sub.last_charge && (tax || sub.last_charge.tax_cents > 0)
+                    ? ([['Last payment', sub.last_charge.tax_label
+                        ? `${moneyExact(sub.last_charge.total_cents, currency)} on ${date(sub.last_charge.paid_at)}: ${moneyExact(sub.last_charge.amount_cents, currency)} plus ${moneyExact(sub.last_charge.tax_cents, currency)} ${sub.last_charge.tax_label.replace(/^S/, 's')}`
+                        : `${moneyExact(sub.last_charge.total_cents, currency)} on ${date(sub.last_charge.paid_at)}, no sales tax`]] as [ReactNode, ReactNode][])
+                    : []),
+                  ...(tax && !sub.from_code
+                    ? ([['Billing location', (
+                        <span key="loc" className="flex flex-wrap items-center gap-x-3">
+                          <span>{describeLocation(tax.location)}</span>
+                          {!editingLocation && <button type="button" className="link min-h-10 text-sm" onClick={() => setEditingLocation(true)}>{tax.location ? 'Change' : 'Add'}</button>}
+                        </span>
+                      )]] as [ReactNode, ReactNode][])
+                    : []),
                 ]}
               />
+              {tax && !sub.from_code && editingLocation && <BillingLocationEditor location={tax.location} onSaved={apply} onClose={() => setEditingLocation(false)} />}
             </div>
             {!sub.from_code && (
               <div className="flex flex-wrap items-center gap-2 border-t border-line px-5 py-4">

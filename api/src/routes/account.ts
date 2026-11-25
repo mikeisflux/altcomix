@@ -11,6 +11,7 @@ import { rateLimit } from '../lib/botblock.ts';
 import { hashPassword, randomCode, randomToken, sha256, verifyPassword } from '../lib/crypto.ts';
 import { sendTemplate } from '../lib/email.ts';
 import { HttpError, audit, badRequest, conflict, isAdmin, notFound, pageParams, parse, requireUser } from '../lib/http.ts';
+import { taxLabel } from '../lib/salestax.ts';
 import { getSetting } from '../lib/settings.ts';
 import { publicUrl, storage } from '../lib/storage.ts';
 import { FAVORITE_GENRES, LANGUAGES } from '../lib/taxonomy.ts';
@@ -211,7 +212,7 @@ export default async function accountRoutes(app: FastifyInstance) {
       await db.query(
         `update users set email = $2, username = $3, display_name = 'Deleted user', bio = '', avatar_key = null, prefs = '{}', marketing_opt_in = false,
                 password_hash = $4, totp_secret = null, totp_enabled = false, totp_backup_codes = '{}', last_ip = null, email_verified_at = null,
-                email_unsubscribed_at = now(), deleted_at = now() where id = $1`,
+                email_unsubscribed_at = now(), billing_country = null, billing_state = null, billing_zip = null, deleted_at = now() where id = $1`,
         [u.id, `deleted-${tag}@deleted.invalid`, `deleted_${tag}`, `deleted$${randomToken(24)}`],
       );
       await db.query('delete from sessions where user_id = $1', [u.id]);
@@ -257,15 +258,16 @@ export default async function accountRoutes(app: FastifyInstance) {
     const u = requireUser(req);
     const { limit, offset, page } = pageParams(req.query, 20, 100);
     const orders = await q(
-      `select id, status, total_cents, credit_cents, provider, created_at, paid_at, refunded_at,
-              case when status = 'refunded' then total_cents - credit_cents else refunded_cents end as refunded_cents from orders
+      `select id, status, total_cents, credit_cents, provider, created_at, paid_at, refunded_at, tax_cents, tax_state, tax_rate_bps, tax_refunded_cents,
+              case when status = 'refunded' then greatest(0, total_cents + tax_cents - credit_cents) else refunded_cents end as refunded_cents from orders
         where user_id = $1 and status in ('paid','refunded') order by created_at desc limit ${limit} offset ${offset}`,
       [u.id],
     );
     const items = await orderItems(orders.map((o) => o.id));
     const total = await one<{ n: number }>(`select count(*)::int as n from orders where user_id = $1 and status in ('paid','refunded')`, [u.id]);
     return {
-      items: orders.map((o) => ({ ...o, charged_cents: o.total_cents - o.credit_cents, items: items.filter((i) => i.order_id === o.id).map(({ order_id: _o, ...i }) => i) })),
+      // total_cents is before sales tax; charged_cents = total_cents + tax_cents - credit_cents is what the card paid.
+      items: orders.map((o) => ({ ...o, tax_label: o.tax_cents > 0 ? taxLabel(o.tax_state, o.tax_rate_bps) : null, charged_cents: Math.max(0, o.total_cents + o.tax_cents - o.credit_cents), items: items.filter((i) => i.order_id === o.id).map(({ order_id: _o, ...i }) => i) })),
       total: total?.n ?? 0, page, limit,
     };
   });
@@ -276,7 +278,7 @@ export default async function accountRoutes(app: FastifyInstance) {
     const { limit, offset, page } = pageParams(req.query, 24, 100);
     const where = `c.user_id = $1 and (c.status <> 'failed' or c.attempts > 0)`;
     const rows = await q(
-      `select c.id, c.status, c.amount_cents, c.period_start, c.period_end, c.created_at, c.paid_at, c.refunded_at, c.attempts, c.next_attempt_at, s.plan, s.provider
+      `select c.id, c.status, c.amount_cents, c.tax_cents, c.tax_state, c.tax_rate_bps, c.period_start, c.period_end, c.created_at, c.paid_at, c.refunded_at, c.attempts, c.next_attempt_at, s.plan, s.provider
          from subscription_charges c join subscriptions s on s.id = c.subscription_id
         where ${where} order by c.created_at desc limit ${limit} offset ${offset}`,
       [u.id],
@@ -285,6 +287,8 @@ export default async function accountRoutes(app: FastifyInstance) {
     return {
       items: rows.map((c) => ({
         id: c.id, status: c.status as 'pending' | 'paid' | 'failed' | 'refunded', amount_cents: c.amount_cents, plan: c.plan, provider: c.provider,
+        // amount_cents is the plan price; sales tax was charged on top of it.
+        tax_cents: c.tax_cents, tax_label: c.tax_cents > 0 ? taxLabel(c.tax_state, c.tax_rate_bps) : null, total_cents: c.amount_cents + c.tax_cents,
         period_start: c.period_start, period_end: c.period_end, date: c.paid_at ?? c.created_at, paid_at: c.paid_at, refunded_at: c.refunded_at,
         // A pending charge that has been declined at least once is being retried.
         retrying: c.status === 'pending' && c.attempts > 0, next_attempt_at: c.status === 'pending' ? c.next_attempt_at : null,

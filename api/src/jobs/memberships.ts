@@ -1,6 +1,6 @@
 import { exec, q } from '../db.ts';
 import { captureError } from '../lib/errors.ts';
-import { addPeriod, attemptCharge, captureCharge, captureOrder, confirmSession, failOrder } from '../lib/payments.ts';
+import { attemptCharge, billPeriod, captureCharge, captureOrder, confirmSession, failOrder } from '../lib/payments.ts';
 import type { Job } from '../server.ts';
 
 /**
@@ -48,11 +48,8 @@ export async function runMembershipCycle(): Promise<Record<string, number>> {
   );
   for (const s of due) {
     const start = new Date(s.current_period_end);
-    n.billed += await exec(
-      `insert into subscription_charges (subscription_id, user_id, period_start, period_end, amount_cents) values ($1,$2,$3,$4,$5)
-       on conflict (subscription_id, period_start) do nothing`,
-      [s.id, s.user_id, start, addPeriod(start, s.plan), s.price_cents],
-    );
+    // Sales tax for the new period is worked out here, at the member's saved state as it is now (lib/payments.ts billPeriod).
+    if (await safe('bill', () => billPeriod(s, start))) n.billed++;
   }
 
   const charges = await q<{ id: string }>(`select id from subscription_charges where status = 'pending' and next_attempt_at <= now() order by next_attempt_at limit 200`);
@@ -63,7 +60,7 @@ export async function runMembershipCycle(): Promise<Record<string, number>> {
   }
 
   const holds = await q<{ id: string; t: string }>(
-    `select id, 'order' as t from orders where provider = 'divinity' and status = 'paid' and captured_at is null and total_cents > credit_cents and paid_at < now() - interval '1 minute'
+    `select id, 'order' as t from orders where provider = 'divinity' and status = 'paid' and captured_at is null and total_cents + tax_cents > credit_cents and paid_at < now() - interval '1 minute'
      union all
      select c.id, 'charge' from subscription_charges c join subscriptions s on s.id = c.subscription_id
       where s.provider = 'divinity' and c.status = 'paid' and c.captured_at is null and c.paid_at < now() - interval '1 minute'

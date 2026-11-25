@@ -1,4 +1,4 @@
-import { Gift, Receipt, Sparkles, Ticket, Wallet } from 'lucide-react';
+import { Download, Gift, Percent, Receipt, Sparkles, Ticket, Wallet } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { ApiError, api } from '@/lib/api';
@@ -34,10 +34,11 @@ export function OrdersPage() {
     { key: 'status', header: 'Status', cell: (o) => <StatusBadge status={o.status} /> },
     { key: 'provider', header: 'Paid with', cell: (o) => <span className="capitalize text-muted">{o.provider}</span>, hideOnMobile: true, wide: true },
     { key: 'total', header: 'Total', align: 'right', cell: (o) => $(o.total_cents) },
+    { key: 'tax', header: 'Sales tax', align: 'right', cell: (o) => (o.tax_cents > 0 ? $(o.tax_cents) : <span className="text-faint">—</span>), hideOnMobile: true, wide: true },
   ];
   return (
     <>
-      <PageHeader title="Orders" description="Store purchases. Open an order to see where the money went or to refund it." />
+      <PageHeader title="Orders" description="Store purchases. Open an order to see where the money went or to refund it. Totals are before sales tax." />
       <FilterBar>
         <SearchInput value={f.q} onChange={(q) => setF({ q })} placeholder="Search by buyer email, username, order ID or payment reference" />
         <FilterSelect label="Status" value={f.status} onChange={(status) => setF({ status })} options={[['', 'Any status'], ['paid', 'Paid'], ['pending', 'Pending'], ['failed', 'Failed'], ['refunded', 'Refunded']]} />
@@ -71,8 +72,8 @@ export function OrderDetail() {
 
   const refund = async (o: R) => {
     const v = await ask({
-      title: `Refund ${$(o.total_cents)}?`,
-      body: 'The buyer loses access to what they bought and the creators\' earnings from this order are reversed.',
+      title: `Refund ${$(o.total_cents + (o.tax_cents ?? 0))}?`,
+      body: `The buyer loses access to what they bought and the creators' earnings from this order are reversed.${o.tax_cents > 0 ? ` The ${$(o.tax_cents)} of sales tax goes back to the buyer too.` : ''}`,
       fields: [
         { name: 'to', label: 'Send the money', type: 'select', initial: 'provider', options: [{ value: 'provider', label: 'Back to the original payment method' }, { value: 'wallet', label: 'To the buyer\'s store credit' }] },
         { name: 'reason', label: 'Reason', type: 'textarea', required: true, minLength: 3 },
@@ -114,7 +115,7 @@ export function OrderDetail() {
               }
             />
             <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <Stat label="Total" value={$(o.total_cents)} hint={o.discount_cents ? `${$(o.discount_cents)} discount${o.discount_code ? ` (${o.discount_code})` : ''}` : undefined} />
+              <Stat label="Total" value={$(o.total_cents)} hint={o.discount_cents ? `${$(o.discount_cents)} discount${o.discount_code ? ` (${o.discount_code})` : ''}` : d.tax?.tax_cents > 0 ? `Before ${$(d.tax.tax_cents)} sales tax` : undefined} />
               <Stat label="Processing fee" value={$(o.fee_cents)} />
               <Stat label="To creators" value={$(d.items.reduce((a: number, i: R) => a + (i.creator_cents ?? 0), 0))} />
               <Stat label="Paid with credit" value={$(o.credit_cents ?? 0)} />
@@ -132,6 +133,19 @@ export function OrderDetail() {
                   ]}
                 />
               </Section>
+              {d.tax && (d.tax.tax_cents > 0 || d.tax.country) && (
+                <Section title="Sales tax" description="Collected from the buyer on top of the total and held to remit. It is not revenue and no creator share, fee or ledger entry is worked out on it.">
+                  <DefList
+                    items={[
+                      ['Tax collected', d.tax.tax_cents > 0 ? `${$(d.tax.tax_cents)} · ${d.tax.label}` : 'None'],
+                      ['Taxable amount', $(d.tax.taxable_cents)],
+                      ['Billing location', d.tax.state ? `${d.tax.state_name} ${d.tax.zip ?? ''}, United States` : `Outside the United States (${d.tax.country})`],
+                      ['Charged to the buyer', `${$(d.tax.charged_cents)} (total ${$(o.total_cents)} + tax ${$(d.tax.tax_cents)}${o.credit_cents ? ` − store credit ${$(o.credit_cents)}` : ''})`],
+                      ...(d.tax.refunded_cents > 0 ? [['Tax refunded', $(d.tax.refunded_cents)] as [string, string]] : []),
+                    ]}
+                  />
+                </Section>
+              )}
               <Section title="Items">
                 <Table
                   rowKey={(r: R) => r.id}
@@ -142,6 +156,7 @@ export function OrderDetail() {
                     { key: 'kind', header: 'Type', cell: (i: R) => <span className="capitalize">{String(i.kind).replace(/_/g, ' ')}</span> },
                     { key: 'brand', header: 'Brand', cell: (i: R) => (i.publisher_id ? <Link className="link" to={`/admin/brands/${i.publisher_id}`}>{i.publisher_name}</Link> : '—') },
                     { key: 'price', header: 'Price', align: 'right', cell: (i: R) => $(i.price_cents) },
+                    ...(d.tax?.tax_cents > 0 ? [{ key: 'tax', header: 'Sales tax', align: 'right' as const, cell: (i: R) => (i.tax_cents > 0 ? $(i.tax_cents) : '—') }] : []),
                     { key: 'creator', header: 'Creator share', align: 'right', cell: (i: R) => $(i.creator_cents) },
                   ]}
                 />
@@ -182,6 +197,94 @@ export function OrderDetail() {
   );
 }
 
+// ---------------------------------------------------------------- sales tax report
+
+type TaxRow = { taxable_cents: number; tax_collected_cents: number; tax_refunded_cents: number; net_tax_cents: number; orders: number };
+type TaxReport = { from: string; to: string; enabled: boolean; states: (TaxRow & { state: string; state_name: string; rate_bps: number })[]; totals: TaxRow };
+
+/** The first and last day (YYYY-MM-DD, UTC) of the month `back` months ago. */
+function monthRange(back: number): { from: string; to: string } {
+  const now = new Date();
+  const day = (d: Date) => d.toISOString().slice(0, 10);
+  return { from: day(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - back, 1))), to: day(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - back + 1, 0))) };
+}
+
+/** Sales tax collected, by state, for a date range: the figures the owner's accountant files from. */
+export function SalesTaxPage() {
+  useTitle('Sales tax');
+  const $ = useMoney();
+  const isSuper = useIsSuper();
+  const last = monthRange(1);
+  const [f, setF] = useFilters({ from: last.from, to: last.to });
+  const valid = /^\d{4}-\d{2}-\d{2}$/.test(f.from) && /^\d{4}-\d{2}-\d{2}$/.test(f.to) && f.from <= f.to;
+  const q = useAdminQuery<TaxReport>('/api/admin/sales-tax', { from: f.from, to: f.to }, { enabled: valid });
+  const csv = `/api/admin/sales-tax?from=${encodeURIComponent(f.from)}&to=${encodeURIComponent(f.to)}&format=csv`;
+  const thisMonth = monthRange(0);
+  return (
+    <>
+      <PageHeader
+        title="Sales tax"
+        description="Tax collected at checkout, by the buyer's state. A sale counts on the day it was paid and a refund on the day the tax went back (dates in UTC). Store orders and membership payments are both included."
+        actions={valid ? <a href={csv} download className="inline-flex h-10 items-center gap-2 rounded-lg border border-line bg-raised px-4 text-sm font-medium hover:bg-hover"><Download className="size-4" aria-hidden />Export CSV</a> : undefined}
+      />
+      <FilterBar>
+        <span className="flex flex-wrap items-center gap-2 text-sm text-muted">
+          <span className="block w-[10.5rem]"><Input type="date" aria-label="From date" value={f.from} max={f.to || undefined} onChange={(e) => setF({ from: e.target.value })} /></span>
+          to
+          <span className="block w-[10.5rem]"><Input type="date" aria-label="To date" value={f.to} min={f.from || undefined} onChange={(e) => setF({ to: e.target.value })} /></span>
+        </span>
+        <Button size="sm" className="h-10" onClick={() => setF(last)}>Last month</Button>
+        <Button size="sm" className="h-10" onClick={() => setF(thisMonth)}>This month</Button>
+      </FilterBar>
+      {!valid ? (
+        <Notice tone="warn">Choose a start date and an end date, with the start first.</Notice>
+      ) : (
+        <Loaded query={q}>
+          {(d) => (
+            <div className="space-y-5">
+              {!d.enabled && (
+                <Notice tone="info" action={isSuper ? <Link to="/admin/settings?tab=tax" className="link whitespace-nowrap text-sm">Sales tax settings</Link> : undefined}>
+                  Sales tax is switched off, so nothing is being collected. Anything below was collected while it was on.
+                </Notice>
+              )}
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                <Stat label="Taxable sales" value={$(d.totals.taxable_cents)} hint={plural(d.totals.orders, 'order')} />
+                <Stat label="Tax collected" value={$(d.totals.tax_collected_cents)} />
+                <Stat label="Tax refunded" value={$(d.totals.tax_refunded_cents)} />
+                <Stat label="Net tax" value={$(d.totals.net_tax_cents)} hint="Collected less refunded" />
+              </div>
+              {d.states.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-line px-5 py-10 text-center">
+                  <Percent className="mx-auto size-8 text-muted" aria-hidden />
+                  <p className="mt-3 font-semibold">No sales to US buyers in these dates</p>
+                  <p className="mt-1 text-sm text-muted">States appear here once buyers there pay for comics, page credits or a membership while sales tax is on. Try a different date range.</p>
+                </div>
+              ) : (
+                <Table
+                  rowKey={(r) => r.state}
+                  rows={[...d.states, { ...d.totals, state: 'TOTAL', state_name: 'All states', rate_bps: -1 }]}
+                  columns={[
+                    { key: 'state', header: 'State', cell: (r) => <span className={r.state === 'TOTAL' ? 'font-semibold' : undefined}>{r.state_name}</span> },
+                    { key: 'rate', header: 'Rate now', align: 'right', cell: (r) => (r.rate_bps < 0 ? '' : `${r.rate_bps / 100}%`), hideOnMobile: true },
+                    { key: 'taxable', header: 'Taxable sales', align: 'right', cell: (r) => $(r.taxable_cents) },
+                    { key: 'collected', header: 'Tax collected', align: 'right', cell: (r) => $(r.tax_collected_cents) },
+                    { key: 'refunded', header: 'Tax refunded', align: 'right', cell: (r) => $(r.tax_refunded_cents) },
+                    { key: 'net', header: 'Net tax', align: 'right', cell: (r) => <span className="font-semibold">{$(r.net_tax_cents)}</span> },
+                    { key: 'orders', header: 'Orders', align: 'right', cell: (r) => number(r.orders) },
+                  ]}
+                />
+              )}
+              <p className="text-sm text-muted">
+                Taxable sales are the prices tax was worked out on: after discounts, before store credit, without tips and gift cards. Tax is not revenue: the sales, revenue and earnings figures elsewhere in admin are all before tax. The site reports what it collected; filing and paying it is done with your accountant.
+              </p>
+            </div>
+          )}
+        </Loaded>
+      )}
+    </>
+  );
+}
+
 // ---------------------------------------------------------------- memberships
 
 function MembershipModal({ id, onClose }: { id: string; onClose: () => void }) {
@@ -191,8 +294,8 @@ function MembershipModal({ id, onClose }: { id: string; onClose: () => void }) {
   const q = useAdminQuery<R>(`/api/admin/memberships/${id}`);
   const refund = async (c: R) => {
     const v = await ask({
-      title: `Refund ${$(c.amount_cents)}?`,
-      body: 'The payment goes back through the processor and the membership ends.',
+      title: `Refund ${$(c.amount_cents + (c.tax_cents ?? 0))}?`,
+      body: `The payment goes back through the processor and the membership ends.${c.tax_cents > 0 ? ` That includes ${$(c.tax_cents)} of sales tax.` : ''}`,
       fields: [{ name: 'reason', label: 'Reason', type: 'textarea', required: true, minLength: 3 }],
       confirmLabel: 'Refund payment',
       danger: true,
@@ -224,6 +327,7 @@ function MembershipModal({ id, onClose }: { id: string; onClose: () => void }) {
                   { key: 'period', header: 'Period', cell: (c: R) => `${date(c.period_start)} to ${date(c.period_end)}` },
                   { key: 'status', header: 'Status', cell: (c: R) => <span title={c.last_error ?? ''}><StatusBadge status={c.status} /></span> },
                   { key: 'amount', header: 'Amount', align: 'right', cell: (c: R) => $(c.amount_cents) },
+                  { key: 'tax', header: 'Sales tax', align: 'right', cell: (c: R) => (c.tax_cents > 0 ? <span title={`${c.tax_state} ${c.tax_rate_bps / 100}%`}>{$(c.tax_cents)}</span> : '—') },
                   { key: 'fee', header: 'Fee', align: 'right', cell: (c: R) => $(c.fee_cents) },
                   { key: 'act', header: '', cell: (c: R) => (c.status === 'paid' ? <Button size="sm" variant="danger" loading={busy === c.id} onClick={() => refund(c)}>Refund</Button> : null) },
                 ]}

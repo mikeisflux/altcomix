@@ -5,9 +5,10 @@ import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 import { api, errorMessage } from '@/lib/api';
 import { useSession } from '@/lib/session';
-import { Badge, Button, Field, FormRow, FormSection, Input, MoneyInput, Notice, PageHeader, Segmented, Select, Switch, Tabs, toast, useConfirm } from '@/ui';
+import { Badge, Button, Field, FormRow, FormSection, Input, MoneyInput, Notice, PageHeader, Segmented, Select, Switch, Table, Tabs, toast, useConfirm } from '@/ui';
+import { US_STATES } from '../store/tax';
 import { SuperOnly } from './AdminLayout';
-import { CopyField, Loaded, bpsToPct, pctToBps, useAct, useAdminQuery, useFilters, useTitle } from './shared';
+import { CopyField, Loaded, SearchInput, bpsToPct, pctToBps, useAct, useAdminQuery, useFilters, useTitle } from './shared';
 import type { R } from './shared';
 
 type SettingsData = { sections: Record<string, R>; secrets: Record<string, string[]>; info: { app_url: string; environment: string; webhooks: Record<string, string>; cron_secret_set: boolean } };
@@ -535,12 +536,77 @@ function Analytics({ value, secrets }: TabProps) {
   );
 }
 
+// ---------------------------------------------------------------- Sales tax
+
+/** The highest rate the API accepts for a state, in percent. */
+const MAX_TAX_PCT = 20;
+
+function SalesTax({ value, secrets }: TabProps) {
+  // One text box per state, in percent; the API stores basis points (7% = 700).
+  const s = useSection('tax', { enabled: Boolean(value.enabled), pct: Object.fromEntries(US_STATES.map(([code]) => [code, value.rates?.[code] ? bpsToPct(value.rates[code]) : ''])) }, secrets);
+  const f = s.form;
+  const [search, setSearch] = useState('');
+  const pctOf = (code: string): string => String(f.pct[code] ?? '').trim();
+  const withRate = US_STATES.filter(([code]) => Number(pctOf(code)) > 0).length;
+  const term = search.trim().toLowerCase();
+  const rows = US_STATES.filter(([code, name]) => !term || name.toLowerCase().includes(term) || code.toLowerCase() === term).map(([code, name]) => ({ code, name }));
+  const save = () => {
+    const rates: Record<string, number> = {};
+    for (const [code, name] of US_STATES) {
+      const text = pctOf(code).replace('%', '');
+      if (!text) {
+        rates[code] = 0;
+        continue;
+      }
+      // Rates are stored in hundredths of a percent, so two decimal places is as fine as they go.
+      if (!/^\d{1,2}(\.\d{1,2})?$/.test(text) || Number(text) > MAX_TAX_PCT) return void toast.error(`${name}: enter a rate between 0 and ${MAX_TAX_PCT} with at most two decimal places, for example 7 or 6.25.`);
+      rates[code] = pctToBps(text) ?? 0;
+    }
+    s.save({ enabled: Boolean(f.enabled), rates });
+  };
+  return (
+    <>
+      <FormSection title="Sales tax at checkout" description="When this is on, checkout asks each buyer for their country and, in the United States, their state and ZIP code, and adds sales tax as its own line at the rate you set for that state. Buyers outside the United States are not charged tax.">
+        <Switch checked={Boolean(f.enabled)} onChange={(enabled) => s.set({ enabled })} label="Charge sales tax" description="Off: no location is asked for and no tax is charged, whatever the rates below say." />
+        <Notice tone="info">
+          Your accountant decides where you must collect sales tax and at what rate. Enter a rate only for the states they name. Every other state stays at 0% and buyers there pay no tax. The site collects the tax and reports it under Finance → Sales tax; it does not file returns or pay the states for you.
+        </Notice>
+      </FormSection>
+      <FormSection title="Rate for each state" description="Tax is charged on comics, bundles, page-credit packs and memberships (the first payment and every renewal). Tips and gift cards are not taxed. The tax is kept apart from creator earnings: creators are paid on the price before tax.">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0 flex-1 sm:max-w-xs"><SearchInput value={search} onChange={setSearch} placeholder="Find a state" label="Find a state" /></div>
+          <Badge tone={withRate ? 'ok' : 'neutral'}>{withRate === 0 ? 'No states with a rate' : `${withRate} ${withRate === 1 ? 'state' : 'states'} with a rate`}</Badge>
+        </div>
+        <Table
+          rows={rows}
+          rowKey={(r) => r.code}
+          empty={`No state matches "${search.trim()}"`}
+          columns={[
+            { key: 'state', header: 'State', cell: (r) => <span className="font-medium">{r.name} <span className="font-normal text-faint">{r.code}</span></span> },
+            {
+              key: 'rate', header: 'Rate', align: 'right', width: '9rem',
+              cell: (r) => (
+                <span className="relative ml-auto block w-28">
+                  <Input inputMode="decimal" aria-label={`Sales tax rate for ${r.name}, in percent`} placeholder="0" value={f.pct[r.code] ?? ''} onChange={(e) => s.set({ pct: { ...f.pct, [r.code]: e.target.value } })} className="pr-8 text-right tabular-nums" />
+                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted">%</span>
+                </span>
+              ),
+            },
+          ]}
+        />
+      </FormSection>
+      <SaveBar saving={s.saving} onSave={save} label="Save sales tax settings" />
+    </>
+  );
+}
+
 // ---------------------------------------------------------------- page
 
 const TABS: { value: string; label: string; section: string; C: (p: TabProps) => ReactNode }[] = [
   { value: 'general', label: 'General', section: 'site', C: General },
   { value: 'revenue', label: 'Revenue', section: 'revenue', C: Revenue },
   { value: 'membership', label: 'Membership', section: 'membership', C: Membership },
+  { value: 'tax', label: 'Sales tax', section: 'tax', C: SalesTax },
   { value: 'storage', label: 'Storage', section: 'storage', C: Storage },
   { value: 'email', label: 'Email', section: 'email', C: EmailTab },
   { value: 'payments', label: 'Payments', section: 'payments', C: Payments },
