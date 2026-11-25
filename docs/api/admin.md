@@ -299,6 +299,71 @@ Refunds that payment (plan price plus any sales tax) through the processor and e
 `{ ok }`; `409` if the charge is not paid; `502` if the processor refuses.
 Audit: `membership_charge.refund`.
 
+### Creator Premium — `admin-finance.ts`
+
+The optional yearly plan brands pay the platform for (`docs/api/studio.md`
+section 9a). Everything here is platform revenue before sales tax; none of it
+is in the membership endpoints or figures above.
+
+| Method | Path | Who | Notes |
+|---|---|---|---|
+| GET | `/api/admin/premium?q=&status=&kind=&page=&limit=` | admin | One row per plan a brand has had (paid or granted). `status=current` = running now, else `active\|past_due\|canceled\|expired`; `kind=paid\|complimentary`; `q` matches brand name, address or payer email |
+| GET | `/api/admin/premium-charges?status=&subscription_id=&page=` | admin | Payments, newest first (paid and refunded unless `status` is given) |
+| POST | `/api/admin/premium-charges/:id/refund` | admin | `{ reason }`. Full refund through the processor: plan price + sales tax. The brand's **paid plan ends now** (same as a refunded reader membership payment); the tax is recorded in `sales_tax_refunds`. A grant is not affected. `409` unless the charge is `paid` |
+| POST | `/api/admin/brands/:id/premium/grant` | admin | `{ ends_on?: "YYYY-MM-DD", no_end?: true, note? }`. Grants Premium without payment. No body = one year from today. Called again for a brand with a grant, it replaces the end date and note (`changed: true`). → `{ ok, subscription_id, ends_at: <instant> \| null, changed }` |
+| POST | `/api/admin/brands/:id/premium/revoke` | admin | `{ note? }`. Ends the grant now. `409` if there is none. A paid plan is not touched |
+| GET | `/api/admin/brands/:id/premium` | admin | `{ brand: { id, slug, name }, active, grant, paid }` (also in `GET /api/admin/brands/:id` as `premium`) |
+
+```jsonc
+// GET /api/admin/premium
+{
+  "items": [ {
+    "id", "publisher_id", "brand_name", "brand_slug", "status", "provider": "sandbox"|"divinity"|"comp",
+    "complimentary": false,               // true = granted
+    "note", "price_cents", "started_at", "current_period_start", "current_period_end",
+    "ends_at": "<instant>" | null, "no_end": false,   // a grant with no end date: no_end true, ends_at null
+    "cancel_at_period_end", "canceled_at", "current": true, "renews_at": "<date>" | null,
+    "user_id", "email", "username",      // the payer; for a grant, the admin who granted it
+    "last_charge": { "id", "paid_at", "amount_cents", "tax_cents", "status" } | null
+  } ],
+  "total", "page", "limit",
+  "summary": { "active_brands", "paying", "complimentary", "canceling", "past_due",
+               "annual_run_rate_cents",   // paid plans set to renew, before tax
+               "collected_cents", "refunded_cents",   // all time, before tax
+               "tax_cents" },             // sales tax collected less refunded
+  "product": { "name", "annual_cents" }
+}
+// GET /api/admin/premium-charges → items:
+{ "id", "subscription_id", "publisher_id", "brand_name", "brand_slug", "email", "period_start", "period_end",
+  "amount_cents", "tax_cents", "total_cents", "tax_state", "tax_rate_bps", "tax_label", "tax_refunded_cents",
+  "fee_cents", "status", "attempts", "last_error", "payment_ref", "paid_at", "refunded_at", "created_at" }
+// grant / paid in the per-brand summary:
+"grant": { "id", "started_at", "ends_at": "<instant>" | null, "note", "granted_by" } | null,
+"paid":  { "id", "status", "price_cents", "current_period_start", "current_period_end", "cancel_at_period_end", "current" } | null
+```
+
+A granted brand has exactly the features of a paying one. A grant has no
+charge and no tax and appears in no revenue figure. Grant and paid plan can
+run together: the brand has Premium while either is active, and neither
+changes the other (revoking the grant leaves the paid plan; refunding or
+canceling the paid plan leaves the grant). The brand's owners are told in the
+app and by email (`premium_granted`). Audit actions: `premium.grant`,
+`premium.grant_change`, `premium.revoke`, `premium_charge.refund`; the brand's
+own `premium.start`, `premium.cancel`, `premium.resume`,
+`premium.payment_method`.
+
+**Dashboard.** `GET /api/admin/dashboard` gained `totals.premium_cents` (paid
+and refunded Premium charges, before tax), `totals.premium_brands` and the
+per-day `series.premium_cents`. Premium is included in `gross_cents`,
+`fee_cents`, `refunded_cents` and `platform_cents` (all of a Premium payment
+less its fee estimate is platform revenue). `sales_cents`, `membership_cents`,
+`creator_cents`, `active_members` and `mrr_cents` do not include it.
+
+**Sales tax report.** `GET /api/admin/sales-tax` counts Premium charges with
+orders and membership charges, and their refunded tax.
+
+**Settings.** Section `creator_premium`: `{ name, annual_cents }` (≥ 100).
+
 ### Sales tax report
 
 **GET /api/admin/sales-tax** — admin. Query: `from`, `to` (`YYYY-MM-DD`, whole

@@ -147,6 +147,7 @@ export function Dashboard() {
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
               <Stat label="Money in" value={$(sum(s.gross_cents))} hint={`${$(t.gross_cents)} all time`} />
               <Stat label="Platform revenue" value={$(sum(s.platform_cents))} hint={`After fees, creator earnings and refunds. ${$(t.platform_cents)} all time`} />
+              <Stat label="Creator Premium" value={$(sum(s.premium_cents))} hint={<Link className="link" to="/admin/premium">{$(t.premium_cents)} all time, before tax. {number(t.premium_brands)} {t.premium_brands === 1 ? 'brand has' : 'brands have'} it</Link>} />
               <Stat label="Creator earnings" value={$(sum(s.creator_cents))} hint={`${$(t.creator_cents)} all time`} />
               <Stat label="Refunded" value={$(sum(s.refunded_cents))} hint={`${$(t.refunded_cents)} all time`} />
               <Stat label="Orders" value={number(sum(s.orders))} hint={`${number(t.orders)} all time`} />
@@ -162,7 +163,7 @@ export function Dashboard() {
             <div className="grid gap-5 xl:grid-cols-2">
               <Card className="p-5">
                 <h2 className="mb-1 text-lg font-semibold">Money in per day</h2>
-                <p className="mb-4 text-sm text-muted">Store orders plus membership payments, before fees.</p>
+                <p className="mb-4 text-sm text-muted">Store orders, membership payments and Creator Premium payments, before fees and sales tax.</p>
                 <BarChart data={chart(s, 'gross_cents')} format={$} />
               </Card>
               <Card className="p-5">

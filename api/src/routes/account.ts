@@ -225,6 +225,14 @@ export default async function accountRoutes(app: FastifyInstance) {
         [u.id],
       );
       await db.query(`update subscription_charges set status = 'failed', last_error = 'Account deleted' where user_id = $1 and status = 'pending'`, [u.id]);
+      // Creator Premium this person was paying for a brand: the brand keeps it to the end of the paid year, and the card is never charged again.
+      await db.query(
+        `update premium_subscriptions set status = case when status = 'past_due' then 'canceled' else status end, cancel_at_period_end = true,
+                canceled_at = coalesce(canceled_at, now()), payment_method_token = null, origin_ip = null, origin_user_agent = null
+          where user_id = $1 and provider <> 'comp'`,
+        [u.id],
+      );
+      await db.query(`update premium_charges set status = 'failed', last_error = 'Account deleted' where user_id = $1 and status = 'pending'`, [u.id]);
       await db.query('update series set follower_count = greatest(0, follower_count - 1) where id in (select series_id from follows where user_id = $1)', [u.id]);
       await db.query('update series set favorite_count = greatest(0, favorite_count - 1) where id in (select series_id from favorites where user_id = $1)', [u.id]);
       await db.query('delete from follows where user_id = $1', [u.id]);

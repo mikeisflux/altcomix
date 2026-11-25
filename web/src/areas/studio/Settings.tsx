@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { CalendarDays, Coins, FileText, IdCard, Landmark, Share2, Trash2, UsersRound } from 'lucide-react';
+import { CalendarDays, Coins, FileText, IdCard, Landmark, Share2, Sparkles, Trash2, UsersRound } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
@@ -364,7 +364,7 @@ export function SettingsPage() {
       <div className="grid gap-5 md:grid-cols-[200px_minmax(0,1fr)]">
         <SideNav groups={[
           { title: 'Brand', items: [{ to: base, label: 'Identity', icon: <IdCard />, end: true }, { to: `${base}/social`, label: 'Social links', icon: <Share2 /> }, { to: `${base}/conventions`, label: 'Conventions', icon: <CalendarDays /> }] },
-          { title: 'Money', items: [{ to: `${base}/tips`, label: 'Tips', icon: <Coins /> }, { to: `${base}/payouts`, label: 'Payouts', icon: <Landmark /> }, ...(can(role, 'admin') ? [{ to: `/studio/${brand.slug}/tax`, label: 'Tax information', icon: <FileText /> }] : [])] },
+          { title: 'Money', items: [{ to: `${base}/tips`, label: 'Tips', icon: <Coins /> }, { to: `${base}/payouts`, label: 'Payouts', icon: <Landmark /> }, { to: `/studio/${brand.slug}/premium`, label: 'Creator Premium', icon: <Sparkles /> }, ...(can(role, 'admin') ? [{ to: `/studio/${brand.slug}/tax`, label: 'Tax information', icon: <FileText /> }] : [])] },
           { title: 'People', items: [{ to: `${base}/team`, label: 'Team', icon: <UsersRound /> }] },
           ...(role === 'owner' ? [{ title: 'Danger zone', items: [{ to: `${base}/delete`, label: 'Delete brand', icon: <Trash2 /> }] }] : []),
         ]} />

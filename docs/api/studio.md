@@ -302,6 +302,13 @@ Editable fields: `title`, `synopsis` (≤1800), `kind`, `language`, `number`
 `download_discount_pct`, `force_free`, `free_at`, `free_pages`, `spread_pref`,
 `single_cover`.
 
+**`print_url` needs Creator Premium (section 9a).** Without it, a request that
+adds a link or changes the saved one (create, `PATCH`, bulk save) is refused
+with `402 { error, code: "premium_required" }` and nothing in that request is
+saved. Sending the saved link back unchanged, or clearing it (`""`/`null`), is
+always allowed. The Studio always returns the saved link; readers only get it
+while the brand has Premium (see `docs/api/reader.md`).
+
 | Method | Path | Who | Notes |
 |---|---|---|---|
 | GET | `/api/studio/series/:id/releases?language=en` | analyst | `{ series: { id, title, slug, language, reading_dir }, releases: [Release + frames_missing, contributor_count, active_job: { id, kind, status, done, total } | null], groups }` ordered by language, type, number. `groups` = release types grouped as in the create dialog. Without `language`, every edition. |
@@ -578,6 +585,85 @@ a visit = one reader, one release, one day. CSV: `metric,value,previous,change,c
 | `/revenue` | per month: `month (YYYY-MM), tips_cents, membership_cents, sales_cents, refunds_cents, adjustments_cents, total_cents, gross_cents`. Extras: `currency`, `by_series: [{ series_id, series_title, total_cents }]`, `membership_breakdown: [{ reading_month, series_id, series_title, gross_cents, amount_cents, note, member_page_reads, member_readers }]` — how each membership figure was made up |
 
 ---
+
+## 9a. Creator Premium — `studio-premium.ts`, `lib/premium.ts`, `lib/payments.ts`
+
+The optional yearly plan for a brand (default 140.00 a year per brand, set in
+Admin > Settings > Creator Premium; public as `settings.creator_premium`
+`{ name, annual_cents }` in `/api/bootstrap`). A brand has Premium while it has
+a paid plan whose paid year is running, or a grant from the platform, or both.
+`brandHasPremium(publisherId)` in `lib/premium.ts` is the one check (cached for
+15 seconds) and every gate uses it:
+
+- **Print edition link** (`releases.print_url`): adding or changing needs Premium (section 3); hidden from readers without it.
+- **Analytics** (section 9): `releases/:releaseId/dropoff`, `countries`, `followers`, `engagement`, `emails`, and **every** `format=csv` download answer `402 { error, code: "premium_required" }` without Premium. `dashboard`, `page-reads` and `revenue` as JSON are free for every brand.
+
+Platform admins looking at a brand's Studio get the same answers as the brand.
+
+| Method | Path | Who | Notes |
+|---|---|---|---|
+| GET | `/api/studio/brands/:id/premium` | analyst | The plan and where the brand stands. `?session_id=` confirms a card session first (owner/admin only) |
+| POST | `/api/studio/brands/:id/premium/quote` | admin | `{ location? }` → `{ product, tax }`: what a year costs with sales tax there; saves nothing |
+| POST | `/api/studio/brands/:id/premium/start` | admin, on the team | `{ surface?: "embed"\|"redirect", location? }`. Needs a confirmed email. With sales tax on, a billing location is required (`400 location_required`) and saved |
+| POST | `/api/studio/brands/:id/premium/cancel` | admin | Stops renewal; Premium stays until `current_period_end`. A plan whose payment is failing ends now. `404` if there is no paid plan |
+| POST | `/api/studio/brands/:id/premium/resume` | admin | Undoes a cancellation while the paid year runs. `409` otherwise |
+| POST | `/api/studio/brands/:id/premium/payment-method` | admin, on the team | `{ surface? }` → a card session, as for the reader membership. Whoever does this becomes the payer |
+
+"admin" is `requireMember(req, id, 'admin')`, the same helper the payout
+endpoints use. "On the team" adds: a real owner/admin seat in
+`publisher_members`, because it is that person's card and billing location; a
+platform admin gets `403` and grants Premium from the admin area instead.
+
+`start` and `payment-method` answer either `{ completed: true, ...view }` (the
+sandbox provider) or `{ url, session_id, surface, status }` for the embedded
+secure checkout (`web/src/areas/store/SecureCheckout.tsx`); the page then asks
+`GET …/premium?session_id=` until `confirmation` is no longer `pending`.
+`start` is refused with `409` while the brand has a running paid plan. The first
+year is charged as soon as the card is saved; there is no trial.
+
+```jsonc
+// GET /api/studio/brands/:id/premium
+{
+  "brand": { "id", "slug", "name" },
+  "active": true,                         // brandHasPremium: what every gate uses
+  "product": { "name": "Creator Premium", "annual_cents": 14000 },
+  "role": "owner", "can_manage": true,    // may cancel / resume
+  "can_pay": true,                        // may subscribe / change the card
+  // null while sales tax is off, and for people who cannot pay
+  "tax": { "enabled": true, "location": { "country", "state", "zip" } | null, "state_name",
+           "annual": { "price_cents", "needs_location", "location", "state_name", "rate_bps",
+                       "taxable_cents", "tax_cents", "label", "total_cents" } } | null,
+  "provider": "sandbox" | "divinity",
+  "saved_print_links": 3,                 // releases of this brand with a saved link
+  // Premium given by the platform: no card, no charge. ends_at null = no end date
+  "grant": { "granted_by": "<site name>", "started_at", "ends_at" } | null,
+  // the brand's own paid plan (the latest one), or null
+  "subscription": {
+    "id", "status": "active"|"past_due"|"canceled"|"expired", "price_cents",
+    "current_period_start", "current_period_end", "cancel_at_period_end", "canceled_at",
+    "renews_at": "<date>" | null, "has_payment_method", "paid_by": "<display name>", "paid_by_you",
+    "payment_problem": { "attempts", "next_attempt_at", "message" } | null
+  } | null,
+  // paid and refunded payments, newest first; amount_cents is before tax
+  "charges": [ { "id", "period_start", "period_end", "amount_cents", "tax_cents", "total_cents",
+                 "tax_label", "status": "paid"|"refunded", "paid_at", "refunded_at" } ],
+  "confirmation": null | "active"|"updated"|"pending"|"declined"|"failed"|"expired"|"canceled",
+  "confirmation_message": null
+}
+```
+
+Billing is the reader membership's machinery on separate tables
+(`premium_subscriptions`, `premium_charges`; the `PREMIUM` book in
+`lib/payments.ts`): renewal once a year on the saved card at the price the
+brand started at, sales tax worked out at each charge from the payer's saved
+billing location (`/api/billing-location`), a declined renewal retried after
+1, 3 and 5 days and the plan ended on the fourth decline. As with the reader
+membership, the features are off from the end of the paid year until a renewal
+payment goes through. Saved print links are never deleted. A payer who has left
+the team is not charged at renewal: the plan ends with the paid year and the
+owners are notified. Emails: `premium_started` (receipt with the tax line),
+`premium_billing` (renewal receipt, payment failed, ended, canceled),
+`premium_granted`.
 
 ## 10. Earnings and payouts — `studio-commerce.ts`
 

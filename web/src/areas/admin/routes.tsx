@@ -4,6 +4,7 @@ import { CommentsPage, ReportsPage, SeriesPage } from './Catalog';
 import { Dashboard } from './Dashboard';
 import { EmailQueuePage, EmailTemplatesPage, SuppressionsPage } from './Email';
 import { InboxPage, MailboxesPage } from './Inbox';
+import { PremiumPage } from './Premium';
 import { CodesPage, MembershipsPage, OrderDetail, OrdersPage, PayoutsPage, SalesTaxPage, SettlementPage } from './Finance';
 import { AuditPage, CronPage, ErrorsPage } from './Logs';
 import { BrandDetail, BrandsPage, UserDetail, UsersPage } from './People';
@@ -35,6 +36,7 @@ export const adminRoutes: RouteObject[] = [
       { path: 'orders', element: <OrdersPage /> },
       { path: 'orders/:id', element: <OrderDetail /> },
       { path: 'memberships', element: <MembershipsPage /> },
+      { path: 'premium', element: <PremiumPage /> },
       { path: 'payouts', element: <PayoutsPage /> },
       { path: 'settlement', element: <SettlementPage /> },
       { path: 'sales-tax', element: <SalesTaxPage /> },

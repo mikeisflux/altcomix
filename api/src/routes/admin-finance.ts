@@ -10,6 +10,7 @@ import { sendTemplate } from '../lib/email.ts';
 import { HttpError, audit, badRequest, conflict, notFound, pageParams, parse, requireAdmin, requireSuperAdmin } from '../lib/http.ts';
 import { reverseOrder } from '../lib/ledger.ts';
 import { notify } from '../lib/notify.ts';
+import { PREMIUM, brandPremiumSummary, grantPremium, premiumEnds, refundCharge, revokePremiumGrant } from '../lib/payments.ts';
 import { US_STATES, stateName, taxLabel } from '../lib/salestax.ts';
 import { getSetting } from '../lib/settings.ts';
 import { taxStatus, taxStatuses, taxWarning } from '../lib/tax.ts';
@@ -255,7 +256,7 @@ export default async function adminFinanceRoutes(app: FastifyInstance) {
     /**
      * Sales tax by state for a date range (`from` and `to` are whole days, UTC,
      * both included; default: the last full calendar month). Covers store
-     * orders and membership charges. A sale counts on the day it was paid; tax
+     * orders, membership charges and Creator Premium charges. A sale counts on the day it was paid; tax
      * that went back to a buyer counts on the day of the refund. Every state
      * with taxed-kind sales appears, including states at 0%.
      * `?format=csv` downloads the same rows.
@@ -278,6 +279,9 @@ export default async function adminFinanceRoutes(app: FastifyInstance) {
             where tax_state is not null and status in ('paid','refunded') and paid_at >= $1 and paid_at < $2
            union all
            select tax_state, taxable_cents, tax_cents from subscription_charges
+            where tax_state is not null and status in ('paid','refunded') and paid_at >= $1 and paid_at < $2
+           union all
+           select tax_state, taxable_cents, tax_cents from premium_charges
             where tax_state is not null and status in ('paid','refunded') and paid_at >= $1 and paid_at < $2),
          s as (select state, sum(taxable_cents)::float8 as taxable_cents, sum(tax_cents)::float8 as tax_collected_cents, count(*)::int as orders from sales group by state),
          r as (select state, sum(tax_cents)::float8 as tax_refunded_cents from sales_tax_refunds where created_at >= $1 and created_at < $2 group by state)
@@ -377,6 +381,154 @@ export default async function adminFinanceRoutes(app: FastifyInstance) {
       if (!r.refunded) throw conflict(`This charge is ${charge.status}; only a paid charge can be refunded`);
       audit(req, 'membership_charge.refund', { kind: 'subscription_charge', id }, { reason, amount_cents: charge.amount_cents, user_id: charge.user_id });
       return { ok: true };
+    });
+
+    // ------------------------------------------------------------ Creator Premium
+    /**
+     * Brands with Creator Premium (the yearly plan a brand pays the platform
+     * for; lib/premium.ts). One row per plan a brand has had; `?status=current`
+     * keeps the ones running now. All money here is platform revenue, before
+     * sales tax; none of it is in the membership figures above.
+     */
+    s.get('/api/admin/premium', async (req) => {
+      requireAdmin(req);
+      const qy = query(req);
+      const { limit, offset, page } = pageParams(req.query, 50, 200);
+      const w = where();
+      w.add(`ps.status <> 'pending'`);
+      if (qy.status === 'current') w.add(`ps.status in ('active','past_due') and ps.current_period_end > now()`);
+      else if (qy.status) w.add('ps.status = ?', qy.status);
+      if (qy.kind === 'complimentary') w.add(`ps.provider = 'comp'`);
+      if (qy.kind === 'paid') w.add(`ps.provider <> 'comp'`);
+      if (qy.q) {
+        const p = w.param(like(qy.q));
+        w.add(`(p.name ilike ${p} or p.slug ilike ${p} or u.email ilike ${p})`);
+      }
+      const from = 'from premium_subscriptions ps join publishers p on p.id = ps.publisher_id join users u on u.id = ps.user_id';
+      const total = (await one<{ n: number }>(`select count(*)::int as n ${from} ${w.sql}`, w.values))!.n;
+      const items = await q(
+        `select ps.id, ps.publisher_id, p.name as brand_name, p.slug as brand_slug, ps.status, ps.provider, (ps.provider = 'comp') as complimentary, ps.note,
+                ps.price_cents, ps.created_at as started_at, ps.current_period_start, ps.current_period_end, ps.cancel_at_period_end, ps.canceled_at,
+                (ps.current_period_end >= '9999-01-01') as no_end,
+                (ps.status in ('active','past_due') and ps.current_period_end > now()) as current,
+                case when ps.status = 'active' and not ps.cancel_at_period_end and ps.payment_method_token is not null then ps.current_period_end end as renews_at,
+                ps.user_id, u.email, u.username,
+                (select row_to_json(c) from (
+                   select pc.id, pc.paid_at, pc.amount_cents, pc.tax_cents, pc.status from premium_charges pc
+                    where pc.subscription_id = ps.id and pc.status in ('paid','refunded') order by pc.paid_at desc limit 1) c) as last_charge
+           ${from} ${w.sql} order by ps.created_at desc limit ${limit} offset ${offset}`,
+        w.values,
+      );
+      const summary = await one(
+        `select count(distinct publisher_id) filter (where status in ('active','past_due') and current_period_end > now())::int as active_brands,
+                count(*) filter (where provider <> 'comp' and status in ('active','past_due') and current_period_end > now())::int as paying,
+                count(*) filter (where provider = 'comp' and status = 'active' and current_period_end > now())::int as complimentary,
+                count(*) filter (where provider <> 'comp' and status = 'active' and cancel_at_period_end and current_period_end > now())::int as canceling,
+                count(*) filter (where status = 'past_due')::int as past_due,
+                coalesce(sum(price_cents) filter (where provider <> 'comp' and status = 'active' and current_period_end > now() and not cancel_at_period_end), 0)::float8 as annual_run_rate_cents,
+                (select coalesce(sum(amount_cents), 0) from premium_charges where status in ('paid','refunded'))::float8 as collected_cents,
+                (select coalesce(sum(amount_cents), 0) from premium_charges where status = 'refunded')::float8 as refunded_cents,
+                (select coalesce(sum(tax_cents - tax_refunded_cents), 0) from premium_charges where status in ('paid','refunded'))::float8 as tax_cents
+           from premium_subscriptions`,
+      );
+      // A grant with no end date has no date to show.
+      for (const it of items) it.ends_at = premiumEnds(it.current_period_end);
+      const prem = await getSetting('creator_premium');
+      return { items, total, page, limit, summary, product: { name: prem.name, annual_cents: prem.annual_cents } };
+    });
+
+    /** Every Creator Premium charge, newest first, with its sales tax. */
+    s.get('/api/admin/premium-charges', async (req) => {
+      requireAdmin(req);
+      const qy = query(req);
+      const { limit, offset, page } = pageParams(req.query, 50, 200);
+      const w = where();
+      if (qy.status) w.add('pc.status = ?', qy.status);
+      else w.add(`pc.status in ('paid','refunded')`);
+      if (qy.subscription_id && isUuid(qy.subscription_id)) w.add('pc.subscription_id = ?', qy.subscription_id);
+      const from = 'from premium_charges pc join premium_subscriptions ps on ps.id = pc.subscription_id join publishers p on p.id = ps.publisher_id join users u on u.id = pc.user_id';
+      const total = (await one<{ n: number }>(`select count(*)::int as n ${from} ${w.sql}`, w.values))!.n;
+      const items = await q(
+        `select pc.id, pc.subscription_id, ps.publisher_id, p.name as brand_name, p.slug as brand_slug, u.email, pc.period_start, pc.period_end,
+                pc.amount_cents, pc.tax_cents, (pc.amount_cents + pc.tax_cents) as total_cents, pc.tax_state, pc.tax_rate_bps, pc.tax_refunded_cents, pc.fee_cents,
+                pc.status, pc.attempts, pc.last_error, pc.payment_ref, pc.paid_at, pc.refunded_at, pc.created_at
+           ${from} ${w.sql} order by coalesce(pc.paid_at, pc.created_at) desc limit ${limit} offset ${offset}`,
+        w.values,
+      );
+      for (const c of items) c.tax_label = c.tax_cents > 0 ? taxLabel(c.tax_state, c.tax_rate_bps) : null;
+      return { items, total, page, limit };
+    });
+
+    /**
+     * Refund one Creator Premium payment in full through the processor: the
+     * plan price and its sales tax go back, and the brand's Premium ends now
+     * (the same as refunding a reader membership payment ends that membership).
+     */
+    s.post('/api/admin/premium-charges/:id/refund', async (req) => {
+      requireAdmin(req);
+      const id = idParam(req);
+      const { reason } = parse(z.object({ reason: z.string().trim().min(3, 'Give a reason for the refund').max(300) }), req.body);
+      const charge = await one(
+        `select pc.amount_cents, pc.tax_cents, pc.user_id, pc.status, ps.publisher_id from premium_charges pc join premium_subscriptions ps on ps.id = pc.subscription_id where pc.id = $1`,
+        [id],
+      );
+      if (!charge) throw notFound('Creator Premium charge not found');
+      const r = await refundCharge(id, reason, PREMIUM);
+      if (!r.refunded) throw conflict(`This charge is ${charge.status}; only a paid charge can be refunded`);
+      audit(req, 'premium_charge.refund', { kind: 'premium_charge', id }, { reason, amount_cents: charge.amount_cents, tax_cents: charge.tax_cents, user_id: charge.user_id, publisher_id: charge.publisher_id });
+      return { ok: true };
+    });
+
+    /**
+     * Grant Creator Premium to a brand without payment: `ends_on` is the last
+     * day it is active (UTC; default one year from today), or `no_end: true`
+     * for no end date; `note` is optional. Calling it again for a brand that
+     * already has a grant replaces the end date and note (extend, shorten).
+     * No card, no charge, no tax, not revenue. Works beside a paid plan: the
+     * brand has Premium while either is active. Owners are told in the app
+     * and by email. Also on the brand page: same endpoint.
+     */
+    s.post('/api/admin/brands/:id/premium/grant', async (req) => {
+      const admin = requireAdmin(req);
+      const id = idParam(req);
+      const body = parse(
+        z.object({
+          ends_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Choose the end date as YYYY-MM-DD').refine((v) => !Number.isNaN(Date.parse(v)), 'That date does not exist').nullish(),
+          no_end: z.boolean().optional(),
+          note: z.string().trim().max(500).nullish(),
+        }),
+        req.body ?? {},
+      );
+      let end: Date | null = null;
+      if (!body.no_end) {
+        const day = body.ends_on ?? new Date(Date.UTC(new Date().getUTCFullYear() + 1, new Date().getUTCMonth(), new Date().getUTCDate())).toISOString().slice(0, 10);
+        end = new Date(new Date(`${day}T00:00:00Z`).getTime() + 86_400_000);
+        if (!(end.getTime() > Date.now())) throw badRequest('Choose an end date that is today or later');
+        if (end.getTime() > Date.now() + 3660 * 86_400_000) throw badRequest('Choose an end date within ten years, or no end date');
+      }
+      const g = await grantPremium(id, admin.id, end, body.note || null);
+      audit(req, g.changed ? 'premium.grant_change' : 'premium.grant', { kind: 'publisher', id }, { ends_on: end ? new Date(end.getTime() - 1).toISOString().slice(0, 10) : null, no_end: !end, note: body.note || null, subscription_id: g.id });
+      return { ok: true, subscription_id: g.id, ends_at: g.ends_at, changed: g.changed };
+    });
+
+    /** End a brand's grant now. A paid plan is not touched: refund its charge, or let the brand cancel it. */
+    s.post('/api/admin/brands/:id/premium/revoke', async (req) => {
+      requireAdmin(req);
+      const id = idParam(req);
+      const body = parse(z.object({ note: z.string().trim().max(500).nullish() }), req.body ?? {});
+      const subId = await revokePremiumGrant(id);
+      if (!subId) throw conflict('This brand has no granted Creator Premium to revoke');
+      audit(req, 'premium.revoke', { kind: 'publisher', id }, { note: body.note || null, subscription_id: subId });
+      return { ok: true };
+    });
+
+    /** Creator Premium for one brand: whether it is on, its grant, its paid plan. For the brand page and the grant dialog. */
+    s.get('/api/admin/brands/:id/premium', async (req) => {
+      requireAdmin(req);
+      const id = idParam(req);
+      const brand = await one('select id, slug, name from publishers where id = $1', [id]);
+      if (!brand) throw notFound('Brand not found');
+      return { brand, ...(await brandPremiumSummary(id)) };
     });
 
     // ------------------------------------------------------------ payouts (super admin)

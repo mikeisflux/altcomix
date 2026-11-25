@@ -4,6 +4,7 @@ import { CodesPage } from './Codes';
 import { EarningsPage } from './Earnings';
 import { FramePage } from './FramePage';
 import { MarketingPage } from './Marketing';
+import { PremiumPage } from './Premium';
 import { ReleaseEditor } from './ReleaseEditor';
 import { SeriesList, SeriesNew } from './Series';
 import { SeriesAdvanced } from './SeriesAdvanced';
@@ -34,6 +35,7 @@ export const studioRoutes: RouteObject[] = [
       { path: 'codes', element: <CodesPage /> },
       { path: 'store', element: <StorePage /> },
       { path: 'marketing', element: <MarketingPage /> },
+      { path: 'premium', element: <PremiumPage /> },
       { path: 'settings', element: <SettingsPage /> },
       { path: 'settings/:section', element: <SettingsPage /> },
       {

@@ -223,6 +223,27 @@ export const TEMPLATES: Record<string, { subject: string; html: string; vars: st
     vars: ['subject', 'name', 'body', 'url', 'site'],
     category: 'transactional',
   },
+  premium_started: {
+    subject: 'Your {{product}} receipt for {{brand}}',
+    // `items` is the receipt: the plan line and, when sales tax was charged, a "Sales tax (State N%)" line. `total` includes the tax.
+    html: '<p>Hi {{name}},</p><p>{{product}} is now active for <strong>{{brand}}</strong>. It renews on {{renews}} on the saved card.</p>{{items}}<p><strong>Total: {{total}}</strong></p>{{button:Manage your plan|url}}<p>You can cancel at any time in Studio and keep {{product}} until the end of the paid year.</p>',
+    vars: ['name', 'product', 'brand', 'renews', 'items', 'total', 'url', 'site'],
+    category: 'transactional',
+  },
+  premium_granted: {
+    // Sent to a brand's owners when the platform gives the brand the plan without payment. `until` is "until 2027-06-30" or "with no end date".
+    subject: '{{product}} was granted to {{brand}}',
+    html: '<p>Hi {{name}},</p><p>{{site}} has granted <strong>{{product}}</strong> to <strong>{{brand}}</strong>, active {{until}}. There is nothing to pay and no card is needed.</p><p>Your team can now add “Buy in print” links to releases and use the advanced analytics in Studio.</p>{{button:Open Creator Premium|url}}',
+    vars: ['name', 'product', 'brand', 'until', 'url', 'site'],
+    category: 'transactional',
+  },
+  premium_billing: {
+    // Renewal receipts, a renewal payment that failed, a plan that ended and a cancellation, for a brand's yearly plan.
+    subject: '{{subject}}',
+    html: '<p>Hi {{name}},</p><p>{{body}}</p>{{button:Manage your plan|url}}',
+    vars: ['subject', 'name', 'body', 'product', 'brand', 'url', 'site'],
+    category: 'transactional',
+  },
   weekly_feed: {
     subject: 'New this week from what you follow: {{count}}',
     html: '<p>Hi {{name}},</p><p>Here is what came out between {{from}} and {{to}} from the series and creators you follow.</p>{{items}}{{button:Open your feed|url}}<p>You can turn this weekly summary off in your account settings.</p>',

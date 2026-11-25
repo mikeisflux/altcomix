@@ -222,6 +222,14 @@ tipper hid it (per tip, or `prefs.show_donation_amounts = false`). Member
 | PUT | `/api/progress` | user | Save reading position |
 | GET | `/api/releases/:id/download` | user | CBZ of a release the reader may keep |
 
+**`print_url` / `print_links` and Creator Premium.** A release's print edition
+link is only given out while its brand has Creator Premium (paid or granted;
+`docs/api/studio.md` section 9a). Otherwise `print_url` is `null` on every
+release here and in `GET /api/releases/:id`, and `print_links` is `[]`, for
+every caller including the brand's own team (they see the saved link in the
+Studio). The saved link is kept and shows again when Premium is active. These
+two endpoints are the only places a print link leaves the API.
+
 ### GET /api/releases/:id
 
 ```jsonc

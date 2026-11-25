@@ -49,6 +49,10 @@ const SCHEMAS: Record<SettingKey, z.ZodObject> = {
     trial_days: z.number().int().min(0).max(90),
     page_credit_cents: z.number().int().min(1).max(1000),
   }),
+  creator_premium: z.object({
+    name: str(60).min(1),
+    annual_cents: z.number().int().min(100, 'The yearly price must be at least 1.00').max(1_000_000),
+  }),
   storage: z.object({
     driver: z.enum(['local', 'r2']),
     r2_account_id: z.union([z.literal(''), z.string().trim().regex(/^[a-f0-9]{32}$/i, 'The R2 account ID is 32 hexadecimal characters')]),

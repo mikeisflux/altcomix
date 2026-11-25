@@ -4,10 +4,16 @@ import { one, q } from '../db.ts';
 import type { Row } from '../db.ts';
 import { badRequest, notFound, parse, requireMember } from '../lib/http.ts';
 import { idParam, isUuid, sendCsv } from '../lib/ingest.ts';
+import { requirePremium } from '../lib/premium.ts';
 import { getSetting } from '../lib/settings.ts';
 
 /**
  * Studio: analytics for a brand. Readable by every member (analyst and up).
+ *
+ * Free for every brand: the dashboard, page reads and revenue (JSON).
+ * Creator Premium (lib/premium.ts) only: drop-off, countries, followers,
+ * engagement, emails, and every CSV download. Without Premium those answer
+ * 402 with code `premium_required`.
  *
  * Every report takes the same range: `?range=7d|30d|90d|365d` (default 30d) or
  * `?from=YYYY-MM-DD&to=YYYY-MM-DD` (both inclusive, UTC days), and
@@ -49,10 +55,17 @@ function readRange(req: FastifyRequest): Range {
   };
 }
 
-async function brandAndRange(req: FastifyRequest) {
+/**
+ * `premium` says whether the report itself is a Creator Premium view. Every
+ * CSV download is Premium, including the CSV of a free view. The check comes
+ * after the role check, so only the brand's own team learns its plan.
+ */
+async function brandAndRange(req: FastifyRequest, premium: false | string = false) {
   const id = idParam(req);
   await requireMember(req, id, 'analyst');
   const range = readRange(req);
+  if (premium) await requirePremium(id, premium);
+  else if (range.csv) await requirePremium(id, 'Downloading analytics as CSV');
   if (range.seriesId && !(await one('select 1 from series where id = $1 and publisher_id = $2', [range.seriesId, id]))) {
     throw badRequest('That series does not belong to this brand');
   }
@@ -212,7 +225,7 @@ export default async function (app: FastifyInstance) {
    * page. Guests are counted by how many pages they read from the start.
    */
   app.get('/api/studio/brands/:id/analytics/releases/:releaseId/dropoff', async (req, rep) => {
-    const { id, range } = await brandAndRange(req);
+    const { id, range } = await brandAndRange(req, 'Where readers stop');
     const releaseId = idParam(req, 'releaseId');
     const release = await one(
       `select r.id, r.title, r.number, r.kind, r.page_count, s.title as series_title
@@ -252,7 +265,7 @@ export default async function (app: FastifyInstance) {
 
   /** Where signed-in readers are (guests are not located). */
   app.get('/api/studio/brands/:id/analytics/countries', async (req, rep) => {
-    const { id, range } = await brandAndRange(req);
+    const { id, range } = await brandAndRange(req, 'Reader countries');
     const rows = await q(
       `select coalesce(nullif(country, ''), 'unknown') as country, count(distinct user_id)::int as readers, count(*)::int as page_reads
          from page_reads where publisher_id = $1 and read_at >= $2 and read_at < $3 and ($4::uuid is null or series_id = $4)
@@ -266,7 +279,7 @@ export default async function (app: FastifyInstance) {
 
   /** New followers per day (series follows + brand follows) and the running total. */
   app.get('/api/studio/brands/:id/analytics/followers', async (req, rep) => {
-    const { id, range } = await brandAndRange(req);
+    const { id, range } = await brandAndRange(req, 'The followers report');
     const rows = await q(
       `with ev as (
          select f.created_at, 'series' as kind from follows f join series s on s.id = f.series_id
@@ -289,7 +302,7 @@ export default async function (app: FastifyInstance) {
 
   /** Favorites, comments and forum posts per day. */
   app.get('/api/studio/brands/:id/analytics/engagement', async (req, rep) => {
-    const { id, range } = await brandAndRange(req);
+    const { id, range } = await brandAndRange(req, 'The engagement report');
     const rows = await q(
       `with d as (select generate_series($2::date, $3::date - 1, interval '1 day')::date as day),
             fav as (select f.created_at::date as day, count(*)::int as n from favorites f join series s on s.id = f.series_id
@@ -308,7 +321,7 @@ export default async function (app: FastifyInstance) {
 
   /** Emails sent on the brand's behalf, per day and per kind of email. */
   app.get('/api/studio/brands/:id/analytics/emails', async (req, rep) => {
-    const { id, range } = await brandAndRange(req);
+    const { id, range } = await brandAndRange(req, 'Email statistics');
     const rows = await q(
       `with d as (select generate_series($2::date, $3::date - 1, interval '1 day')::date as day),
             e as (select sent_at::date as day, count(*)::int as sent, count(opened_at)::int as opened, count(clicked_at)::int as clicked

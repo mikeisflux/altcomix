@@ -1,5 +1,5 @@
 import {
-  Activity, BadgeDollarSign, Ban, BookOpen, Bug, CalendarClock, Clock, CreditCard, FileText, Flag, Gauge, Inbox, KeyRound, Landmark, LayoutTemplate, Mail, MailX,
+  Activity, BadgeDollarSign, Ban, BookOpen, Bug, CalendarClock, Clock, CreditCard, FileText, Flag, Gauge, Gem, Inbox, KeyRound, Landmark, LayoutTemplate, Mail, MailX,
   MailOpen, Megaphone, MessageSquare, Newspaper, Percent, Receipt, ScrollText, Settings, ShieldCheck, Sparkles, Store, Ticket, Users, Wallet,
 } from 'lucide-react';
 import { useEffect, useRef } from 'react';
@@ -87,6 +87,7 @@ export function AdminLayout() {
       items: [
         item('/admin/orders', 'Orders', <Receipt />),
         item('/admin/memberships', 'Memberships', <Sparkles />),
+        item('/admin/premium', 'Creator Premium', <Gem />),
         ...(isSuper ? [item('/admin/payouts', 'Payouts', <Wallet />, <Count n={b?.payouts} label="payout requests" />), item('/admin/settlement', 'Settlement', <BadgeDollarSign />)] : []),
         item('/admin/sales-tax', 'Sales tax', <Percent />),
         item('/admin/tax', 'Creator taxes', <Landmark />),

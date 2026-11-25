@@ -48,6 +48,14 @@ export const SETTINGS = {
     },
     secret: [],
   },
+  creator_premium: {
+    defaults: {
+      // The optional yearly plan a brand can buy (lib/premium.ts). Price per brand per year, before sales tax.
+      name: 'Creator Premium',
+      annual_cents: 14000,
+    },
+    secret: [],
+  },
   storage: {
     defaults: {
       driver: 'local' as 'local' | 'r2',
@@ -184,7 +192,7 @@ export async function setSetting(key: SettingKey, patch: Record<string, unknown>
 
 /** Subset of settings the public site needs. */
 export async function publicSettings(): Promise<Record<string, unknown>> {
-  const [site, membership, payments, security, analytics, revenue, tax] = await Promise.all([
+  const [site, membership, payments, security, analytics, revenue, tax, premium] = await Promise.all([
     getSetting('site'),
     getSetting('membership'),
     getSetting('payments'),
@@ -192,10 +200,13 @@ export async function publicSettings(): Promise<Record<string, unknown>> {
     getSetting('analytics'),
     getSetting('revenue'),
     getSetting('tax'),
+    getSetting('creator_premium'),
   ]);
   return {
     site: { name: site.name, tagline: site.tagline, socials: site.socials, registration_open: site.registration_open, currency: site.currency },
     membership,
+    // The optional yearly plan for brands: its name and price (before sales tax), so pages can show it.
+    creator_premium: { name: premium.name, annual_cents: premium.annual_cents },
     payments: { provider: payments.provider, embed_checkout: payments.divinity_embed_checkout !== false },
     // Creator shares are public: they are the pitch.
     revenue: { sale_share_bps: revenue.sale_share_bps, sub_share_bps: revenue.sub_share_bps, tip_share_bps: revenue.tip_share_bps, payout_minimum_cents: revenue.payout_minimum_cents },

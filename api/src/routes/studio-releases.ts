@@ -4,6 +4,7 @@ import { config } from '../config.ts';
 import { exec, one, patch, q, tx } from '../db.ts';
 import type { Row } from '../db.ts';
 import { audit, badRequest, conflict, forbidden, parse, requireMember, requireReleaseMember, requireSeriesMember } from '../lib/http.ts';
+import { brandHasPremium, premiumRequired } from '../lib/premium.ts';
 import { coverUrls, idParam, isUuid, publishRelease, requireVerifiedEmail } from '../lib/ingest.ts';
 import { AUDIENCES, CONTENT_RATINGS, LANGUAGES, RELEASE_GROUPS, RELEASE_KINDS, THEMES } from '../lib/taxonomy.ts';
 
@@ -105,6 +106,16 @@ async function releaseView(r: Row) {
   };
 }
 
+/**
+ * The print edition link is a Creator Premium feature: only a brand with
+ * Premium can add one or change it. Sending the link that is already saved,
+ * or clearing it, is always allowed, so nothing else on the form is blocked.
+ */
+async function assertPrintLink(publisherId: string, changes: { saved: string | null; sent: string | null | undefined }[]): Promise<void> {
+  if (!changes.some((c) => c.sent !== undefined && c.sent !== null && c.sent !== c.saved)) return;
+  if (!(await brandHasPremium(publisherId))) throw premiumRequired('The print edition link');
+}
+
 const duplicateNumber = (e: unknown): never => {
   if ((e as { code?: string }).code === '23505') throw conflict('Another release of the same type already has that number in this language');
   throw e;
@@ -136,6 +147,7 @@ export default async function (app: FastifyInstance) {
   app.post('/api/studio/series/:id/releases', async (req, reply) => {
     const s = await requireSeriesMember(req, idParam(req), 'editor');
     const body = parse(releaseFields.partial(), req.body) as Row;
+    await assertPrintLink(s.publisher_id, [{ saved: null, sent: body.print_url }]);
     body.kind ??= s.layout === 'vertical' ? 'episode' : 'issue';
     body.language ??= s.language;
     body.mature ??= s.mature;
@@ -199,6 +211,7 @@ export default async function (app: FastifyInstance) {
   app.patch('/api/studio/releases/:id', async (req) => {
     const r = await requireReleaseMember(req, idParam(req), 'editor');
     const body = parse(releaseFields.partial(), req.body);
+    await assertPrintLink(r.publisher_id, [{ saved: r.print_url, sent: body.print_url }]);
     const { sets, values } = patch(body, RELEASE_COLUMNS, 2);
     if (!sets.length) return { release: await releaseView(r) };
     const updated = await one(`update releases set ${sets.join(', ')}, updated_at = now() where id = $1 returning *`, [r.id, ...values]).catch(duplicateNumber);
@@ -221,8 +234,10 @@ export default async function (app: FastifyInstance) {
     const ids = body.releases.map((r) => r.id);
     if (new Set(ids).size !== ids.length) throw badRequest('The same release appears twice in this save');
     const updated = await tx(async (db) => {
-      const found = await db.query('select id, number from releases where series_id = $1 and deleted_at is null and id = any($2::uuid[]) for update', [s.id, ids]);
+      const found = await db.query('select id, number, print_url from releases where series_id = $1 and deleted_at is null and id = any($2::uuid[]) for update', [s.id, ids]);
       if (found.rowCount !== ids.length) throw badRequest('One of these releases is not part of this series');
+      const savedLink = new Map<string, string | null>(found.rows.map((r) => [r.id, r.print_url]));
+      await assertPrintLink(s.publisher_id, body.releases.map((r) => ({ saved: savedLink.get(r.id) ?? null, sent: r.print_url })));
       const original = new Map<string, number>(found.rows.map((r) => [r.id, r.number]));
       // Numbers may be swapped between rows: park the ones that move first so the swap never collides.
       const moving = new Set(body.releases.filter((r) => r.number !== undefined || r.kind !== undefined || r.language !== undefined).map((r) => r.id));

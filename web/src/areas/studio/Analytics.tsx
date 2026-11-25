@@ -1,11 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
-import { Download } from 'lucide-react';
+import { Download, Lock } from 'lucide-react';
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { useSearchParams } from 'react-router';
 import { api, withQuery } from '@/lib/api';
 import { date, money, moneyExact, number, percent } from '@/lib/format';
 import { BarChart, Card, EmptyState, Field, Input, RankList, Segmented, Select, Stat, Table, Tabs } from '@/ui';
+import { PremiumHint, PremiumLock, usePremium } from './Premium';
 import { BrandPage, Q, cap, countryName, useBrand } from './shared';
 
 type Metric = { value: number; previous: number; change: number; change_pct: number | null };
@@ -26,6 +27,19 @@ const VIEWS = [
 ] as const;
 type View = (typeof VIEWS)[number][0];
 
+/**
+ * The views that are part of Creator Premium, with what each one shows (for
+ * the locked panel). Overview, page reads, releases and revenue are free.
+ * Every CSV export is Premium. The server enforces all of this.
+ */
+const PREMIUM_VIEWS: Partial<Record<View, { title: string; body: string }>> = {
+  dropoff: { title: 'Where readers stop', body: 'For each release: how many readers reached every page, how many finished, and the page where most of them stopped.' },
+  countries: { title: 'Reader countries', body: 'Which countries your signed-in readers are in, with readers and page reads for each.' },
+  followers: { title: 'Followers', body: 'New followers of your series and your brand day by day, and the running total.' },
+  engagement: { title: 'Engagement', body: 'Favorites, comments and forum posts on your series, day by day.' },
+  emails: { title: 'Email statistics', body: 'Emails sent for your brand, such as new-release alerts and backer codes: sent, opened and clicked, per day and per kind of email.' },
+};
+
 const day = (iso: string) => date(iso, { month: 'short', day: 'numeric', timeZone: 'UTC' });
 
 function useReport<T>(brandId: string, path: string, q: RangeQuery, extra: Record<string, string | undefined> = {}, enabled = true) {
@@ -33,6 +47,9 @@ function useReport<T>(brandId: string, path: string, q: RangeQuery, extra: Recor
 }
 
 function Csv({ brandId, path, q, extra }: { brandId: string; path: string; q: RangeQuery; extra?: Record<string, string | undefined> }) {
+  const premium = usePremium(brandId);
+  // CSV export is part of Creator Premium, for the free views too.
+  if (premium.data && !premium.data.active) return <PremiumHint>CSV export is part of Creator Premium</PremiumHint>;
   return <a href={withQuery(`/api/studio/brands/${brandId}/analytics/${path}`, { ...q, ...extra, format: 'csv' })} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-line bg-raised px-3 text-[13px] hover:bg-hover"><Download className="size-4" />Export CSV</a>;
 }
 
@@ -119,17 +136,17 @@ function Reads({ brandId, q }: { brandId: string; q: RangeQuery }) {
   );
 }
 
-function Releases({ brandId, q, openDropoff }: { brandId: string; q: RangeQuery; openDropoff: (id: string) => void }) {
+function Releases({ brandId, q, openDropoff, locked }: { brandId: string; q: RangeQuery; openDropoff: (id: string) => void; locked: boolean }) {
   const rows = useReport<Report<ReleaseReads>>(brandId, 'page-reads', q, { group: 'release' });
   return (
-    <Panel title="Reads by release" note="Select a row to see where readers stop." actions={<Csv brandId={brandId} path="page-reads" q={q} extra={{ group: 'release' }} />}>
+    <Panel title="Reads by release" note={locked ? undefined : 'Select a row to see where readers stop.'} actions={<Csv brandId={brandId} path="page-reads" q={q} extra={{ group: 'release' }} />}>
       <Q query={rows}>
         {(d) => (
           <Table
             rows={d.rows}
             rowKey={(r) => r.release_id}
             empty="No releases yet"
-            onRowClick={(r) => openDropoff(r.release_id)}
+            onRowClick={locked ? undefined : (r) => openDropoff(r.release_id)}
             columns={[
               { key: 't', header: 'Release', cell: (r) => <div><div className="font-medium">{r.title}</div><div className="text-xs text-muted">{r.series_title} · {cap(r.kind)} {Number(r.number)} · {r.language.toUpperCase()}</div></div> },
               { key: 's', header: 'Status', cell: (r) => cap(r.status), hideOnMobile: true },
@@ -297,6 +314,9 @@ function Revenue({ brandId, q }: { brandId: string; q: RangeQuery }) {
 
 export function Analytics() {
   const { brand } = useBrand();
+  const premium = usePremium(brand.id);
+  // Known and not active. While it is loading nothing is shown as locked, and nothing premium is asked for either.
+  const noPremium = premium.data ? !premium.data.active : false;
   const [params, setParams] = useSearchParams();
   const view = (VIEWS.some(([v]) => v === params.get('view')) ? params.get('view') : 'overview') as View;
   const [range, setRange] = useState('30d');
@@ -322,16 +342,24 @@ export function Analytics() {
           </div>
         )}
       </div>
-      <div className="mb-5"><Tabs value={view} onChange={(v) => setView(v)} tabs={VIEWS.map(([value, label]) => ({ value, label }))} /></div>
-      {view === 'overview' && <Overview brandId={brand.id} q={q} />}
-      {view === 'reads' && <Reads brandId={brand.id} q={q} />}
-      {view === 'releases' && <Releases brandId={brand.id} q={q} openDropoff={(id) => setView('dropoff', id)} />}
-      {view === 'dropoff' && <Dropoff brandId={brand.id} q={q} releaseId={params.get('release')} setRelease={(id) => setView('dropoff', id)} />}
-      {view === 'countries' && <Countries brandId={brand.id} q={q} />}
-      {view === 'followers' && <Followers brandId={brand.id} q={q} />}
-      {view === 'engagement' && <Engagement brandId={brand.id} q={q} />}
-      {view === 'emails' && <Emails brandId={brand.id} q={q} />}
-      {view === 'revenue' && <Revenue brandId={brand.id} q={q} />}
+      <div className="mb-5"><Tabs value={view} onChange={(v) => setView(v)} tabs={VIEWS.map(([value, label]) => ({ value, label: noPremium && PREMIUM_VIEWS[value] ? <span className="inline-flex items-center gap-1.5">{label}<Lock className="size-3 text-muted" aria-label="Creator Premium" /></span> : label }))} /></div>
+      {PREMIUM_VIEWS[view] && !premium.data ? (
+        <Q query={premium}>{() => null}</Q>
+      ) : PREMIUM_VIEWS[view] && noPremium ? (
+        <PremiumLock title={PREMIUM_VIEWS[view]!.title}>{PREMIUM_VIEWS[view]!.body}</PremiumLock>
+      ) : (
+        <>
+          {view === 'overview' && <Overview brandId={brand.id} q={q} />}
+          {view === 'reads' && <Reads brandId={brand.id} q={q} />}
+          {view === 'releases' && <Releases brandId={brand.id} q={q} locked={noPremium} openDropoff={(id) => setView('dropoff', id)} />}
+          {view === 'dropoff' && <Dropoff brandId={brand.id} q={q} releaseId={params.get('release')} setRelease={(id) => setView('dropoff', id)} />}
+          {view === 'countries' && <Countries brandId={brand.id} q={q} />}
+          {view === 'followers' && <Followers brandId={brand.id} q={q} />}
+          {view === 'engagement' && <Engagement brandId={brand.id} q={q} />}
+          {view === 'emails' && <Emails brandId={brand.id} q={q} />}
+          {view === 'revenue' && <Revenue brandId={brand.id} q={q} />}
+        </>
+      )}
     </BrandPage>
   );
 }

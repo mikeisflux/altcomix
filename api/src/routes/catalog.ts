@@ -5,6 +5,7 @@ import { canView, hasMembership, releaseAccess, hasEntitlement } from '../lib/ac
 import { isAdmin, notFound, pageParams, HttpError } from '../lib/http.ts';
 import { activeDiscounts, bundlePrice, downloadPrice, readOffer, percentOff, seriesPurchase } from '../lib/pricing.ts';
 import { money } from '../lib/payments.ts';
+import { brandHasPremium } from '../lib/premium.ts';
 import { publicUrl } from '../lib/storage.ts';
 import { FAVORITE_GENRES, RELEASE_GROUPS } from '../lib/taxonomy.ts';
 
@@ -342,6 +343,8 @@ export default async function catalogRoutes(app: FastifyInstance) {
       return [r.id as string, await releaseAccess({ series: s, release: r, pages: rp, user: u, country: req.country })] as const;
     })));
     const whole = await seriesPurchase(s, u?.id ?? null, discounts, undefined, { country: req.country, access: accessOf });
+    // Print edition links are a Creator Premium feature: saved links are only shown while the brand has Premium.
+    const showPrint = await brandHasPremium(s.publisher_id);
     const releases = await Promise.all(relRows.map(async (r) => {
       const rp = pages.filter((p) => p.release_id === r.id);
       const a = accessOf.get(r.id)!;
@@ -354,7 +357,7 @@ export default async function catalogRoutes(app: FastifyInstance) {
       const pr = progress.find((p) => p.release_id === r.id);
       return {
         id: r.id, number: r.number, kind: r.kind, language: r.language, title: r.title, synopsis: r.synopsis, mature: r.mature, status: r.status,
-        published_at: r.published_at, page_count: rp.length || r.page_count, cover_url: await publicUrl(r.cover_key), print_url: r.print_url, isbn: r.isbn,
+        published_at: r.published_at, page_count: rp.length || r.page_count, cover_url: await publicUrl(r.cover_key), print_url: showPrint ? r.print_url : null, isbn: r.isbn,
         free_at: r.free_at,
         access: {
           status, model: a.model, release_free: a.releaseFree, unlock: a.unlock, can_download: a.canDownload, free_pages: a.freePages, locked_pages: a.lockedPages,

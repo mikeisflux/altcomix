@@ -15,8 +15,10 @@ import { getSetting } from './settings.ts';
  *     rate the owner entered for that state in Admin → Settings → Sales tax
  *     (basis points; 700 = 7%). Every state starts at 0. Buyers outside the
  *     United States pay no tax.
- *   - Taxed: releases, downloads, whole series, bundles, page-credit packs
- *     and memberships. Not taxed: tips and gift card purchases.
+ *   - Taxed: releases, downloads, whole series, bundles, page-credit packs,
+ *     memberships and Creator Premium (a brand's yearly plan, taxed like a
+ *     membership charge at the paying user's saved billing location). Not
+ *     taxed: tips and gift card purchases.
  *   - No tax is charged on store credit. Tax is charged only on the part
  *     of the taxed lines the buyer pays by card. Store credit (the wallet
  *     balance, which is also where redeemed gift cards land) goes to the
@@ -256,7 +258,7 @@ export function taxRefunded(order: { total_cents: number; tax_cents: number; cre
 }
 
 /** Record tax that went back to a buyer (see migration 087). Nothing is written for 0. */
-export async function recordTaxRefund(db: Queryable, a: { orderId?: string; chargeId?: string; state: string | null; taxCents: number }): Promise<void> {
+export async function recordTaxRefund(db: Queryable, a: { orderId?: string; chargeId?: string; premiumChargeId?: string; state: string | null; taxCents: number }): Promise<void> {
   if (a.taxCents <= 0) return;
-  await db.query('insert into sales_tax_refunds (order_id, charge_id, state, tax_cents) values ($1,$2,$3,$4)', [a.orderId ?? null, a.chargeId ?? null, a.state ?? '', a.taxCents]);
+  await db.query('insert into sales_tax_refunds (order_id, charge_id, premium_charge_id, state, tax_cents) values ($1,$2,$3,$4,$5)', [a.orderId ?? null, a.chargeId ?? null, a.premiumChargeId ?? null, a.state ?? '', a.taxCents]);
 }

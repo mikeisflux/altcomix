@@ -8,6 +8,7 @@ import { captureError } from './errors.ts';
 import { HttpError, conflict } from './http.ts';
 import { allocate, creditSale, creditTip, estimateFee, refundParts, reverseOrder, reverseOrderPartly } from './ledger.ts';
 import { notify } from './notify.ts';
+import { invalidatePremium } from './premium.ts';
 import { membershipTax, recordTaxRefund, taxLabel, taxRefunded } from './salestax.ts';
 import { getSetting } from './settings.ts';
 
@@ -156,7 +157,7 @@ export type PaymentProvider = {
   /** Begin paying for an order. `url` null means the provider settled it on the spot. */
   startOrder(a: { orderId: string; next?: string | null; userId: string; email: string; amountCents: number; currency: string; description: string; origin: Origin; surface?: Surface }): Promise<{ ref: string; url: string | null; state: SessionState['status'] }>;
   /** Begin saving a payment method. `token` set means no redirect is needed. */
-  startSetup(a: { key: string; next?: string | null; userId: string; email: string; description: string; origin: Origin; surface?: Surface }): Promise<{ ref: string; url: string | null; token: string | null }>;
+  startSetup(a: { key: string; next?: string | null; userId: string; email: string; description: string; origin: Origin; surface?: Surface; returnPath?: string }): Promise<{ ref: string; url: string | null; token: string | null }>;
   getSession(ref: string): Promise<SessionState | null>;
   /** Charge a saved payment method off-session. `attempt` starts at 1. */
   charge(a: { chargeId: string; userId: string; token: string; amountCents: number; currency: string; attempt: number; description: string; origin: Origin }): Promise<ChargeResult>;
@@ -320,8 +321,8 @@ const divinity: PaymentProvider = {
       platformUserId: a.userId,
       email: a.email,
       // `next` (already validated same-site) rides along so /account/membership can send the reader on afterwards.
-      returnUrl: `${config.appUrl}/account/membership${a.next ? `?next=${encodeURIComponent(a.next)}` : ''}`,
-      cancelUrl: `${config.appUrl}/account/membership?cancelled=1${a.next ? `&next=${encodeURIComponent(a.next)}` : ''}`,
+      returnUrl: `${config.appUrl}${a.returnPath ?? '/account/membership'}${a.next ? `?next=${encodeURIComponent(a.next)}` : ''}`,
+      cancelUrl: `${config.appUrl}${a.returnPath ?? '/account/membership'}?cancelled=1${a.next ? `&next=${encodeURIComponent(a.next)}` : ''}`,
       description: a.description.slice(0, 200),
       expiresInMinutes: 60,
       idempotencyKey: `setup-${a.key}`,
@@ -733,6 +734,26 @@ export async function refundOrder(orderId: string, opts: { reason?: string } = {
 const RETRY_AFTER_DAYS = [1, 3, 5]; // after the 1st, 2nd, 3rd decline; the 4th ends the membership
 const UNCERTAIN_RETRY_MIN = 10;
 
+/**
+ * The recurring billing below (first charge on a saved card, renewals,
+ * retries after a decline, refunds, sales tax) runs for two products, each
+ * with its own pair of tables with the same columns:
+ *
+ *   MEMBERSHIP  the reader membership: `subscriptions` / `subscription_charges`.
+ *               A paid period goes into the monthly pots (`sub_months`) that
+ *               settlement shares among creators.
+ *   PREMIUM     Creator Premium, a yearly plan a brand pays the platform:
+ *               `premium_subscriptions` / `premium_charges`. Platform revenue
+ *               only: no pot, no creator share, no ledger row.
+ *
+ * Every function takes the book last and defaults to MEMBERSHIP. Table names
+ * come from these two constants only, never from input.
+ */
+export type Book = { kind: 'membership' | 'premium'; subs: string; charges: string; label: string };
+export const MEMBERSHIP: Book = { kind: 'membership', subs: 'subscriptions', charges: 'subscription_charges', label: 'Membership' };
+export const PREMIUM: Book = { kind: 'premium', subs: 'premium_subscriptions', charges: 'premium_charges', label: 'Premium' };
+export const BOOKS: readonly Book[] = [MEMBERSHIP, PREMIUM];
+
 export function addPeriod(from: Date, plan: string): Date {
   const d = new Date(from);
   const day = d.getUTCDate();
@@ -777,28 +798,34 @@ async function addSubMonths(db: Queryable, c: Row, plan: string): Promise<void> 
 }
 
 /** A membership charge was paid. Idempotent. */
-export async function markChargePaid(chargeId: string, paymentRef: string | null): Promise<boolean> {
+export async function markChargePaid(chargeId: string, paymentRef: string | null, book: Book = MEMBERSHIP): Promise<boolean> {
   const rev = await getSetting('revenue');
   const done = await tx(async (db) => {
-    const c = await one('select * from subscription_charges where id = $1 for update', [chargeId], db);
+    const c = await one(`select * from ${book.charges} where id = $1 for update`, [chargeId], db);
     if (!c || c.status === 'paid' || c.status === 'refunded') return null;
-    const sub = await one('select * from subscriptions where id = $1 for update', [c.subscription_id], db);
+    const sub = await one(`select * from ${book.subs} where id = $1 for update`, [c.subscription_id], db);
     if (!sub) return null;
     c.fee_cents = estimateFee(c.amount_cents, rev);
     await db.query(
-      `update subscription_charges set status = 'paid', paid_at = now(), fee_cents = $2, payment_ref = coalesce($3, payment_ref), uncertain = false,
+      `update ${book.charges} set status = 'paid', paid_at = now(), fee_cents = $2, payment_ref = coalesce($3, payment_ref), uncertain = false,
               last_error = null, captured_at = case when $4 then null else now() end where id = $1`,
       [chargeId, c.fee_cents, paymentRef, sub.provider === 'divinity'],
     );
     await db.query(
-      `update subscriptions set status = 'active', current_period_start = $2, current_period_end = $3, canceled_at = null where id = $1`,
+      `update ${book.subs} set status = 'active', current_period_start = $2, current_period_end = $3, canceled_at = null where id = $1`,
       [sub.id, c.period_start, c.period_end],
     );
-    await addSubMonths(db, c, sub.plan);
-    const first = !(await one(`select 1 from subscription_charges where subscription_id = $1 and status = 'paid' and id <> $2 limit 1`, [sub.id, chargeId], db));
+    // Only the reader membership feeds the pots that are shared among creators.
+    if (book.kind === 'membership') await addSubMonths(db, c, sub.plan);
+    const first = !(await one(`select 1 from ${book.charges} where subscription_id = $1 and status = 'paid' and id <> $2 limit 1`, [sub.id, chargeId], db));
     return { c, sub, first };
   });
   if (!done) return false;
+  if (book.kind === 'premium') {
+    invalidatePremium(done.sub.publisher_id);
+    await premiumPaid(done.sub, done.c, done.first).catch((e) => captureError(e, { source: 'api', endpoint: 'markChargePaid' }));
+    return true;
+  }
   try {
     if (done.first) await welcomeMember(done.sub.user_id, done.sub.plan, new Date(done.c.period_end), done.c);
     else if (done.c.tax_cents > 0) {
@@ -833,15 +860,15 @@ async function memberMail(userId: string, subject: string, body: string): Promis
   await sendTemplate('membership_billing', u.email, { subject, name: u.display_name, body, url: `${config.appUrl}/account/membership` }, { userId });
 }
 
-export async function captureCharge(chargeId: string): Promise<boolean> {
+export async function captureCharge(chargeId: string, book: Book = MEMBERSHIP): Promise<boolean> {
   const c = await one(
-    `select c.id, s.provider from subscription_charges c join subscriptions s on s.id = c.subscription_id
+    `select c.id, s.provider from ${book.charges} c join ${book.subs} s on s.id = c.subscription_id
       where c.id = $1 and c.status = 'paid' and c.captured_at is null`,
     [chargeId],
   );
   if (!c) return false;
   const ok = await (await getProvider(c.provider)).capture(chargeId);
-  if (ok) await exec('update subscription_charges set captured_at = now() where id = $1 and captured_at is null', [chargeId]);
+  if (ok) await exec(`update ${book.charges} set captured_at = now() where id = $1 and captured_at is null`, [chargeId]);
   return ok;
 }
 
@@ -851,73 +878,78 @@ export async function captureCharge(chargeId: string): Promise<boolean> {
  * membership. A call that got no answer is looked up before it is repeated,
  * and repeated under the same idempotency key.
  */
-export async function attemptCharge(chargeId: string): Promise<'paid' | 'declined' | 'uncertain' | 'skipped'> {
-  const c = await one('select * from subscription_charges where id = $1', [chargeId]);
+export async function attemptCharge(chargeId: string, book: Book = MEMBERSHIP): Promise<'paid' | 'declined' | 'uncertain' | 'skipped'> {
+  const c = await one(`select * from ${book.charges} where id = $1`, [chargeId]);
   if (!c || c.status !== 'pending') return 'skipped';
-  const sub = await one('select * from subscriptions where id = $1', [c.subscription_id]);
+  const sub = await one(`select * from ${book.subs} where id = $1`, [c.subscription_id]);
   if (!sub || !sub.payment_method_token || ['canceled', 'expired'].includes(sub.status)) {
-    await exec(`update subscription_charges set status = 'failed', last_error = 'Membership ended before this charge' where id = $1 and status = 'pending'`, [chargeId]);
+    await exec(`update ${book.charges} set status = 'failed', last_error = '${book.label} ended before this charge' where id = $1 and status = 'pending'`, [chargeId]);
     return 'skipped';
   }
   const p = await getProvider(sub.provider);
   const site = await getSetting('site');
-  const mem = await getSetting('membership');
+  const description = book.kind === 'premium' ? await premiumDescription(sub) : `${(await getSetting('membership')).name} (${sub.plan})`;
   if (c.uncertain) {
     const seen = await p.lookup(chargeId);
     if (seen === null) {
-      await exec(`update subscription_charges set next_attempt_at = now() + interval '${UNCERTAIN_RETRY_MIN} minutes' where id = $1`, [chargeId]);
+      await exec(`update ${book.charges} set next_attempt_at = now() + interval '${UNCERTAIN_RETRY_MIN} minutes' where id = $1`, [chargeId]);
       return 'uncertain';
     }
     if (seen.paid) {
-      await markChargePaid(chargeId, seen.paymentRef);
-      await captureCharge(chargeId).catch(() => false);
+      await markChargePaid(chargeId, seen.paymentRef, book);
+      await captureCharge(chargeId, book).catch(() => false);
       return 'paid';
     }
   }
   const r = await p.charge({
     chargeId, userId: sub.user_id, token: sub.payment_method_token, amountCents: chargeTotal(c), currency: site.currency, attempt: c.attempts + 1,
-    description: `${mem.name} (${sub.plan})`, origin: { ip: sub.origin_ip, userAgent: sub.origin_user_agent },
+    description, origin: { ip: sub.origin_ip, userAgent: sub.origin_user_agent },
   });
   if (r.outcome === 'paid') {
-    await markChargePaid(chargeId, r.paymentRef);
-    await captureCharge(chargeId).catch(() => false);
+    await markChargePaid(chargeId, r.paymentRef, book);
+    await captureCharge(chargeId, book).catch(() => false);
     return 'paid';
   }
   if (r.outcome === 'uncertain') {
     await exec(
-      `update subscription_charges set uncertain = true, last_error = $2, next_attempt_at = now() + interval '${UNCERTAIN_RETRY_MIN} minutes' where id = $1 and status = 'pending'`,
+      `update ${book.charges} set uncertain = true, last_error = $2, next_attempt_at = now() + interval '${UNCERTAIN_RETRY_MIN} minutes' where id = $1 and status = 'pending'`,
       [chargeId, whiteLabel(r.error ?? 'No answer from the payment processor').slice(0, 300)],
     );
     return 'uncertain';
   }
-  await recordDecline(chargeId, r.error ?? 'The card was declined', r.paymentRef);
+  await recordDecline(chargeId, r.error ?? 'The card was declined', r.paymentRef, book);
   return 'declined';
 }
 
 /** Count a decline against a charge and move the membership along past_due → expired. */
-export async function recordDecline(chargeId: string, error: string, paymentRef: string | null = null): Promise<void> {
+export async function recordDecline(chargeId: string, error: string, paymentRef: string | null = null, book: Book = MEMBERSHIP): Promise<void> {
   const out = await tx(async (db) => {
-    const c = await one('select * from subscription_charges where id = $1 for update', [chargeId], db);
+    const c = await one(`select * from ${book.charges} where id = $1 for update`, [chargeId], db);
     if (!c || c.status !== 'pending') return null;
     // The member reads this on their membership page and in the "could not renew" email.
     error = whiteLabel(error);
     // The synchronous answer and the payment.failed webhook describe the same attempt: count it once.
     if (paymentRef && c.payment_ref === paymentRef) return null;
-    const sub = await one('select * from subscriptions where id = $1 for update', [c.subscription_id], db);
+    const sub = await one(`select * from ${book.subs} where id = $1 for update`, [c.subscription_id], db);
     if (!sub) return null;
     const attempts = c.attempts + 1;
     const firstPeriod = sub.status === 'pending';
     const final = firstPeriod || attempts > RETRY_AFTER_DAYS.length;
     await db.query(
-      `update subscription_charges set attempts = $2, uncertain = false, last_error = $3, payment_ref = coalesce($4, payment_ref),
+      `update ${book.charges} set attempts = $2, uncertain = false, last_error = $3, payment_ref = coalesce($4, payment_ref),
               status = case when $5 then 'failed' else 'pending' end,
               next_attempt_at = now() + ($6 || ' days')::interval where id = $1`,
       [chargeId, attempts, error.slice(0, 300), paymentRef, final, String(final ? 0 : RETRY_AFTER_DAYS[attempts - 1])],
     );
-    await db.query('update subscriptions set status = $2 where id = $1', [sub.id, final ? 'expired' : 'past_due']);
+    await db.query(`update ${book.subs} set status = $2 where id = $1`, [sub.id, final ? 'expired' : 'past_due']);
     return { sub, attempts, final, firstPeriod };
   });
+  if (out && book.kind === 'premium') invalidatePremium(out.sub.publisher_id);
   if (!out || out.firstPeriod) return;
+  if (book.kind === 'premium') {
+    await premiumDeclined(out.sub, out.attempts, out.final, error).catch(() => {});
+    return;
+  }
   const mem = await getSetting('membership');
   if (out.final) {
     await memberMail(out.sub.user_id, `Your ${mem.name} membership has ended`, 'We could not collect your membership payment after several tries, so the membership has ended. You can start it again at any time; everything you bought stays in your library.').catch(() => {});
@@ -936,10 +968,10 @@ export async function recordDecline(chargeId: string, error: string, paymentRef:
  * for the same amount. Returns the new charge id, or null when the period
  * already has a charge.
  */
-export async function billPeriod(sub: Row, start: Date): Promise<string | null> {
+export async function billPeriod(sub: Row, start: Date, book: Book = MEMBERSHIP): Promise<string | null> {
   const t = await membershipTax(sub.user_id, sub.price_cents);
   const c = await one<{ id: string }>(
-    `insert into subscription_charges (subscription_id, user_id, period_start, period_end, amount_cents, tax_cents, taxable_cents, tax_country, tax_state, tax_zip, tax_rate_bps)
+    `insert into ${book.charges} (subscription_id, user_id, period_start, period_end, amount_cents, tax_cents, taxable_cents, tax_country, tax_state, tax_zip, tax_rate_bps)
      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
      on conflict (subscription_id, period_start) do nothing returning id`,
     [sub.id, sub.user_id, start, addPeriod(start, sub.plan), sub.price_cents, t.tax_cents, t.taxable_cents, t.country, t.state, t.zip, t.rate_bps],
@@ -948,21 +980,24 @@ export async function billPeriod(sub: Row, start: Date): Promise<string | null> 
 }
 
 /** A saved payment method arrived for a pending membership: bill the first period (or start the trial). */
-export async function activateMembership(subId: string, token: string): Promise<'active' | 'declined' | 'pending' | 'skipped'> {
-  const sub = await one(`update subscriptions set payment_method_token = $2 where id = $1 and status = 'pending' and payment_method_token is null returning *`, [subId, token]);
+export async function activateMembership(subId: string, token: string, book: Book = MEMBERSHIP): Promise<'active' | 'declined' | 'pending' | 'skipped'> {
+  const sub = await one(`update ${book.subs} set payment_method_token = $2 where id = $1 and status = 'pending' and payment_method_token is null returning *`, [subId, token]);
   if (!sub) return 'skipped';
-  const mem = await getSetting('membership');
   const now = new Date();
-  const hadBefore = await one(`select 1 from subscriptions where user_id = $1 and id <> $2 and status <> 'pending' limit 1`, [sub.user_id, subId]);
-  if (mem.trial_days > 0 && !hadBefore) {
-    const end = new Date(now.getTime() + mem.trial_days * 86_400_000);
-    await exec(`update subscriptions set status = 'active', current_period_start = $2, current_period_end = $3 where id = $1`, [subId, now, end]);
-    await welcomeMember(sub.user_id, sub.plan, end).catch(() => {});
-    return 'active';
+  // Creator Premium has no trial: the first year is charged as soon as the card is saved.
+  if (book.kind === 'membership') {
+    const mem = await getSetting('membership');
+    const hadBefore = await one(`select 1 from subscriptions where user_id = $1 and id <> $2 and status <> 'pending' limit 1`, [sub.user_id, subId]);
+    if (mem.trial_days > 0 && !hadBefore) {
+      const end = new Date(now.getTime() + mem.trial_days * 86_400_000);
+      await exec(`update subscriptions set status = 'active', current_period_start = $2, current_period_end = $3 where id = $1`, [subId, now, end]);
+      await welcomeMember(sub.user_id, sub.plan, end).catch(() => {});
+      return 'active';
+    }
   }
-  const id = await billPeriod(sub, now);
+  const id = await billPeriod(sub, now, book);
   if (!id) return 'skipped';
-  const r = await attemptCharge(id);
+  const r = await attemptCharge(id, book);
   return r === 'paid' ? 'active' : r === 'declined' ? 'declined' : 'pending';
 }
 
@@ -997,28 +1032,34 @@ export async function changePaymentMethod(user: { id: string; email: string }, o
   const sub = await one(`select * from subscriptions where user_id = $1 and status in ('active','past_due') order by created_at desc limit 1`, [user.id]);
   if (!sub) throw new HttpError(404, 'You do not have a membership to update');
   if (sub.provider !== 'divinity' && sub.provider !== 'sandbox') throw conflict('This membership came from a code and has no payment method');
-  const p = await getProvider(sub.provider);
   const mem = await getSetting('membership');
+  return replaceCard(sub, user, origin, surface, `${mem.name} payment method`, MEMBERSHIP);
+}
+
+/** Start a setup session for a new card on a running plan; the plan's card and browser origin are replaced when it arrives. */
+async function replaceCard(sub: Row, user: { id: string; email: string }, origin: Origin, surface: Surface, description: string, book: Book, returnPath?: string): Promise<{ url: string | null; session_id: string; surface: Surface }> {
+  const p = await getProvider(sub.provider);
   const shown = await resolveSurface(surface);
-  const s = await p.startSetup({ key: `${sub.id}-${Date.now()}`, userId: user.id, email: user.email, description: `${mem.name} payment method`, origin, surface: shown });
-  await exec('update subscriptions set setup_ref = $2, origin_ip = $3, origin_user_agent = $4 where id = $1', [sub.id, s.ref, origin.ip, origin.userAgent?.slice(0, 512) ?? null]);
-  if (s.token) await savedMethodArrived(sub.id, s.token);
+  const s = await p.startSetup({ key: `${sub.id}-${Date.now()}`, userId: user.id, email: user.email, description, origin, surface: shown, returnPath });
+  await exec(`update ${book.subs} set setup_ref = $2, origin_ip = $3, origin_user_agent = $4 where id = $1`, [sub.id, s.ref, origin.ip, origin.userAgent?.slice(0, 512) ?? null]);
+  if (s.token) await savedMethodArrived(sub.id, s.token, book);
   return { url: s.url, session_id: s.ref, surface: shown };
 }
 
-async function savedMethodArrived(subId: string, token: string): Promise<string> {
-  const sub = await one('select * from subscriptions where id = $1', [subId]);
+async function savedMethodArrived(subId: string, token: string, book: Book = MEMBERSHIP): Promise<string> {
+  const sub = await one(`select * from ${book.subs} where id = $1`, [subId]);
   if (!sub) return 'skipped';
-  if (sub.status === 'pending') return activateMembership(subId, token);
-  await exec('update subscriptions set payment_method_token = $2 where id = $1', [subId, token]);
+  if (sub.status === 'pending') return activateMembership(subId, token, book);
+  await exec(`update ${book.subs} set payment_method_token = $2 where id = $1`, [subId, token]);
   // A new card on a past-due membership is worth trying straight away.
-  const due = await one<{ id: string }>(`select id from subscription_charges where subscription_id = $1 and status = 'pending' order by created_at desc limit 1`, [subId]);
-  if (due && sub.status === 'past_due') return attemptCharge(due.id);
+  const due = await one<{ id: string }>(`select id from ${book.charges} where subscription_id = $1 and status = 'pending' order by created_at desc limit 1`, [subId]);
+  if (due && sub.status === 'past_due') return attemptCharge(due.id, book);
   return 'updated';
 }
 
 /** Membership charge refunded or charged back: take the money out of unsettled pots and end access. */
-export async function reverseChargeBooks(chargeId: string, why: { reason: string; dispute?: boolean }): Promise<boolean> {
+export async function reverseChargeBooks(chargeId: string, why: { reason: string; dispute?: boolean }, book: Book = MEMBERSHIP): Promise<boolean> {
+  if (book.kind === 'premium') return reversePremiumCharge(chargeId, why);
   const done = await tx(async (db) => {
     const c = await one('select * from subscription_charges where id = $1 for update', [chargeId], db);
     if (!c || c.status !== 'paid') return null;
@@ -1040,22 +1081,320 @@ export async function reverseChargeBooks(chargeId: string, why: { reason: string
   return true;
 }
 
-export async function refundCharge(chargeId: string, reason = 'Refunded by support'): Promise<{ refunded: boolean }> {
-  const c = await one(`select c.*, s.provider from subscription_charges c join subscriptions s on s.id = c.subscription_id where c.id = $1`, [chargeId]);
-  if (!c) throw new HttpError(404, 'Membership charge not found');
+export async function refundCharge(chargeId: string, reason = 'Refunded by support', book: Book = MEMBERSHIP): Promise<{ refunded: boolean }> {
+  const c = await one(`select c.*, s.provider from ${book.charges} c join ${book.subs} s on s.id = c.subscription_id where c.id = $1`, [chargeId]);
+  if (!c) throw new HttpError(404, `${book.label} charge not found`);
   if (c.status !== 'paid') return { refunded: false };
   if (c.provider === 'divinity') {
     if (!c.payment_ref) throw conflict('This charge has no processor payment reference');
     const r = await (await getProvider('divinity')).refund({ paymentRef: c.payment_ref, id: chargeId, amountCents: chargeTotal(c), reason });
     if (!r.ok) throw new HttpError(502, `The payment processor did not accept the refund: ${r.error ?? 'unknown error'}. Nothing was changed.`);
   }
-  return { refunded: await reverseChargeBooks(chargeId, { reason }) };
+  return { refunded: await reverseChargeBooks(chargeId, { reason }, book) };
+}
+
+// ------------------------------------------------------------------ Creator Premium
+
+/**
+ * Creator Premium is a yearly plan a brand pays the platform for. It runs on
+ * the same functions as the reader membership (the PREMIUM book): a setup
+ * session saves the card, `billPeriod` creates the charge for a year with
+ * sales tax at the paying user's saved billing location, `attemptCharge`
+ * collects it, the housekeeping job renews it and retries a declined card
+ * after 1, 3 and 5 days before ending it.
+ *
+ * What is different: there is no trial, the plan belongs to a brand
+ * (`publisher_id`) and is paid by one of its owners or admins (`user_id`),
+ * and the money is platform revenue only. A Premium charge never becomes a
+ * `sub_months` row, a ledger row or anyone's share.
+ */
+
+const premiumBrand = (publisherId: string) => one<{ id: string; slug: string; name: string }>('select id, slug, name from publishers where id = $1', [publisherId]);
+const ymd = (d: unknown) => new Date(d as string).toISOString().slice(0, 10);
+
+async function premiumDescription(sub: Row): Promise<string> {
+  const [prem, brand] = [await getSetting('creator_premium'), await premiumBrand(sub.publisher_id)];
+  return `${prem.name} for ${brand?.name ?? 'your brand'} (1 year)`;
+}
+
+async function premiumMail(sub: Row, subject: string, body: string): Promise<void> {
+  const [prem, brand] = [await getSetting('creator_premium'), await premiumBrand(sub.publisher_id)];
+  const u = await one<{ email: string; display_name: string }>('select email, display_name from users where id = $1 and deleted_at is null', [sub.user_id]);
+  if (!u || !brand) return;
+  await sendTemplate('premium_billing', u.email, { subject, name: u.display_name, body, product: prem.name, brand: brand.name, url: `${config.appUrl}/studio/${brand.slug}/premium` }, { userId: sub.user_id });
+}
+
+/** A Premium charge went through: the receipt (first year) or the renewal receipt, both with the tax line when there was tax. */
+async function premiumPaid(sub: Row, c: Row, first: boolean): Promise<void> {
+  const [prem, brand] = [await getSetting('creator_premium'), await premiumBrand(sub.publisher_id)];
+  if (!brand) return;
+  const until = ymd(c.period_end);
+  const taxed = c.tax_cents > 0;
+  const tax = taxed ? taxLabel(c.tax_state, c.tax_rate_bps) : '';
+  if (first) {
+    const u = await one<{ email: string; display_name: string }>('select email, display_name from users where id = $1 and deleted_at is null', [sub.user_id]);
+    const row = (label: string, amount: string) => `<tr><td style="padding:4px 12px 4px 0">${escapeHtml(label)}</td><td align="right">${amount}</td></tr>`;
+    const rows = [row(`${prem.name} for ${brand.name}, 1 year`, await money(c.amount_cents))];
+    if (taxed) rows.push(row(tax, await money(c.tax_cents)));
+    if (u) {
+      await sendTemplate('premium_started', u.email, {
+        name: u.display_name, product: prem.name, brand: brand.name, renews: until,
+        items: `<table role="presentation" cellpadding="0" cellspacing="0" width="100%">${rows.join('')}</table>`,
+        total: await money(chargeTotal(c)), url: `${config.appUrl}/studio/${brand.slug}/premium`,
+      }, { userId: sub.user_id });
+    }
+    await notify(sub.user_id, 'premium', `${prem.name} is active for ${brand.name}`, `It renews on ${until}.`, `/studio/${brand.slug}/premium`);
+    return;
+  }
+  const charged = taxed
+    ? `You were charged ${await money(chargeTotal(c))}: ${await money(c.amount_cents)} for ${prem.name} plus ${await money(c.tax_cents)} ${tax.replace(/^S/, 's')}.`
+    : `You were charged ${await money(c.amount_cents)} for ${prem.name}.`;
+  await premiumMail(sub, `${prem.name} renewed for ${brand.name}`, `${charged} ${prem.name} for ${brand.name} now runs until ${until}.`);
+}
+
+async function premiumDeclined(sub: Row, attempts: number, final: boolean, error: string): Promise<void> {
+  const [prem, brand] = [await getSetting('creator_premium'), await premiumBrand(sub.publisher_id)];
+  if (!brand) return;
+  const link = `/studio/${brand.slug}/premium`;
+  if (final) {
+    await premiumMail(sub, `${prem.name} has ended for ${brand.name}`, `We could not collect the renewal payment after several tries, so ${prem.name} for ${brand.name} has ended. Print edition links are saved but no longer shown to readers, and the advanced analytics are closed. Everything comes back if you subscribe again.`);
+    await notify(sub.user_id, 'premium', `${prem.name} has ended for ${brand.name}`, 'We could not collect the renewal payment.', link);
+  } else if (attempts === 1) {
+    await premiumMail(sub, `We could not renew ${prem.name} for ${brand.name}`, `Your card was declined (${error}). We will try again over the next few days. ${prem.name} features are paused until the payment goes through. To fix it now, update the card.`);
+    await notify(sub.user_id, 'premium', `${prem.name} payment failed`, `Update the card to keep ${prem.name} for ${brand.name}.`, link);
+  }
+}
+
+/**
+ * A Premium charge was refunded or charged back: the tax goes back in the
+ * sales tax report and the brand's Premium ends now, the same as a refunded
+ * reader membership charge ends that membership. There is no pot, share or
+ * ledger row to reverse.
+ */
+async function reversePremiumCharge(chargeId: string, why: { reason: string; dispute?: boolean }): Promise<boolean> {
+  const done = await tx(async (db) => {
+    const c = await one('select * from premium_charges where id = $1 for update', [chargeId], db);
+    if (!c || c.status !== 'paid') return null;
+    await recordTaxRefund(db, { premiumChargeId: chargeId, state: c.tax_state, taxCents: (c.tax_cents ?? 0) - (c.tax_refunded_cents ?? 0) });
+    await db.query(`update premium_charges set status = 'refunded', refunded_at = now(), tax_refunded_cents = tax_cents, last_error = $2 where id = $1`, [chargeId, why.reason.slice(0, 300)]);
+    const sub = await one(
+      `update premium_subscriptions set status = 'canceled', canceled_at = now(), cancel_at_period_end = true, current_period_end = least(current_period_end, now()) where id = $1 returning *`,
+      [c.subscription_id],
+      db,
+    );
+    return { c, sub };
+  });
+  if (!done) return false;
+  if (done.sub) {
+    invalidatePremium(done.sub.publisher_id);
+    const [prem, brand] = [await getSetting('creator_premium'), await premiumBrand(done.sub.publisher_id)];
+    await notify(done.c.user_id, 'premium', why.dispute ? `A ${prem.name} payment was disputed` : `Your ${prem.name} payment was refunded`, `${prem.name}${brand ? ` for ${brand.name}` : ''} has ended.`, brand ? `/studio/${brand.slug}/premium` : '/studio').catch(() => {});
+  }
+  return true;
+}
+
+/** Close plans of one brand (or of every brand) whose time is up: complimentary grants and canceled plans at the end of their period. */
+export async function closeEndedPremium(publisherId: string | null = null): Promise<{ expired: number; ended: number }> {
+  const expired = await exec(
+    `update premium_subscriptions set status = 'expired' where status in ('active','past_due') and current_period_end <= now()
+        and (provider not in ('sandbox','divinity') or payment_method_token is null) and ($1::uuid is null or publisher_id = $1)`,
+    [publisherId],
+  );
+  const ended = await exec(
+    `update premium_subscriptions set status = 'canceled', canceled_at = coalesce(canceled_at, now())
+      where status = 'active' and cancel_at_period_end and current_period_end <= now() and ($1::uuid is null or publisher_id = $1)`,
+    [publisherId],
+  );
+  return { expired, ended };
+}
+
+/**
+ * Before a renewal: is the person whose card is saved still an owner or admin
+ * of the brand? If they have left the team, their card is not charged: the
+ * plan is set to end with the paid year and the brand's owners are told, so
+ * one of them can subscribe with their own card.
+ */
+export async function premiumPayerLeft(sub: Row): Promise<boolean> {
+  const still = await one(`select 1 from publisher_members where publisher_id = $1 and user_id = $2 and role in ('owner','admin')`, [sub.publisher_id, sub.user_id]);
+  if (still) return false;
+  await exec(`update premium_subscriptions set cancel_at_period_end = true, canceled_at = coalesce(canceled_at, now()), payment_method_token = null where id = $1`, [sub.id]);
+  invalidatePremium(sub.publisher_id);
+  const [prem, brand] = [await getSetting('creator_premium'), await premiumBrand(sub.publisher_id)];
+  const owners = await q<{ user_id: string }>(`select user_id from publisher_members where publisher_id = $1 and role in ('owner','admin')`, [sub.publisher_id]);
+  for (const m of owners) {
+    await notify(m.user_id, 'premium', `${prem.name} was not renewed${brand ? ` for ${brand.name}` : ''}`, 'The person who paid for it is no longer on the team. Subscribe again to keep it.', brand ? `/studio/${brand.slug}/premium` : '/studio').catch(() => {});
+  }
+  return true;
+}
+
+/** A grant with no end date is stored with this end; the API shows it as `ends_at: null`. */
+export const PREMIUM_NO_END = new Date('9999-12-31T00:00:00Z');
+export const premiumEnds = (end: unknown): string | null => (new Date(end as string).getUTCFullYear() >= 9999 ? null : new Date(end as string).toISOString());
+
+/**
+ * Give a brand Creator Premium without payment ("granted by the platform"):
+ * no card, no charge, no tax, nothing in any revenue figure. `end` null means
+ * no end date. A grant that is already running has its end date and note
+ * replaced, which is how an admin extends or shortens one. It runs beside a
+ * paid plan if there is one: the brand has Premium while either is active,
+ * and neither changes the other.
+ */
+export async function grantPremium(publisherId: string, adminId: string, end: Date | null, note: string | null): Promise<{ id: string; ends_at: string | null; changed: boolean }> {
+  await closeEndedPremium(publisherId);
+  const until = end ?? PREMIUM_NO_END;
+  const out = await tx(async (db) => {
+    const brand = await one('select id from publishers where id = $1 and deleted_at is null for update', [publisherId], db);
+    if (!brand) throw new HttpError(404, 'Brand not found');
+    const live = await one<{ id: string }>(`select id from premium_subscriptions where publisher_id = $1 and provider = 'comp' and status in ('active','past_due') for update`, [publisherId], db);
+    if (live) {
+      await db.query('update premium_subscriptions set current_period_end = $2, note = $3, user_id = $4 where id = $1', [live.id, until, note, adminId]);
+      return { id: live.id, changed: true };
+    }
+    const row = await one<{ id: string }>(
+      `insert into premium_subscriptions (publisher_id, user_id, plan, status, provider, price_cents, current_period_start, current_period_end, cancel_at_period_end, note)
+       values ($1, $2, 'annual', 'active', 'comp', 0, now(), $3, true, $4) returning id`,
+      [publisherId, adminId, until, note], db);
+    return { id: row!.id, changed: false };
+  });
+  invalidatePremium(publisherId);
+  // Tell the owners, in the app and by email (template `premium_granted`, editable in /admin).
+  try {
+    const [prem, brand, site] = [await getSetting('creator_premium'), await premiumBrand(publisherId), await getSetting('site')];
+    const owners = await q<{ id: string; email: string; display_name: string }>(
+      `select u.id, u.email, u.display_name from publisher_members m join users u on u.id = m.user_id where m.publisher_id = $1 and m.role = 'owner' and u.deleted_at is null`,
+      [publisherId],
+    );
+    const untilText = end ? `until ${ymd(end.getTime() - 1)}` : 'with no end date';
+    for (const o of owners) {
+      await notify(o.id, 'premium', `${prem.name} was granted to ${brand?.name ?? 'your brand'}`, `Granted by ${site.name}, active ${untilText}. Nothing is charged.`, brand ? `/studio/${brand.slug}/premium` : '/studio');
+      await sendTemplate('premium_granted', o.email, { name: o.display_name, product: prem.name, brand: brand?.name ?? '', until: untilText, url: `${config.appUrl}/studio/${brand?.slug ?? ''}/premium` }, { userId: o.id, publisherId });
+    }
+  } catch (e) {
+    captureError(e, { source: 'api', endpoint: 'grantPremium' });
+  }
+  return { id: out.id, ends_at: end ? end.toISOString() : null, changed: out.changed };
+}
+
+/** End a brand's grant now. A paid plan, if there is one, is not touched. */
+export async function revokePremiumGrant(publisherId: string): Promise<string | null> {
+  const sub = await one<{ id: string }>(
+    `update premium_subscriptions set status = 'canceled', canceled_at = now(), current_period_end = now()
+      where publisher_id = $1 and provider = 'comp' and status in ('active','past_due') returning id`,
+    [publisherId],
+  );
+  invalidatePremium(publisherId);
+  return sub?.id ?? null;
+}
+
+/** A brand's running grant, as the admin pages and the Studio show it. */
+export async function premiumGrantOf(publisherId: string): Promise<{ id: string; started_at: string; ends_at: string | null; note: string | null; granted_by: string | null } | null> {
+  const g = await one(
+    `select ps.id, ps.current_period_start, ps.current_period_end, ps.note, u.display_name from premium_subscriptions ps left join users u on u.id = ps.user_id
+      where ps.publisher_id = $1 and ps.provider = 'comp' and ps.status = 'active' and ps.current_period_end > now() limit 1`,
+    [publisherId],
+  );
+  return g ? { id: g.id, started_at: g.current_period_start, ends_at: premiumEnds(g.current_period_end), note: g.note, granted_by: g.display_name } : null;
+}
+
+/** Where a brand stands, for admin pages: is Premium on, the running grant, the latest paid plan. */
+export async function brandPremiumSummary(publisherId: string) {
+  const paid = await one(
+    `select id, status, price_cents, current_period_start, current_period_end, cancel_at_period_end,
+            (status in ('active','past_due') and current_period_end > now()) as current
+       from premium_subscriptions where publisher_id = $1 and provider <> 'comp' and status <> 'pending'
+      order by (status in ('active','past_due')) desc, created_at desc limit 1`,
+    [publisherId],
+  );
+  const grant = await premiumGrantOf(publisherId);
+  return { active: Boolean(grant) || Boolean(paid?.current), grant, paid: paid ?? null };
+}
+
+export type PremiumStart = { completed: boolean; status: string; url?: string; session_id?: string; surface?: Surface };
+
+/** Start Creator Premium for a brand, paid by `user` (one of its owners or admins; the caller checks the role). */
+export async function startPremium(user: { id: string; email: string }, publisherId: string, origin: Origin, surface: Surface = 'redirect'): Promise<PremiumStart> {
+  const brand = await premiumBrand(publisherId);
+  if (!brand) throw new HttpError(404, 'Brand not found');
+  await closeEndedPremium(publisherId);
+  // A complimentary grant does not stand in the way: a brand may pay as well, and has Premium while either is active.
+  const live = await one<{ status: string; current_period_end: string }>(`select status, current_period_end from premium_subscriptions where publisher_id = $1 and status in ('active','past_due') and provider <> 'comp' limit 1`, [publisherId]);
+  const prem = await getSetting('creator_premium');
+  if (live?.status === 'past_due') throw conflict(`The last ${prem.name} payment for this brand did not go through. Update the card to fix it, or cancel the plan and start again.`);
+  if (live) throw conflict(`This brand already pays for ${prem.name} (until ${ymd(live.current_period_end)}).`);
+  const p = await getProvider();
+  if (!Number.isInteger(prem.annual_cents) || prem.annual_cents <= 0) throw new HttpError(400, `${prem.name} is not on offer right now`);
+  await exec(`delete from premium_subscriptions where publisher_id = $1 and status = 'pending'`, [publisherId]);
+  const sub = await one<{ id: string }>(
+    `insert into premium_subscriptions (publisher_id, user_id, plan, status, provider, price_cents, current_period_start, current_period_end, origin_ip, origin_user_agent)
+     values ($1,$2,'annual','pending',$3,$4, now(), now(), $5, $6) returning id`,
+    [publisherId, user.id, p.name, prem.annual_cents, origin.ip, origin.userAgent?.slice(0, 512) ?? null],
+  );
+  const shown = await resolveSurface(surface);
+  const s = await p.startSetup({ key: sub!.id, userId: user.id, email: user.email, description: `${prem.name} for ${brand.name} (1 year)`, origin, surface: shown, returnPath: `/studio/${brand.slug}/premium` });
+  await exec('update premium_subscriptions set setup_ref = $2, provider_ref = $2 where id = $1', [sub!.id, s.ref]);
+  if (s.token) {
+    const r = await activateMembership(sub!.id, s.token, PREMIUM);
+    if (r === 'declined') throw new HttpError(402, `Your card was declined, so ${prem.name} was not started.`);
+    return { completed: r === 'active', status: r };
+  }
+  return { completed: false, status: 'pending', url: s.url ?? undefined, session_id: s.ref, surface: shown };
+}
+
+/** The brand's running paid plan, if any. */
+const livePremium = (publisherId: string) =>
+  one(`select * from premium_subscriptions where publisher_id = $1 and status in ('active','past_due') and provider <> 'comp' order by created_at desc limit 1`, [publisherId]);
+
+/**
+ * Replace the saved card on a brand's Premium. The person doing it becomes
+ * the payer: later charges, receipts and the billing location used for sales
+ * tax are theirs.
+ */
+export async function changePremiumCard(user: { id: string; email: string }, publisherId: string, origin: Origin, surface: Surface = 'redirect'): Promise<{ url: string | null; session_id: string; surface: Surface }> {
+  const sub = await livePremium(publisherId);
+  const [prem, brand] = [await getSetting('creator_premium'), await premiumBrand(publisherId)];
+  if (!sub || !brand) throw new HttpError(404, `This brand has no paid ${prem.name} plan to update`);
+  if (sub.user_id !== user.id) {
+    await exec('update premium_subscriptions set user_id = $2 where id = $1', [sub.id, user.id]);
+    await exec(`update premium_charges set user_id = $2 where subscription_id = $1 and status = 'pending'`, [sub.id, user.id]);
+  }
+  return replaceCard(sub, user, origin, surface, `${prem.name} payment method`, PREMIUM, `/studio/${brand.slug}/premium`);
+}
+
+/** Stop renewing; Premium continues until the paid year ends. A plan whose renewal payment is failing ends now. */
+export async function cancelPremium(publisherId: string): Promise<void> {
+  const sub = await livePremium(publisherId);
+  const prem = await getSetting('creator_premium');
+  if (!sub) throw new HttpError(404, `This brand has no paid ${prem.name} plan to cancel`);
+  if (sub.cancel_at_period_end && sub.status === 'active') return;
+  await exec(`update premium_subscriptions set cancel_at_period_end = true, canceled_at = now(), status = case when status = 'past_due' then 'canceled' else status end where id = $1`, [sub.id]);
+  await exec(`update premium_charges set status = 'failed', last_error = 'Canceled by the brand' where subscription_id = $1 and status = 'pending'`, [sub.id]);
+  invalidatePremium(publisherId);
+  const brand = await premiumBrand(publisherId);
+  const ends = Date.parse(sub.current_period_end) > Date.now() && sub.status === 'active';
+  await premiumMail(
+    sub,
+    `${prem.name} canceled for ${brand?.name ?? 'your brand'}`,
+    ends
+      ? `${prem.name} for ${brand?.name ?? 'your brand'} will not renew. You keep it until ${ymd(sub.current_period_end)}, and the card will not be charged again. After that, print edition links stay saved but are hidden from readers, and the advanced analytics close. You can resume before that date.`
+      : `${prem.name} for ${brand?.name ?? 'your brand'} has been canceled and the card will not be charged again. Print edition links stay saved but are hidden from readers. You can subscribe again at any time.`,
+  ).catch((e) => captureError(e, { source: 'api', endpoint: 'cancelPremium' }));
+}
+
+/** Undo a cancellation while the paid year is still running. */
+export async function resumePremium(publisherId: string): Promise<void> {
+  const n = await exec(
+    `update premium_subscriptions set cancel_at_period_end = false, canceled_at = null
+      where publisher_id = $1 and status = 'active' and provider <> 'comp' and cancel_at_period_end and current_period_end > now() and payment_method_token is not null`,
+    [publisherId],
+  );
+  if (!n) throw conflict('There is no canceled plan to resume. Subscribe again instead.');
+  invalidatePremium(publisherId);
 }
 
 // ------------------------------------------------------------------ hosted checkout: return + webhooks
 
 export type Confirmation = {
-  kind: 'order' | 'membership' | 'unknown';
+  kind: 'order' | 'membership' | 'premium' | 'unknown';
   status: 'paid' | 'active' | 'updated' | 'pending' | 'declined' | 'failed' | 'expired' | 'canceled';
   order_id?: string;
   /** Why it did not go through, for the buyer. Only with declined / failed / expired / canceled. */
@@ -1067,22 +1406,23 @@ export type Confirmation = {
  * taken in, read from our own rows. Asking again must never charge again, so
  * every repeat of a confirmation ends here instead of in `savedMethodArrived`.
  */
-async function setupOutcome(subId: string, sessionId: string): Promise<Confirmation> {
-  const s = await one<{ status: string; provider_ref: string | null }>('select status, provider_ref from subscriptions where id = $1', [subId]);
-  if (!s) return { kind: 'membership', status: 'failed', message: FAILURE_TEXT.failed };
+async function setupOutcome(subId: string, sessionId: string, book: Book = MEMBERSHIP): Promise<Confirmation> {
+  const kind = book.kind;
+  const s = await one<{ status: string; provider_ref: string | null }>(`select status, provider_ref from ${book.subs} where id = $1`, [subId]);
+  if (!s) return { kind, status: 'failed', message: FAILURE_TEXT.failed };
   // The session that started this membership, as opposed to a later change of card.
   const started = s.provider_ref === sessionId;
-  if (s.status === 'active') return { kind: 'membership', status: started ? 'active' : 'updated' };
-  if (s.status === 'pending') return { kind: 'membership', status: 'pending' };
+  if (s.status === 'active') return { kind, status: started ? 'active' : 'updated' };
+  if (s.status === 'pending') return { kind, status: 'pending' };
   const c = await one<{ status: string; uncertain: boolean; last_error: string | null }>(
-    'select status, uncertain, last_error from subscription_charges where subscription_id = $1 order by created_at desc limit 1',
+    `select status, uncertain, last_error from ${book.charges} where subscription_id = $1 order by created_at desc limit 1`,
     [subId],
   );
-  const declined: Confirmation = { kind: 'membership', status: 'declined', message: declineMessage({ error: c?.last_error }) ?? 'The card was declined. Try another card or contact your bank.' };
-  if (s.status === 'past_due') return c?.uncertain ? { kind: 'membership', status: 'pending' } : declined;
+  const declined: Confirmation = { kind, status: 'declined', message: declineMessage({ error: c?.last_error }) ?? 'The card was declined. Try another card or contact your bank.' };
+  if (s.status === 'past_due') return c?.uncertain ? { kind, status: 'pending' } : declined;
   // Ended: a first payment that was declined, or a membership that has simply run out since.
-  const everPaid = await one(`select 1 from subscription_charges where subscription_id = $1 and status in ('paid','refunded') limit 1`, [subId]);
-  return started && !everPaid ? declined : { kind: 'membership', status: 'failed', message: FAILURE_TEXT.failed };
+  const everPaid = await one(`select 1 from ${book.charges} where subscription_id = $1 and status in ('paid','refunded') limit 1`, [subId]);
+  return started && !everPaid ? declined : { kind, status: 'failed', message: FAILURE_TEXT.failed };
 }
 
 /**
@@ -1097,7 +1437,13 @@ async function setupOutcome(subId: string, sessionId: string): Promise<Confirmat
  */
 export async function confirmSession(sessionId: string, opts: { userId?: string; state?: SessionState } = {}): Promise<Confirmation> {
   const order = await one(`select id, user_id, status, provider, meta from orders where provider = 'divinity' and provider_ref = $1`, [sessionId]);
-  const sub = order ? null : await one(`select id, user_id, status, provider, payment_method_token from subscriptions where setup_ref = $1`, [sessionId]);
+  let book: Book = MEMBERSHIP;
+  let sub = order ? null : await one(`select id, user_id, status, provider, payment_method_token from subscriptions where setup_ref = $1`, [sessionId]);
+  if (!order && !sub) {
+    sub = await one(`select id, user_id, status, provider, payment_method_token from premium_subscriptions where setup_ref = $1`, [sessionId]);
+    if (sub) book = PREMIUM;
+  }
+  const kind = book.kind;
   const owner = order ?? sub;
   if (!owner || (opts.userId && owner.user_id !== opts.userId)) return { kind: 'unknown', status: 'failed' };
   const state = opts.state ?? (await (await getProvider('divinity')).getSession(sessionId));
@@ -1124,41 +1470,45 @@ export async function confirmSession(sessionId: string, opts: { userId?: string;
     return { kind: 'order', status: how, order_id: order.id, message };
   }
 
-  if (!state) return { kind: 'membership', status: 'pending' };
+  if (!state) return { kind, status: 'pending' };
   if (state.status === 'complete' && state.paymentMethod) {
     // This card was already taken in (an earlier call, or the webhook): report, do not act again.
-    if (sub!.status !== 'pending' && sub!.payment_method_token === state.paymentMethod) return setupOutcome(sub!.id, sessionId);
-    const r = await savedMethodArrived(sub!.id, state.paymentMethod);
-    if (r === 'active' || r === 'paid') return { kind: 'membership', status: 'active' };
-    if (r === 'updated') return { kind: 'membership', status: 'updated' };
-    return setupOutcome(sub!.id, sessionId);
+    if (sub!.status !== 'pending' && sub!.payment_method_token === state.paymentMethod) return setupOutcome(sub!.id, sessionId, book);
+    const r = await savedMethodArrived(sub!.id, state.paymentMethod, book);
+    if (r === 'active' || r === 'paid') return { kind, status: 'active' };
+    if (r === 'updated') return { kind, status: 'updated' };
+    return setupOutcome(sub!.id, sessionId, book);
   }
-  if (state.status === 'pending' || state.status === 'complete') return { kind: 'membership', status: 'pending' };
+  if (state.status === 'pending' || state.status === 'complete') return { kind, status: 'pending' };
   const how: FailureState = state.status === 'expired' || state.status === 'canceled' ? state.status : 'failed';
   // A membership that never got its card stays out of sight (and out of the reconciliation job) until the
   // reader starts again or the daily clean-up removes it. Kept, so asking again gets the same answer.
-  await exec(`update subscriptions set canceled_at = coalesce(canceled_at, now()) where id = $1 and status = 'pending'`, [sub!.id]);
-  return { kind: 'membership', status: how, message: (how === 'failed' ? state.message : null) ?? FAILURE_TEXT[how] };
+  await exec(`update ${book.subs} set canceled_at = coalesce(canceled_at, now()) where id = $1 and status = 'pending'`, [sub!.id]);
+  return { kind, status: how, message: (how === 'failed' ? state.message : null) ?? FAILURE_TEXT[how] };
 }
 
 const isUuid = (s: unknown): s is string => typeof s === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
 
 /** Find what a webhook is about: the `pledgeId` we sent (order id or membership charge id), else the processor payment id. */
-async function locate(data: Row): Promise<{ order?: Row; charge?: Row }> {
+async function locate(data: Row): Promise<{ order?: Row; charge?: Row; book: Book }> {
   const pi = data.stripePaymentIntentId ?? data.paymentIntentId ?? data.paymentId;
   if (isUuid(data.pledgeId)) {
     const order = await one('select * from orders where id = $1', [data.pledgeId]);
-    if (order) return { order };
-    const charge = await one('select * from subscription_charges where id = $1', [data.pledgeId]);
-    if (charge) return { charge };
+    if (order) return { order, book: MEMBERSHIP };
+    for (const book of BOOKS) {
+      const charge = await one(`select * from ${book.charges} where id = $1`, [data.pledgeId]);
+      if (charge) return { charge, book };
+    }
   }
   if (typeof pi === 'string' && pi) {
     const order = await one('select * from orders where payment_ref = $1', [pi]);
-    if (order) return { order };
-    const charge = await one('select * from subscription_charges where payment_ref = $1', [pi]);
-    if (charge) return { charge };
+    if (order) return { order, book: MEMBERSHIP };
+    for (const book of BOOKS) {
+      const charge = await one(`select * from ${book.charges} where payment_ref = $1`, [pi]);
+      if (charge) return { charge, book };
+    }
   }
-  return {};
+  return { book: MEMBERSHIP };
 }
 
 /**
@@ -1187,7 +1537,7 @@ export async function handleDivinityEvent(evt: { event?: string; data?: Row }): 
     }
 
     case 'payment.succeeded': {
-      const { order, charge } = await locate(data);
+      const { order, charge, book } = await locate(data);
       const pi = typeof data.paymentIntentId === 'string' ? data.paymentIntentId : null;
       if (order) {
         await completeOrder(order.id, { paymentRef: pi });
@@ -1196,9 +1546,9 @@ export async function handleDivinityEvent(evt: { event?: string; data?: Row }): 
         return say(`Order ${order.id} paid`);
       }
       if (charge) {
-        await markChargePaid(charge.id, pi);
-        await captureCharge(charge.id).catch(() => false);
-        return say(`Membership charge ${charge.id} paid`);
+        await markChargePaid(charge.id, pi, book);
+        await captureCharge(charge.id, book).catch(() => false);
+        return say(`${book.label} charge ${charge.id} paid`);
       }
       return say('No matching order');
     }
@@ -1206,7 +1556,7 @@ export async function handleDivinityEvent(evt: { event?: string; data?: Row }): 
     case 'payment.failed':
     case 'payment.requires_action': {
       if (data.pledgeAlreadyPaid === true) return say('Abandoned attempt on a paid order; ignored');
-      const { order, charge } = await locate(data);
+      const { order, charge, book } = await locate(data);
       // On the hosted page the reader can simply try another card; the order only fails with its session.
       // The reason is kept: should the session end without a payment, it is what the buyer is told.
       if (order) {
@@ -1218,15 +1568,15 @@ export async function handleDivinityEvent(evt: { event?: string; data?: Row }): 
         // Second signal for a decline whose synchronous answer we may have lost.
         const pi = typeof data.paymentIntentId === 'string' ? data.paymentIntentId : null;
         if (charge.uncertain || (pi && charge.payment_ref !== pi && charge.last_error === null)) {
-          await recordDecline(charge.id, String(data.error ?? (evt.event === 'payment.requires_action' ? 'The bank asked for extra confirmation' : 'The card was declined')), pi);
-          return say(`Membership charge ${charge.id} declined`);
+          await recordDecline(charge.id, String(data.error ?? (evt.event === 'payment.requires_action' ? 'The bank asked for extra confirmation' : 'The card was declined')), pi, book);
+          return say(`${book.label} charge ${charge.id} declined`);
         }
       }
       return say('Nothing to do');
     }
 
     case 'refund.completed': {
-      const { order, charge } = await locate(data);
+      const { order, charge, book } = await locate(data);
       if (data.partial === true) {
         const reason = String(data.reason ?? 'Partly refunded by the payment processor');
         const amount = Number(data.amount);
@@ -1241,29 +1591,33 @@ export async function handleDivinityEvent(evt: { event?: string; data?: Row }): 
         }
         if (charge) {
           // A membership period is not divisible in the monthly pots; a person decides what to adjust.
+          if (book.kind === 'premium') {
+            await alertAdmins('Creator Premium charge partly refunded', `Creator Premium charge ${charge.id} was partly refunded at the processor (${Number.isFinite(amount) ? await money(amount) : 'amount not given'}). The brand's Premium and the recorded sales tax were left as they are; adjust by hand if needed.`).catch(() => {});
+            return say('Partial Premium refund noted; nothing reversed');
+          }
           await alertAdmins('Membership charge partly refunded', `Membership charge ${charge.id} was partly refunded at the processor (${Number.isFinite(amount) ? await money(amount) : 'amount not given'}). The membership and its creator pots were left as they are; adjust by hand if needed.`).catch(() => {});
           return say('Partial membership refund noted; nothing reversed');
         }
         return say('No matching order');
       }
       if (order) return say((await reverseOrderBooks(order.id, { reason: String(data.reason ?? 'Refunded by the payment processor') })) ? `Order ${order.id} refunded` : 'Order already settled');
-      if (charge) return say((await reverseChargeBooks(charge.id, { reason: String(data.reason ?? 'Refunded by the payment processor') })) ? `Membership charge ${charge.id} refunded` : 'Charge already settled');
+      if (charge) return say((await reverseChargeBooks(charge.id, { reason: String(data.reason ?? 'Refunded by the payment processor') }, book)) ? `${book.label} charge ${charge.id} refunded` : 'Charge already settled');
       return say('No matching order');
     }
 
     case 'dispute.created':
     case 'chargeback.created': {
-      const { order, charge } = await locate(data);
+      const { order, charge, book } = await locate(data);
       const reason = String(data.reason ?? 'disputed');
       const dispute = { id: data.disputeId ?? null, reason, status: data.status ?? null, evidence_due_by: data.evidenceDueBy ?? null };
       let changed = false;
       if (order) changed = await reverseOrderBooks(order.id, { reason, dispute });
-      else if (charge) changed = await reverseChargeBooks(charge.id, { reason, dispute: true });
+      else if (charge) changed = await reverseChargeBooks(charge.id, { reason, dispute: true }, book);
       else return say('No matching order');
       if (changed) {
         await alertAdmins(
           'Payment disputed',
-          `${order ? `Order ${order.id}` : `Membership charge ${charge!.id}`} was disputed (${reason}). Access and creator earnings from it have been reversed.${dispute.evidence_due_by ? ` Evidence is due by ${dispute.evidence_due_by}.` : ''}`,
+          `${order ? `Order ${order.id}` : `${book.label} charge ${charge!.id}`} was disputed (${reason}). ${!order && book.kind === 'premium' ? "The brand's Creator Premium has ended." : 'Access and creator earnings from it have been reversed.'}${dispute.evidence_due_by ? ` Evidence is due by ${dispute.evidence_due_by}.` : ''}`,
         ).catch(() => {});
       }
       return say(changed ? 'Dispute applied' : 'Dispute already applied');

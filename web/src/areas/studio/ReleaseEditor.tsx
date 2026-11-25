@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Archive, BarChart3, CalendarClock, ChevronRight, Download, ExternalLink, Eye, Frame as FrameIcon, GripVertical, Info, RefreshCw, RotateCw, Settings2, Trash2,
+  Archive, BarChart3, CalendarClock, ChevronRight, Download, ExternalLink, Eye, Frame as FrameIcon, GripVertical, Info, Lock, RefreshCw, RotateCw, Settings2, Trash2,
   UploadCloud, Wand2, X,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -13,6 +13,7 @@ import {
   Textarea, cx, toast, useConfirm,
 } from '@/ui';
 import { ContributorsEditor } from './Contributors';
+import { usePremium, usePremiumPrice } from './Premium';
 import { releasesKey, seriesKey } from './SeriesEditor';
 import type { Contributor, Release } from './SeriesEditor';
 import { CopyButton, FileButton, PAGE_TYPES, Q, STATUS_TONE, Section, can, cap, changed, fromLocalInput, toLocalInput, studioError, useAct, useBrand, useDraft, useTitle, Group } from './shared';
@@ -51,6 +52,37 @@ export function isbnProblem(input: string): string | null {
   return `An ISBN has 10 or 13 digits. This has ${s.length}.`;
 }
 
+/**
+ * The "Buy in print" link is part of Creator Premium. Without it the field is
+ * shown but cannot be edited (the server refuses a new or changed link too),
+ * and a link saved earlier is kept, hidden from readers, and can be removed.
+ */
+function PrintLinkField({ value, saved, editable, onChange }: { value: string | null; saved: string | null; editable: boolean; onChange: (v: string | null) => void }) {
+  const { brand } = useBrand();
+  const premium = usePremium(brand.id);
+  const price = usePremiumPrice();
+  // Until the plan is known the field stays as it always was; the server has the last word either way.
+  const locked = premium.data ? !premium.data.active : false;
+  if (!locked) {
+    return <Field label="Print edition link" optional hint="Shown to readers as “Buy in print”."><Input type="url" placeholder="https://" value={value ?? ''} onChange={(e) => onChange(e.target.value || null)} /></Field>;
+  }
+  return (
+    <Field label={<span className="inline-flex items-center gap-1.5"><Lock className="size-3.5 text-muted" aria-hidden />Print edition link</span>} optional>
+      <Input type="url" placeholder="https://" value={value ?? ''} disabled readOnly aria-describedby="print-link-locked" data-testid="print-link-locked" />
+      <p id="print-link-locked" className="mt-1.5 text-xs text-muted">
+        {saved && value
+          ? 'This link is saved but hidden from readers, because print edition links are part of '
+          : value === null && saved
+            ? 'The link will be removed when you save. Adding one again needs '
+            : 'A “Buy in print” link for readers is part of '}
+        <Link className="link" to={`/studio/${brand.slug}/premium`}>{price.name}</Link>
+        {saved && value ? '. It shows again as soon as the plan is active.' : ` (${price.text}).`}
+        {saved && value && editable && <> <button type="button" className="link" onClick={() => onChange(null)}>Remove the link</button></>}
+      </p>
+    </Field>
+  );
+}
+
 type Fields = Pick<Release, 'title' | 'synopsis' | 'mature' | 'spread_pref' | 'single_cover' | 'isbn' | 'print_url' | 'orig_pub_date'>;
 
 function SettingsPanel({ d, editable }: { d: ReleaseDetail; editable: boolean }) {
@@ -86,7 +118,7 @@ function SettingsPanel({ d, editable }: { d: ReleaseDetail; editable: boolean })
           </>
         )}
         <Field label="ISBN" optional error={isbnError} hint="10 or 13 digits, with or without dashes."><Input value={f.isbn ?? ''} inputMode="numeric" onChange={(e) => set({ isbn: e.target.value || null })} /></Field>
-        <Field label="Print edition link" optional hint="Shown to readers as “Buy in print”."><Input type="url" placeholder="https://" value={f.print_url ?? ''} onChange={(e) => set({ print_url: e.target.value || null })} /></Field>
+        <PrintLinkField value={f.print_url} saved={r.print_url} editable={editable} onChange={(v) => set({ print_url: v })} />
         <Field label="Originally published" optional><Input type="date" value={f.orig_pub_date ?? ''} onChange={(e) => set({ orig_pub_date: e.target.value || null })} /></Field>
       </fieldset>
       {dirty && <div className="flex justify-end gap-2"><Button variant="ghost" onClick={reset}>Discard</Button><Button loading={save.isPending} disabled={Boolean(isbnError)} onClick={() => save.mutate()}>Save details</Button></div>}

@@ -51,6 +51,8 @@ export type PublicSettings = {
   revenue: { sale_share_bps: number; sub_share_bps: number; tip_share_bps: number; payout_minimum_cents: number };
   /** Sales tax at checkout. Off (or absent): no billing location is asked for and no tax is shown. */
   tax?: { enabled: boolean };
+  /** The optional yearly plan for brands: its name and price before sales tax. */
+  creator_premium?: { name: string; annual_cents: number };
   password_min_length?: number;
   recaptcha_site_key: string;
   ga_measurement_id: string;

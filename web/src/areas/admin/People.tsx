@@ -6,6 +6,7 @@ import { ago, date, dateTime, moneyExact, number } from '@/lib/format';
 import { useSession } from '@/lib/session';
 import { Avatar, Badge, Button, DefList, Field, FormRow, Input, Notice, PageHeader, Stat, Table, useConfirm } from '@/ui';
 import { DataList, FilterBar, FilterSelect, Loaded, SearchInput, Section, StatusBadge, bpsToPct, pctToBps, shortId, useAct, useAdminQuery, useAsk, useFilters, useIsSuper, useList, useTitle } from './shared';
+import { BrandPremiumSection } from './Premium';
 import type { AdminColumn, R } from './shared';
 import { toast } from '@/ui';
 
@@ -527,6 +528,7 @@ export function BrandDetail() {
             </div>
 
             <div className="space-y-5">
+              <BrandPremiumSection brand={{ id, name: b.name, slug: b.slug }} premium={d.premium} />
               {isSuper && <ShareForm key={`${b.sale_share_bps}-${b.sub_share_bps}-${b.tip_share_bps}`} id={id} brand={b} shares={d.shares} />}
               {!isSuper && (
                 <Section title="Revenue share">

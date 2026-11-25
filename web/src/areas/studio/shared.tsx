@@ -195,6 +195,7 @@ export function BrandPage({ title, children, actions }: { title: string; childre
     ...(can(role, 'admin') ? [{ to: `${base}/earnings`, label: 'Earnings' }] : []),
     ...(can(role, 'editor') ? [{ to: `${base}/codes`, label: 'Codes' }, { to: `${base}/store`, label: 'Bundles and sales' }] : []),
     ...(can(role, 'admin') ? [{ to: `${base}/marketing`, label: 'Marketing' }] : []),
+    { to: `${base}/premium`, label: 'Creator Premium' },
     { to: `${base}/settings`, label: 'Settings' },
   ];
   return (

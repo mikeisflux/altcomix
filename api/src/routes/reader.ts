@@ -12,6 +12,7 @@ import { rateLimit } from '../lib/botblock.ts';
 import { sha256, sign } from '../lib/crypto.ts';
 import { HttpError, forbidden, isAdmin, notFound, paymentRequired, parse, requireUser } from '../lib/http.ts';
 import { activeDiscounts, downloadPrice, readOffer, seriesPurchase } from '../lib/pricing.ts';
+import { publicPrintUrl } from '../lib/premium.ts';
 import { getSetting } from '../lib/settings.ts';
 import { publicUrl, storage } from '../lib/storage.ts';
 import { crowdfunding, isBrandMember, isUuid } from './catalog.ts';
@@ -110,7 +111,7 @@ export default async function readerRoutes(app: FastifyInstance) {
     return {
       release: {
         id: r.id, title: r.title, number: r.number, kind: r.kind, language: r.language, mature: r.mature, page_count: l.pages.length, synopsis: r.synopsis,
-        print_url: r.print_url, published_at: r.published_at, status: r.status, cover_url: await publicUrl(r.cover_key),
+        print_url: await publicPrintUrl(s.publisher_id, r.print_url), published_at: r.published_at, status: r.status, cover_url: await publicUrl(r.cover_key),
       },
       series: {
         id: s.id, slug: s.slug, title: s.title, layout: s.layout, reading_dir: s.reading_dir, cover_url: await publicUrl(s.cover_key), allow_comments: s.allow_comments,

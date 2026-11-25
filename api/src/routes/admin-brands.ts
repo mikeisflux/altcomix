@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { exec, one, q, tx } from '../db.ts';
 import { adminScope, brandBalance, idParam, like, query, tellBrand, where, zReason } from '../lib/admin.ts';
 import { audit, badRequest, notFound, pageParams, parse, requireAdmin, requireSuperAdmin } from '../lib/http.ts';
+import { brandPremiumSummary } from '../lib/payments.ts';
 import { getSetting } from '../lib/settings.ts';
 import { publicUrl } from '../lib/storage.ts';
 
@@ -75,6 +76,8 @@ export default async function adminBrandRoutes(app: FastifyInstance) {
       ]);
       return {
         brand,
+        // Creator Premium: whether it is on, the grant (if any) and the paid plan (if any). Granted from here or from Finance.
+        premium: await brandPremiumSummary(id),
         members,
         series,
         balance,

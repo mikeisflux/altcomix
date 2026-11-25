@@ -1,6 +1,7 @@
 import { ArrowRight } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
+import { moneyExact } from '@/lib/format';
 import { useSession } from '@/lib/session';
 import { LinkButton, cx } from '@/ui';
 import { useTitle } from './shared';
@@ -44,6 +45,7 @@ export function Welcome() {
   const { settings, user } = useSession();
   const pct = (bps: number) => Math.round(bps / 100);
   const r = settings.revenue;
+  const premium = settings.creator_premium ?? { name: 'Creator Premium', annual_cents: 14000 };
   const publish = user ? '/studio' : '/register?next=/studio';
 
   return (
@@ -165,6 +167,9 @@ export function Welcome() {
         </div>
         <p className="mt-6 max-w-3xl text-[15px] leading-relaxed text-muted">
           Running a crowdfunding campaign? Hand backers a code per reward tier and they read their copy here, with your campaign banner on every page of the series.
+        </p>
+        <p className="mt-3 max-w-3xl text-[15px] leading-relaxed text-muted" data-testid="creator-premium-line">
+          Publishing, selling and getting paid stay free. {premium.name} is optional: {moneyExact(premium.annual_cents, settings.site.currency)} a year per brand{settings.tax?.enabled ? ', plus tax where it applies,' : ''} adds “Buy in print” links on your releases and advanced analytics. It does not change your cut.
         </p>
       </section>
 

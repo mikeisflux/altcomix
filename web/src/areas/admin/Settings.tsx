@@ -270,6 +270,30 @@ function Membership({ value, secrets }: TabProps) {
   );
 }
 
+// ---------------------------------------------------------------- Creator Premium
+
+function CreatorPremium({ value, secrets }: TabProps) {
+  const s = useSection('creator_premium', value, secrets);
+  const f = s.form;
+  const save = () => {
+    if (!f.annual_cents || f.annual_cents < 100) return void toast.error('Enter a yearly price of at least 1.00.');
+    if (!String(f.name ?? '').trim()) return void toast.error('Enter a name for the plan.');
+    s.save(collect({ name: String(f.name).trim(), annual_cents: f.annual_cents }));
+  };
+  return (
+    <>
+      <FormSection title="Creator Premium" description="The optional yearly plan a brand can buy in its Studio. It unlocks print edition links on releases and the advanced analytics; publishing stays free. Each brand pays for itself, once a year, on a saved card until it cancels. Sales tax is added on top where it is switched on.">
+        <FormRow>
+          <Field label="Plan name" hint="Shown in the Studio, on receipts and in emails."><Input value={f.name} maxLength={60} onChange={(e) => s.set({ name: e.target.value })} /></Field>
+          <Field label="Price per brand, per year" hint="Before sales tax. A new price applies to brands that subscribe from now on; brands already subscribed renew at the price they started at."><MoneyInput cents={f.annual_cents} onChange={(c) => s.set({ annual_cents: c })} /></Field>
+        </FormRow>
+        <p className="text-sm text-muted">The money is platform revenue: there is no creator share and it is not part of the membership pool. Brands that have it, payments, refunds and free grants are under Finance, Creator Premium.</p>
+      </FormSection>
+      <SaveBar saving={s.saving} onSave={save} label="Save Creator Premium settings" />
+    </>
+  );
+}
+
 // ---------------------------------------------------------------- Storage
 
 function Storage({ value, secrets }: TabProps) {
@@ -606,6 +630,7 @@ const TABS: { value: string; label: string; section: string; C: (p: TabProps) =>
   { value: 'general', label: 'General', section: 'site', C: General },
   { value: 'revenue', label: 'Revenue', section: 'revenue', C: Revenue },
   { value: 'membership', label: 'Membership', section: 'membership', C: Membership },
+  { value: 'premium', label: 'Creator Premium', section: 'creator_premium', C: CreatorPremium },
   { value: 'tax', label: 'Sales tax', section: 'tax', C: SalesTax },
   { value: 'storage', label: 'Storage', section: 'storage', C: Storage },
   { value: 'email', label: 'Email', section: 'email', C: EmailTab },

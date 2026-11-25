@@ -275,6 +275,57 @@ after saving. A blank secret field keeps what is stored.
   seed). If you have rewritten that sentence yourself, the migration leaves
   your text alone: add the wording by hand under Pages.
 
+### Creator Premium
+
+An optional yearly plan a brand can buy in its Studio. Nothing needs to be
+switched on: it is offered as soon as payments work.
+
+- **Migrations** `089_creator_premium.sql` and `090_premium_grants.sql` add the
+  tables and append a "Creator Premium" section to the publisher terms page
+  (only if the page does not already mention it; fresh installs get it from the
+  seed). Read that section in Admin > Pages: it states the price as 140.00 a
+  year. **If you change the price, edit the page too**; the page is not updated
+  from the setting.
+- **Price and name**: Admin > Settings > Creator Premium (default 140.00 a
+  year per brand, before sales tax). A new price applies to brands that
+  subscribe from then on; a brand already subscribed renews at the price it
+  started at.
+- **What it gates**: the "Buy in print" link on releases, and the advanced
+  analytics (where readers stop, countries, followers, engagement, email
+  statistics, all CSV exports). Everything else stays free. Links saved before
+  are kept and simply not shown to readers until the brand has Premium, so
+  **on the day this is deployed every existing print link disappears from the
+  public pages** until its brand subscribes or you grant it Premium.
+- **Granting it for free**: Admin > Finance > Creator Premium > Grant, or the
+  same button on a brand's admin page. Choose an end date (one year by
+  default) or no end date, and optionally a note. No card, no charge, no tax,
+  not revenue. The owners get a notification and an email. You can change the
+  end date or revoke it at any time; each step is in the audit log. A grant and
+  a paid plan can run together: the features stay on while either is active.
+- **Billing** uses the same background job as the reader membership (section
+  8, `memberships`): renewal once a year on the saved card, a declined card
+  retried after 1, 3 and 5 days, then the plan ends. As with the reader
+  membership, the features are off from the end of the paid year until the
+  renewal is paid. The job must be running for renewals and for grants to end
+  on their end date.
+- **Sales tax**: when sales tax is on (above), Premium is taxed like a
+  membership charge at the paying person's billing location, on the first
+  payment and each renewal, and appears in Finance > Sales tax.
+- **Money**: Premium is platform revenue. It has its own line on the admin
+  dashboard (before tax) and is included in "Money in" and "Platform revenue".
+  It is never part of the membership pool, a creator's ledger or the
+  membership figures.
+- **Refunds**: the site's policy is that all sales are final. An admin can
+  still refund a payment in full (Finance > Creator Premium > Payments); that
+  returns the tax and ends the brand's paid plan at once.
+- **Processor**: Premium charges are sent to the processor under the same
+  project id as membership charges (`nsfwcomix-membership`), with the
+  description "Creator Premium for <brand> (1 year)". It has been tested
+  against the sandbox and a local stand-in for the processor only, not against
+  the live processor.
+- **Emails** (Admin > Email > Templates): `premium_started`, `premium_billing`,
+  `premium_granted`.
+
 ## 6. Processes
 
 ```bash

@@ -297,6 +297,17 @@ You may remove your work at any time. We may take down work or suspend a brand t
 ## 10. Liability
 
 *[Owner: add the indemnity and limitation of liability appropriate to your jurisdiction.]*
+
+## 11. Creator Premium
+
+Publishing on NSFWComix is free. Creator Premium is an optional paid plan for a brand.
+
+- **What it unlocks:** a "Buy in print" link on your releases, and advanced analytics in Studio (where readers stop, reader countries, followers, engagement, email statistics and CSV exports). Everyone on the brand's team can use these while the brand's Premium is active.
+- **Price:** $140 per year for each brand. The current price is always shown in Studio before you subscribe. Where sales tax applies it is added to the price and shown before you pay.
+- **Renewal:** Premium is billed once a year and renews automatically on the saved card until you cancel.
+- **Canceling:** you can cancel at any time in Studio. Premium stays active until the end of the year you paid for and does not renew.
+- **Refunds:** all sales are final. We do not give refunds, including for a year that has already started.
+- **When Premium ends:** print links you saved are kept but are no longer shown to readers, and the advanced analytics close. Both come back if you subscribe again. Nothing you published is removed.
 $md$),
 ('faq', 'Frequently asked questions', $md$
 **Draft.** This page is a first draft written during setup. Review it in Admin > Pages before launch.
