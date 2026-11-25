@@ -36,7 +36,7 @@ export type CheckoutBody = { items: CheckoutItem[]; code?: string; use_credit?: 
 export type OrderDisplay = {
   /** What is being bought. A price is shown beside a line only when given. */
   lines: { label: string; detail?: string; price_cents?: number }[];
-  /** Sales tax charged on top of the lines: shown as "Subtotal" and the tax's own row. */
+  /** Sales tax charged on what the card pays for: shown as "Subtotal" and, after any store credit, the tax's own row. */
   tax?: { subtotal_cents: number; tax_cents: number; label: string };
   /** Store credit going towards it, shown as its own row. */
   credit_cents?: number;
@@ -71,10 +71,9 @@ export function useOrderPayment() {
       session: { url: r.url, session_id: r.session_id, surface: r.surface },
       lines: display.lines.map((l) => ({ label: l.label, detail: l.detail, amount: l.price_cents != null ? moneyExact(l.price_cents, currency) : undefined })),
       totals: [
-        ...(display.tax && display.tax.tax_cents > 0
-          ? [{ label: 'Subtotal', amount: moneyExact(display.tax.subtotal_cents, currency) }, { label: display.tax.label, amount: moneyExact(display.tax.tax_cents, currency) }]
-          : []),
+        ...(display.tax && display.tax.tax_cents > 0 ? [{ label: 'Subtotal', amount: moneyExact(display.tax.subtotal_cents, currency) }] : []),
         ...(display.credit_cents ? [{ label: 'Store credit', amount: `−${moneyExact(display.credit_cents, currency)}` }] : []),
+        ...(display.tax && display.tax.tax_cents > 0 ? [{ label: display.tax.label, amount: moneyExact(display.tax.tax_cents, currency) }] : []),
         { label: 'To pay', amount: due },
       ],
       payLabel: due,
@@ -306,7 +305,7 @@ export function CheckoutDialog({ request, onClose, onPaid }: { request: Checkout
                   checked={useCredit}
                   onChange={setUseCredit}
                   label={<span className="inline-flex items-center gap-1.5"><Wallet className="size-4 text-muted" aria-hidden /> Use store credit</span>}
-                  description={`You have ${moneyExact(q.credit_available_cents, currency)}. ${moneyExact(Math.min(q.credit_available_cents, q.total_with_tax_cents), currency)} would go towards this.`}
+                  description={`You have ${moneyExact(q.credit_available_cents, currency)}. ${moneyExact(Math.min(q.credit_available_cents, q.total_cents), currency)} would go towards this.${billing.enabled ? ' No sales tax is charged on store credit.' : ''}`}
                 />
               </div>
             )}
@@ -347,10 +346,10 @@ export function CheckoutDialog({ request, onClose, onPaid }: { request: Checkout
                   {(q.discounts.sale_cents > 0 || q.discounts.code_cents > 0) && <Row label="List price" value={moneyExact(q.list_price_cents, currency)} muted />}
                   {q.discounts.sale_cents > 0 && <Row label="Sale discount" value={`−${moneyExact(q.discounts.sale_cents, currency)}`} />}
                   {q.discounts.code_cents > 0 && <Row label={`Promo code ${q.code?.code ?? ''}`} value={`−${moneyExact(q.discounts.code_cents, currency)}`} />}
-                  {q.tax?.label && !needsLocation && <Row label="Subtotal" value={moneyExact(q.total_cents, currency)} />}
-                  {q.tax?.label && !needsLocation && <Row label={q.tax.label} value={moneyExact(q.tax_cents, currency)} />}
-                  {q.credit_applied_cents > 0 && <Row label="Total" value={moneyExact(q.total_with_tax_cents, currency)} />}
+                  {/* Tax is charged only on what the card pays for, so it comes after the store credit and changes with it. */}
+                  {q.tax?.label && !needsLocation ? <Row label="Subtotal" value={moneyExact(q.total_cents, currency)} /> : q.credit_applied_cents > 0 && <Row label="Total" value={moneyExact(q.total_cents, currency)} />}
                   {q.credit_applied_cents > 0 && <Row label="Store credit" value={`−${moneyExact(q.credit_applied_cents, currency)}`} />}
+                  {q.tax?.label && !needsLocation && <Row label={q.tax.label} value={moneyExact(q.tax_cents, currency)} />}
                   <Row strong label={q.tax?.label && !needsLocation && q.credit_applied_cents === 0 ? 'Total' : 'To pay'} value={moneyExact(q.amount_due_cents, currency)} />
                 </>
               ) : user && !quote.isError ? (

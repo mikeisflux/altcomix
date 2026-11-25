@@ -48,8 +48,7 @@ export function orderCharge(o: Row): number {
 
 /**
  * The card charge an order's processing fee and creator shares are worked out
- * on: the pre-tax total less store credit, as if no tax existed. Store credit
- * that went toward the tax does not reduce it below zero.
+ * on: the pre-tax total less store credit, as if no tax existed.
  */
 function preTaxCharge(o: Row): number {
   return Math.max(0, o.total_cents - (o.credit_cents ?? 0));
@@ -556,9 +555,10 @@ export async function completeOrder(orderId: string, opts: { paymentRef?: string
       const rows = await Promise.all(items.map(async (i) => `<tr><td style="padding:4px 12px 4px 0">${escapeHtml(i.description)}</td><td align="right">${await money(i.price_cents)}</td></tr>`));
       if (order.tax_cents > 0) {
         rows.push(`<tr><td style="padding:4px 12px 4px 0">Subtotal</td><td align="right">${await money(order.total_cents)}</td></tr>`);
-        rows.push(`<tr><td style="padding:4px 12px 4px 0">${escapeHtml(taxLabel(order.tax_state, order.tax_rate_bps))}</td><td align="right">${await money(order.tax_cents)}</td></tr>`);
       }
       if (order.credit_cents > 0) rows.push(`<tr><td style="padding:4px 12px 4px 0">Store credit</td><td align="right">-${await money(order.credit_cents)}</td></tr>`);
+      // After the credit: tax is charged only on what the card pays for.
+      if (order.tax_cents > 0) rows.push(`<tr><td style="padding:4px 12px 4px 0">${escapeHtml(taxLabel(order.tax_state, order.tax_rate_bps))}</td><td align="right">${await money(order.tax_cents)}</td></tr>`);
       await sendTemplate('receipt', u.email, {
         name: u.display_name, items: `<table role="presentation" cellpadding="0" cellspacing="0" width="100%">${rows.join('')}</table>`,
         total: await money(orderCharge(order)), url: `${config.appUrl}/library`,
@@ -682,7 +682,7 @@ export async function partialRefundOrder(orderId: string, a: { amountCents: numb
     const charge = orderCharge(o);
     const running = (o.refunded_cents as number) + a.amountCents;
     if (running >= charge) return { result: 'full' as const };
-    const taxBack = taxRefunded({ total_cents: o.total_cents, tax_cents: o.tax_cents ?? 0 }, running);
+    const taxBack = taxRefunded({ total_cents: o.total_cents, tax_cents: o.tax_cents ?? 0, credit_cents: o.credit_cents ?? 0 }, running);
     const taxNow = taxBack - (o.tax_refunded_cents ?? 0);
     // What has gone back of the pre-tax price, running: the books below only ever see this.
     const runningNet = running - taxBack;

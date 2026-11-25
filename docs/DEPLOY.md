@@ -249,8 +249,13 @@ after saving. A blank secret field keeps what is stored.
   address.
 - Taxed: comics (releases, downloads, whole series, bundles), page-credit
   packs and memberships (the first payment and every renewal, at the member's
-  saved state). Not taxed: tips and gift cards. Paying with store credit does
-  not remove the tax.
+  saved state). Not taxed: tips and gift cards.
+- **No tax is charged on store credit.** Tax is worked out only on the part of
+  a taxed purchase the buyer pays by card. Store credit (including redeemed
+  gift cards) is applied to the taxed items first, and an order fully paid
+  with credit owes no tax. Sales paid with store credit are therefore not in
+  the report's "taxable sales". Ask your accountant whether that treatment is
+  right for the states you collect in.
 - **The tax is not revenue and not creator money.** Creator earnings, revenue
   splits, the membership pool, processing-fee estimates and the sales figures
   in admin are all worked out on the price before tax. The payment processor's

@@ -311,16 +311,10 @@ function ItemLines({ order, currency }: { order: Order; currency: string }) {
 function Totals({ order, currency }: { order: Order; currency: string }) {
   return (
     <dl className="ml-auto w-full max-w-xs space-y-1 text-sm">
-      {order.tax_label ? (
-        <>
-          <div className="flex justify-between gap-4"><dt className="text-muted">Subtotal</dt><dd className="tabular-nums">{moneyExact(order.total_cents, currency)}</dd></div>
-          <div className="flex justify-between gap-4"><dt className="text-muted">{order.tax_label}</dt><dd className="tabular-nums">{moneyExact(order.tax_cents, currency)}</dd></div>
-          {order.credit_cents > 0 && <div className="flex justify-between gap-4"><dt className="text-muted">Total</dt><dd className="tabular-nums">{moneyExact(order.total_cents + order.tax_cents, currency)}</dd></div>}
-        </>
-      ) : (
-        <div className="flex justify-between gap-4"><dt className="text-muted">Total</dt><dd className="tabular-nums">{moneyExact(order.total_cents, currency)}</dd></div>
-      )}
+      <div className="flex justify-between gap-4"><dt className="text-muted">{order.tax_label ? 'Subtotal' : 'Total'}</dt><dd className="tabular-nums">{moneyExact(order.total_cents, currency)}</dd></div>
       {order.credit_cents > 0 && <div className="flex justify-between gap-4"><dt className="text-muted">Store credit used</dt><dd className="tabular-nums">−{moneyExact(order.credit_cents, currency)}</dd></div>}
+      {/* After the credit: sales tax is charged only on what the card paid for. */}
+      {order.tax_label && <div className="flex justify-between gap-4"><dt className="text-muted">{order.tax_label}</dt><dd className="tabular-nums">{moneyExact(order.tax_cents, currency)}</dd></div>}
       <div className="flex justify-between gap-4 border-t border-line pt-1 font-semibold"><dt>{order.status === 'pending' ? 'To pay' : 'Charged'}</dt><dd className="tabular-nums">{moneyExact(order.charged_cents, currency)}</dd></div>
       {order.status === 'paid' && order.refunded_cents > 0 && (
         <div className="flex justify-between gap-4"><dt className="text-muted">Refunded to your card</dt><dd className="tabular-nums">−{moneyExact(order.refunded_cents, currency)}</dd></div>

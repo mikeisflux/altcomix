@@ -474,7 +474,7 @@ The creators directory is `GET /api/brands`.
 | POST | `/api/account/sessions/revoke-others` | user | Sign out everywhere else |
 | POST | `/api/account/delete` | user | Delete the account |
 | GET | `/api/account/wallet` | user | Store credit, page credits, log |
-| GET | `/api/account/orders` | user | Purchases with their lines. Each order also has `tax_cents`, `tax_state`, `tax_rate_bps`, `tax_refunded_cents`, `tax_label` ("Sales tax (Indiana 7%)", null when no tax) and `charged_cents` = `total_cents + tax_cents − credit_cents`; `total_cents` is before sales tax |
+| GET | `/api/account/orders` | user | Purchases with their lines. Each order also has `tax_cents`, `tax_state`, `tax_rate_bps`, `tax_refunded_cents`, `tax_label` ("Sales tax (Indiana 7%)", null when no tax) and `charged_cents` = `total_cents − credit_cents + tax_cents`; `total_cents` is before sales tax, and tax is only ever charged on the part not paid with store credit |
 | GET | `/api/account/membership-payments` | user | Membership charges. `amount_cents` is the plan price; `tax_cents`, `tax_label` and `total_cents` (= price + tax) say what was charged |
 | GET | `/api/account/2fa` | user | Two-factor sign-in status |
 | POST | `/api/account/2fa/begin` | user | Start (or restart) setup |
@@ -591,7 +591,7 @@ Response when a card payment is needed:
   "session_id": "cs_…",               // what the form's messages carry, and what the confirm calls take
   "order_id": "<uuid>",
   "surface": "embed" | "redirect",    // what the session was really created for (see below): act on this, not on what was asked
-  "amount_cents": 484,                // what the card will be charged (total + sales tax − store credit)
+  "amount_cents": 484,                // what the card will be charged (total − store credit + sales tax on the rest)
   "return_to": "/read/<id>"
 }
 ```
@@ -668,15 +668,15 @@ paying, and call it again whenever the code or the credit choice changes.
     "location": { "country": "US", "state": "IN", "zip": "46204" } | null,   // the location the tax was worked out for
     "state_name": "Indiana" | null,
     "rate_bps": 700,
-    "taxable_cents": 634,                // the taxed lines, after discounts, before store credit
-    "tax_cents": 44,
+    "taxable_cents": 484,                // the taxed lines after discounts, less the store credit applied: what tax is charged on
+    "tax_cents": 34,
     "label": "Sales tax (Indiana 7%)" | null   // the line to show; null when the tax is 0 (show no tax line)
   },
-  "tax_cents": 44,                       // 0 while sales tax is off
-  "total_with_tax_cents": 678,           // total_cents + tax_cents (the "Total")
+  "tax_cents": 34,                       // 0 while sales tax is off; changes with use_credit
+  "total_with_tax_cents": 668,           // total_cents + tax_cents
   "credit_available_cents": 150,
-  "credit_applied_cents": 150,           // 0 unless use_credit; store credit can pay for the tax as well
-  "amount_due_cents": 528,               // what the card is charged = total + tax − credit applied
+  "credit_applied_cents": 150,           // 0 unless use_credit; min(wallet, total_cents): credit never pays tax
+  "amount_due_cents": 518,               // what the card is charged = total − credit applied + tax
   "problem": null | { "code": "location_required" | "below_minimum", "message" }   // the checkout would refuse this basket as it stands
 }
 ```
@@ -701,7 +701,7 @@ minutes; beyond that the stored state is returned without asking the processor).
 
 ```jsonc
 { "order": { "id", "status": "pending"|"paid"|"failed"|"refunded", "total_cents", "credit_cents",
-             "charged_cents",                        // total_cents + tax_cents − credit_cents
+             "charged_cents",                        // total_cents − credit_cents + tax_cents
              "tax_cents", "tax_state", "tax_rate_bps",   // sales tax charged on top of total_cents (0 / null / 0 when none)
              "tax_label": "Sales tax (Indiana 7%)"|null, // the line to show; null when no tax was charged
              "tax_refunded_cents",                   // how much of the tax has gone back to the buyer
@@ -894,12 +894,25 @@ sentence for the field.
   (basis points). A state without a rate is 0. Buyers outside the US pay none.
 - **What is taxed.** `release`, `download`, `series`, `bundle`, `credits` lines
   and membership charges. `tip` and `gift_card` lines are never taxed.
-- **How much.** `taxable = sum of the taxed lines after sales and discount
-  codes, before store credit`; `tax = round half up(taxable × rate)`, once per
-  order. The tax is then shared over the taxed lines by largest remainder (ties
-  to the earlier line), so the `tax_cents` of the lines add up to the order's.
-- **Store credit** is a way of paying, not a discount: it does not lower the
-  tax, and it can pay for the tax. `card charge = total + tax − credit`.
+- **No tax on store credit.** Tax is charged only on the part of the taxed
+  lines the buyer pays by card. Store credit (the wallet balance, where
+  redeemed gift cards also land) is applied to the taxed lines first and to
+  tips and gift cards after that:
+  `credit = min(wallet, total)` when `use_credit` is set, else 0;
+  `taxable = max(0, taxed lines after sales and discount codes − credit)`;
+  `tax = round half up(taxable × rate)`, once per order;
+  `card charge = total − credit + tax`.
+  Credit never pays tax. A basket fully covered by credit owes no tax, needs
+  no location and has no card charge. So the quote's tax changes when
+  `use_credit` changes: quote again.
+- **Per line.** The credit that goes to the taxed lines is spread over them in
+  proportion to their prices; the tax is shared over what is left of each by
+  largest remainder (ties to the earlier line), so the `tax_cents` of the
+  lines add up to the order's.
+- **Small remainders.** The smallest card payment is unchanged (0.50). Credit
+  that covers all but a few cents leaves a card charge of those cents plus
+  their tax, which is refused with `below_minimum` exactly as it was before
+  sales tax existed; the buyer pays without credit or adds something.
 - **Which location.** The `location` sent with the request, else the one saved
   on the account. `POST /api/checkout` and `POST /api/membership/start` save
   the location they are given; the quotes save nothing. With taxed lines and
@@ -907,13 +920,15 @@ sentence for the field.
   `problem.code: "location_required"`, and the checkout / membership start is a
   `400` with `code: "location_required"`. A basket of tips and gift cards
   needs no location.
-- **Memberships.** The first charge and every renewal are taxed on the plan
+- **Memberships** are always paid by card (store credit cannot pay for a
+  membership), so the credit rule never applies to them. The first charge and every renewal are taxed on the plan
   price at the member's saved location and the rate in force when the charge
   is created (`billPeriod` in `lib/payments.ts`); retries of a declined card
   ask for the same amount. A member who changes location with
   `PUT /api/billing-location` is taxed there from the next renewal. A member
   with no saved location (joined while sales tax was off) is not taxed.
-- **Stored** on the order / membership charge: `tax_cents`, `taxable_cents`,
+- **Stored** on the order / membership charge: `tax_cents`, `taxable_cents`
+  (what the tax was worked out on, so after store credit),
   `tax_country`, `tax_state`, `tax_zip`, `tax_rate_bps`, `tax_refunded_cents`
   (and `order_items.tax_cents`). `orders.total_cents` and
   `subscription_charges.amount_cents` stay pre-tax: creator shares, the fee
@@ -921,7 +936,8 @@ sentence for the field.
   worked out on them exactly as without tax. The tax is the platform's to remit.
 - **Refunds.** A full refund (or chargeback) returns all the tax that has not
   gone back yet. A partial refund of `R` cents returns
-  `round half up(running R × tax ÷ (total + tax))` in running totals, never more
+  `round half up(running R × tax ÷ card charge)` in running totals
+  (`card charge = total − credit + tax`), never more
   than was collected; only the rest of the refund is taken from creators,
   platform and fee. Each return is a row in `sales_tax_refunds`, which the
   admin sales tax report nets out.

@@ -21,12 +21,15 @@ const { buildApp } = await import('../server.ts');
 const f = await fixtures();
 const app = await buildApp();
 
+let clients = 0;
 class Client {
   cookies: Record<string, string> = {};
+  // Each client is its own network address, so the per-address sign-in limit never gets in the way of a long file.
+  address = `203.0.113.${(clients++ % 250) + 1}`;
   async call(method: string, url: string, body?: unknown) {
     const cookie = Object.entries(this.cookies).map(([k, v]) => `${k}=${v}`).join('; ');
     const res = await app.inject({
-      method: method as 'GET', url,
+      method: method as 'GET', url, remoteAddress: this.address,
       headers: { ...(cookie ? { cookie } : {}), ...(this.cookies.csrf_token ? { 'x-csrf-token': this.cookies.csrf_token } : {}), ...(body !== undefined ? { 'content-type': 'application/json' } : {}), 'user-agent': 'Mozilla/5.0 (Test)' },
       payload: body !== undefined ? JSON.stringify(body) : undefined,
     });
@@ -152,6 +155,19 @@ test('the calculation: half up on the order total, shared out over the taxed lin
   assert.deepEqual([off.enabled, off.tax_cents, off.state, off.taxable_cents], [false, 0, null, 0]);
   assert.equal(tax.computeTax([{ kind: 'release', price_cents: 1000 }], null, cfg).needs_location, true);
   assert.equal(tax.computeTax([{ kind: 'tip', price_cents: 1000 }], null, cfg).needs_location, false, 'nothing taxed, nothing to ask');
+  // store credit is not taxed: it comes off the taxed lines first, then the untaxed ones
+  const basket = [{ kind: 'release', price_cents: 1999 }, { kind: 'tip', price_cents: 500 }];
+  const withCredit = (credit: number) => { const t = tax.computeTax(basket, IN, cfg, credit); return [t.taxable_cents, t.tax_cents, t.lines]; };
+  assert.deepEqual(withCredit(0), [1999, 140, [140, 0]]);
+  assert.deepEqual(withCredit(1000), [999, 70, [70, 0]]); // 69.93
+  assert.deepEqual(withCredit(1999), [0, 0, [0, 0]], 'credit that covers the taxed line exactly leaves nothing to tax');
+  assert.deepEqual(withCredit(2499), [0, 0, [0, 0]]);
+  assert.deepEqual(withCredit(99_999), [0, 0, [0, 0]]);
+  // credit is spread over the taxed lines in proportion, and the tax over what is left of each
+  const two = tax.computeTax([{ kind: 'release', price_cents: 1000 }, { kind: 'gift_card', price_cents: 1000 }, { kind: 'release', price_cents: 3000 }], IN, cfg, 2000);
+  assert.deepEqual([two.taxable_cents, two.tax_cents, two.lines], [2000, 140, [35, 0, 105]]);
+  assert.equal(tax.computeTax(basket, null, cfg, 1999).needs_location, false, 'nothing left to tax, nothing to ask');
+  assert.equal(tax.computeTax(basket, null, cfg, 1998).needs_location, true);
   assert.deepEqual([tax.taxLabel('IN', 700), tax.taxLabel('OH', 575), tax.taxLabel('NJ', 663)], ['Sales tax (Indiana 7%)', 'Sales tax (Ohio 5.75%)', 'Sales tax (New Jersey 6.63%)']);
 });
 
@@ -163,6 +179,11 @@ test('refund math: the same proportion of the tax, half up on running totals, ne
   assert.equal(tax.taxRefunded(o, 2139), 140);
   assert.equal(tax.taxRefunded(o, 99_999), 140, 'capped at what was collected');
   assert.equal(tax.taxRefunded({ total_cents: 1999, tax_cents: 0 }, 500), 0);
+  // with store credit the proportion is of the card charge: 1999 - 1000 credit + 70 tax = 1069 on the card
+  const part = { total_cents: 1999, tax_cents: 70, credit_cents: 1000 };
+  assert.equal(tax.taxRefunded(part, 500), 33); // 500 x 70 / 1069 = 32.74
+  assert.equal(tax.taxRefunded(part, 1069), 70);
+  assert.equal(tax.taxRefunded(part, 5000), 70);
   for (const [total, t] of [[199, 14], [750, 53], [5900, 413], [7, 1]] as const) {
     let prev = 0;
     for (let r = 0; r <= total + t; r++) {
@@ -324,41 +345,83 @@ test('a mixed basket: the tip and the gift card are not taxed', async () => {
   assert.deepEqual([po!.total_cents, po!.tax_cents, po!.tax_state], [1500, 0, null]);
 });
 
-test('store credit pays, it does not reduce the tax: partly covered, fully covered, and credit that runs out before the tax', async () => {
-  // partly: 199 + 14 tax = 213; 100 of credit, 113 on the card
+test('no tax on store credit: tax is charged only on what the card pays for, and credit never pays tax', async () => {
+  const item = [{ kind: 'release', id: r1.id }];
+  // partly covered: 199 with 100 of credit leaves 99 taxable -> 6.93 = 7 of tax; 106 on the card
   const a = await signedIn();
   await giveCredit(a.user.id, 100);
-  const qa = await a.c.post('/api/checkout/quote', { items: [{ kind: 'release', id: r1.id }], location: IN, use_credit: true });
-  assert.deepEqual([qa.json.total_cents, qa.json.tax_cents, qa.json.credit_applied_cents, qa.json.amount_due_cents], [199, 14, 100, 113]);
-  const ba = await a.c.post('/api/checkout', { items: [{ kind: 'release', id: r1.id }], location: IN, use_credit: true });
+  const qa = await a.c.post('/api/checkout/quote', { items: item, location: IN, use_credit: true });
+  assert.deepEqual([qa.json.total_cents, qa.json.credit_applied_cents, qa.json.tax.taxable_cents, qa.json.tax_cents, qa.json.amount_due_cents, qa.json.lines[0].tax_cents], [199, 100, 99, 7, 106, 7]);
+  // the same basket without credit: the tax line changes with the choice
+  const qa2 = await a.c.post('/api/checkout/quote', { items: item, location: IN, use_credit: false });
+  assert.deepEqual([qa2.json.credit_applied_cents, qa2.json.tax.taxable_cents, qa2.json.tax_cents, qa2.json.amount_due_cents], [0, 199, 14, 213]);
+  const ba = await a.c.post('/api/checkout', { items: item, location: IN, use_credit: true });
   assert.equal(ba.json.completed, true, ba.res.payload);
   const oa = await order(ba.json.order_id);
-  assert.deepEqual([oa!.total_cents, oa!.tax_cents, oa!.credit_cents, oa!.provider, pay.orderCharge(oa!), await wallet(a.user.id)], [199, 14, 100, 'sandbox', 113, 0]);
+  assert.deepEqual([oa!.total_cents, oa!.credit_cents, oa!.taxable_cents, oa!.tax_cents, oa!.provider, pay.orderCharge(oa!), await wallet(a.user.id)], [199, 100, 99, 7, 'sandbox', 106, 0]);
   assert.equal(oa!.fee_cents, 33, 'the fee estimate is on the pre-tax card amount (99), as it would be without tax');
+  const mail = await one(`select html from emails where template = 'receipt' and user_id = $1`, [a.user.id]);
+  assert.match(mail!.html, /Subtotal<\/td><td align="right">\$1\.99.*Store credit<\/td><td align="right">-\$1\.00.*Sales tax \(Indiana 7%\)<\/td><td align="right">\$0\.07/s);
+  assert.match(mail!.html, /Total: \$1\.06/);
 
-  // fully: enough credit for the price and the tax; no card, tax still owed and recorded
+  // fully covered: no tax, no card, and exactly the price leaves the wallet (credit never pays tax)
   const b = await signedIn();
   await giveCredit(b.user.id, 5000);
-  const qb = await b.c.post('/api/checkout/quote', { items: [{ kind: 'release', id: r1.id }], location: IN, use_credit: true });
-  assert.deepEqual([qb.json.tax_cents, qb.json.credit_applied_cents, qb.json.amount_due_cents], [14, 213, 0]);
-  const bb = await b.c.post('/api/checkout', { items: [{ kind: 'release', id: r1.id }], location: IN, use_credit: true });
+  const qb = await b.c.post('/api/checkout/quote', { items: item, location: IN, use_credit: true });
+  assert.deepEqual([qb.json.credit_applied_cents, qb.json.tax.taxable_cents, qb.json.tax_cents, qb.json.tax.label, qb.json.amount_due_cents, qb.json.problem], [199, 0, 0, null, 0, null]);
+  // no location is needed for an order that owes no tax
+  const bb = await b.c.post('/api/checkout', { items: item, use_credit: true });
   assert.equal(bb.json.completed, true, bb.res.payload);
   const ob = await order(bb.json.order_id);
-  assert.deepEqual([ob!.total_cents, ob!.tax_cents, ob!.credit_cents, ob!.provider, ob!.fee_cents, pay.orderCharge(ob!), await wallet(b.user.id)], [199, 14, 213, 'credit', 0, 0, 4787]);
+  assert.deepEqual([ob!.total_cents, ob!.credit_cents, ob!.taxable_cents, ob!.tax_cents, ob!.tax_state, ob!.provider, ob!.fee_cents, pay.orderCharge(ob!), await wallet(b.user.id)], [199, 199, 0, 0, null, 'credit', 0, 0, 4801]);
+  assert.ok(!(await one(`select html from emails where template = 'receipt' and user_id = $1`, [b.user.id]))!.html.includes('Sales tax'));
 
-  // credit covers the price but not all of the tax: the rest of the tax goes to the card
+  // exactly the price in the wallet: the old "tax-only remainder under the card minimum" cannot happen
+  const e = await signedIn();
+  await giveCredit(e.user.id, 199);
+  const be = await e.c.post('/api/checkout', { items: item, location: IN, use_credit: true });
+  assert.equal(be.json.completed, true, be.res.payload);
+  assert.deepEqual([(await order(be.json.order_id))!.tax_cents, (await order(be.json.order_id))!.provider, await wallet(e.user.id)], [0, 'credit', 0]);
+
+  // all but a few cents: 9 cents left + 1 cent of tax is under the smallest card payment, refused as it always was; nothing is taken
+  const g = await signedIn();
+  await giveCredit(g.user.id, 190);
+  const qg = await g.c.post('/api/checkout/quote', { items: item, location: IN, use_credit: true });
+  assert.deepEqual([qg.json.credit_applied_cents, qg.json.tax.taxable_cents, qg.json.tax_cents, qg.json.amount_due_cents, qg.json.problem.code], [190, 9, 1, 10, 'below_minimum']);
+  const bg = await g.c.post('/api/checkout', { items: item, location: IN, use_credit: true });
+  assert.deepEqual([bg.status, bg.json.code, await wallet(g.user.id)], [400, 'below_minimum', 190]);
+
+  // mixed basket: a taxed release (1999) and a tip (500). Credit goes to the release first.
+  const mixed = [{ kind: 'release', id: r3.id }, { kind: 'tip', id: brand.slug, amount_cents: 500 }];
+  for (const [credit, applied, taxable, taxCents, card, lines] of [
+    [1000, 1000, 999, 70, 1569, [70, 0]],   // part of the release: 999 left to tax -> 69.93 = 70
+    [1999, 1999, 0, 0, 500, [0, 0]],        // exactly the release: no tax, the card pays the tip
+    [2200, 2200, 0, 0, 299, [0, 0]],        // the release and part of the tip
+    [2499, 2499, 0, 0, 0, [0, 0]],          // everything
+    [9000, 2499, 0, 0, 0, [0, 0]],          // more than everything: only the pre-tax total is taken
+  ] as const) {
+    const m = await signedIn();
+    await giveCredit(m.user.id, credit);
+    const qm = await m.c.post('/api/checkout/quote', { items: mixed, location: IN, use_credit: true });
+    assert.deepEqual([qm.json.total_cents, qm.json.credit_applied_cents, qm.json.tax.taxable_cents, qm.json.tax_cents, qm.json.amount_due_cents, qm.json.lines.map((l: any) => l.tax_cents)], [2499, applied, taxable, taxCents, card, lines], `quote with ${credit} of credit`);
+    const bm = await m.c.post('/api/checkout', { items: mixed, location: IN, use_credit: true });
+    assert.equal(bm.json.completed, true, bm.res.payload);
+    const om = await order(bm.json.order_id);
+    assert.deepEqual([om!.total_cents, om!.credit_cents, om!.taxable_cents, om!.tax_cents, pay.orderCharge(om!), om!.provider, await wallet(m.user.id)], [2499, applied, taxable, taxCents, card, card > 0 ? 'sandbox' : 'credit', credit - applied], `order with ${credit} of credit`);
+    assert.ok(om!.credit_cents <= om!.total_cents, 'credit never pays tax');
+    assert.deepEqual((await q('select tax_cents from order_items where order_id = $1 order by id', [om!.id])).map((r) => r.tax_cents), lines);
+  }
+
+  // the creators earn exactly what they earn on the same purchase with sales tax off
   const c = await signedIn();
-  await giveCredit(c.user.id, 2000);
-  const qc = await c.c.post('/api/checkout/quote', { items: [{ kind: 'release', id: r3.id }], location: IN, use_credit: true });
-  assert.deepEqual([qc.json.total_cents, qc.json.tax_cents, qc.json.credit_applied_cents, qc.json.amount_due_cents], [1999, 140, 2000, 139]);
+  await giveCredit(c.user.id, 1000);
   const bc = await c.c.post('/api/checkout', { items: [{ kind: 'release', id: r3.id }], location: IN, use_credit: true });
   assert.equal(bc.json.completed, true, bc.res.payload);
   const oc = await order(bc.json.order_id);
-  assert.deepEqual([oc!.total_cents, oc!.tax_cents, oc!.credit_cents, oc!.provider, pay.orderCharge(oc!), await wallet(c.user.id)], [1999, 140, 2000, 'sandbox', 139, 0]);
-  // the creators earn exactly what they earn on the same release bought entirely with credit and no tax
+  assert.deepEqual([oc!.tax_cents, pay.orderCharge(oc!)], [70, 1069]);
   await taxOff();
   const d = await signedIn();
-  await giveCredit(d.user.id, 1999);
+  await giveCredit(d.user.id, 1000);
   const bd = await d.c.post('/api/checkout', { items: [{ kind: 'release', id: r3.id }], use_credit: true });
   await taxOn();
   assert.equal(bd.json.completed, true, bd.res.payload);
@@ -532,16 +595,16 @@ test('an invalid state or ZIP is refused before anything is priced or charged', 
 });
 
 test('refunds: a full refund returns all the tax; partial refunds return the same proportion and never more than was collected', async () => {
-  // full refund of a sandbox order partly paid with credit: the credit and the tax both come back
+  // full refund of a sandbox order partly paid with credit (199, 100 of credit, 7 of tax on the other 99): the credit and the tax both come back
   const a = await signedIn();
   await giveCredit(a.user.id, 100);
   const ba = await a.c.post('/api/checkout', { items: [{ kind: 'release', id: r1.id }], location: IN, use_credit: true });
   assert.deepEqual(await pay.refundOrder(ba.json.order_id, { reason: 'Changed my mind' }), { refunded: true });
   const oa = await order(ba.json.order_id);
-  assert.deepEqual([oa!.status, oa!.tax_cents, oa!.tax_refunded_cents, await wallet(a.user.id)], ['refunded', 14, 14, 100]);
-  assert.deepEqual(await q('select state, tax_cents from sales_tax_refunds where order_id = $1', [oa!.id]), [{ state: 'IN', tax_cents: 14 }]);
+  assert.deepEqual([oa!.status, oa!.tax_cents, oa!.tax_refunded_cents, await wallet(a.user.id)], ['refunded', 7, 7, 100]);
+  assert.deepEqual(await q('select state, tax_cents from sales_tax_refunds where order_id = $1', [oa!.id]), [{ state: 'IN', tax_cents: 7 }]);
   const va = (await a.c.get(`/api/orders/${oa!.id}`)).json.order;
-  assert.deepEqual([va.refunded_cents, va.tax_refunded_cents], [113, 14], 'what the card paid, tax included, went back');
+  assert.deepEqual([va.refunded_cents, va.tax_refunded_cents], [106, 7], 'what the card paid, tax included, went back');
 
   // partial refunds reported by the processor on a 1999 + 140 order
   await useProcessor();
@@ -588,6 +651,22 @@ test('refunds: a full refund returns all the tax; partial refunds return the sam
     // refunding again changes nothing
     assert.deepEqual(await pay.refundOrder(id, {}), { refunded: false });
     assert.equal((await q('select 1 from sales_tax_refunds where order_id = $1', [id])).length, 3);
+
+    // partial refunds on an order partly paid with credit: 1999 - 1000 credit + 70 tax = 1069 on the card
+    const k = await signedIn();
+    await giveCredit(k.user.id, 1000);
+    const ck = await k.c.post('/api/checkout', { items: [{ kind: 'release', id: r3.id }], location: IN, use_credit: true });
+    assert.equal(ck.json.amount_cents, 1069);
+    const kid = ck.json.order_id;
+    await pay.handleDivinityEvent({ event: 'payment.succeeded', data: { pledgeId: kid, paymentIntentId: `pi_${kid}` } });
+    await pay.handleDivinityEvent({ event: 'refund.completed', data: { pledgeId: kid, amount: 500, partial: true, refundId: 're_tax_k1' } });
+    assert.equal((await order(kid))!.tax_refunded_cents, 33, '500 x 70 / 1069 = 32.74');
+    await pay.handleDivinityEvent({ event: 'refund.completed', data: { pledgeId: kid, amount: 568, partial: true, refundId: 're_tax_k2' } });
+    assert.deepEqual([(await order(kid))!.status, (await order(kid))!.tax_refunded_cents], ['paid', 70], 'one cent short of the whole charge: all the tax is back, and no more');
+    await pay.handleDivinityEvent({ event: 'refund.completed', data: { pledgeId: kid, amount: 1, partial: true, refundId: 're_tax_k3' } });
+    const ok_ = await order(kid);
+    assert.deepEqual([ok_!.status, ok_!.tax_refunded_cents, await wallet(k.user.id)], ['refunded', 70, 1000]);
+    assert.equal((await q<{ tax_cents: number }>('select tax_cents from sales_tax_refunds where order_id = $1', [kid])).reduce((n, r) => n + r.tax_cents, 0), 70);
 
     // a partial refund that reaches the whole card charge is a full refund
     const c2 = await signedIn();

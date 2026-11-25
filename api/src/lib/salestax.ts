@@ -17,12 +17,22 @@ import { getSetting } from './settings.ts';
  *     United States pay no tax.
  *   - Taxed: releases, downloads, whole series, bundles, page-credit packs
  *     and memberships. Not taxed: tips and gift card purchases.
- *   - The taxable amount is the sum of the taxed lines AFTER sales and
- *     discount codes and BEFORE store credit. Store credit is a way of
- *     paying, not a price reduction, so it never lowers the tax.
- *   - Tax is worked out once per order on that taxable total and rounded
- *     half up to the cent. It is then shared out over the taxed lines by
- *     largest remainder (ties to the earlier line), so the line amounts
+ *   - No tax is charged on store credit. Tax is charged only on the part
+ *     of the taxed lines the buyer pays by card. Store credit (the wallet
+ *     balance, which is also where redeemed gift cards land) goes to the
+ *     taxed lines first and to tips and gift cards after that:
+ *
+ *         credit  = min(wallet, pre-tax total)        when credit is used
+ *         taxable = max(0, taxed lines after sales and codes - credit)
+ *         tax     = taxable x rate, rounded half up to the cent
+ *         card    = pre-tax total - credit + tax
+ *
+ *     Credit never pays tax, and an order fully covered by credit owes
+ *     none and has no card charge.
+ *   - Tax is worked out once per order and rounded half up to the cent. It
+ *     is then shared out over what is left taxable of each taxed line (the
+ *     credit comes off the taxed lines in proportion to their prices) by
+ *     largest remainder, ties to the earlier line, so the line amounts
  *     always sum to the order's tax.
  *   - The platform keeps the tax to remit. It is stored beside the pre-tax
  *     totals and is never part of a creator's share, a fee, a ledger row or a
@@ -142,12 +152,18 @@ export type Tax = {
 
 /**
  * THE sales tax calculation. `lines` are final prices (after sales and
- * discount codes); store credit plays no part.
+ * discount codes). `creditCents` is the store credit going toward the order:
+ * it comes off the taxed lines first, and only what is left of them is
+ * taxed. `taxable_cents` in the answer is that remainder.
  */
-export function computeTax(lines: { kind: string; price_cents: number }[], location: TaxLocation | null, cfg: TaxSettings): Tax {
+export function computeTax(lines: { kind: string; price_cents: number }[], location: TaxLocation | null, cfg: TaxSettings, creditCents = 0): Tax {
   const none = lines.map(() => 0);
   if (!cfg.enabled) return { enabled: false, needs_location: false, country: null, state: null, zip: null, rate_bps: 0, taxable_cents: 0, tax_cents: 0, lines: none };
-  const weights = lines.map((l) => (isTaxable(l.kind) && l.price_cents > 0 ? l.price_cents : 0));
+  const prices = lines.map((l) => (isTaxable(l.kind) && l.price_cents > 0 ? l.price_cents : 0));
+  const full = prices.reduce((a, b) => a + b, 0);
+  // Store credit covers taxed lines before untaxed ones, spread over them in proportion to their prices.
+  const covered = allocate(Math.min(full, Math.max(0, Math.floor(creditCents))), prices);
+  const weights = prices.map((p, i) => p - covered[i]);
   const taxable = weights.reduce((a, b) => a + b, 0);
   if (!location) return { enabled: true, needs_location: taxable > 0, country: null, state: null, zip: null, rate_bps: 0, taxable_cents: taxable, tax_cents: 0, lines: none };
   const state = location.country === 'US' ? location.state : null;
@@ -224,15 +240,16 @@ export async function membershipTax(userId: string, amountCents: number, db: Que
 // ------------------------------------------------------------------ refunds
 
 /**
- * How much of an order's tax has gone back once `refundedCents` of what the
- * buyer paid (price + tax, however it was paid) has been refunded: the same
- * proportion, rounded half up, never more than was collected. Pass the
- * running total refunded so far and take the difference from the previous
- * answer, so several partial refunds can never drift by a cent.
+ * How much of an order's tax has gone back once `refundedCents` of its card
+ * charge (pre-tax total - store credit + tax) has been refunded: the same
+ * proportion of the tax as of the card charge, rounded half up, never more
+ * than was collected. Pass the running total refunded so far and take the
+ * difference from the previous answer, so several partial refunds can never
+ * drift by a cent.
  */
-export function taxRefunded(order: { total_cents: number; tax_cents: number }, refundedCents: number): number {
+export function taxRefunded(order: { total_cents: number; tax_cents: number; credit_cents?: number }, refundedCents: number): number {
   const tax = Math.max(0, order.tax_cents);
-  const paid = Math.max(0, order.total_cents) + tax;
+  const paid = Math.max(0, order.total_cents - (order.credit_cents ?? 0)) + tax;
   if (tax === 0 || paid === 0 || refundedCents <= 0) return 0;
   const r = BigInt(Math.min(refundedCents, paid));
   return Math.min(tax, Number((r * BigInt(tax) * 2n + BigInt(paid)) / (2n * BigInt(paid))));

@@ -16,7 +16,7 @@ import { FAILURE_TEXT } from '../lib/payments.ts';
 import { activeDiscounts, applyCode, bundlePrice, codeCovers, downloadPrice, readOffer, seriesPurchase } from '../lib/pricing.ts';
 import type { Line } from '../lib/pricing.ts';
 import { computeTax, parseLocation, saveLocation, savedLocation, stateName, taxLabel, taxSettings, taxView } from '../lib/salestax.ts';
-import type { Tax, TaxLocation } from '../lib/salestax.ts';
+import type { Tax, TaxLocation, TaxSettings } from '../lib/salestax.ts';
 import { getSetting } from '../lib/settings.ts';
 import { assertViewable, findPublisher, findSeries, isUuid } from './catalog.ts';
 
@@ -217,29 +217,33 @@ async function priceBasket(req: FastifyRequest, u: SessionUser, body: z.infer<ty
 }
 
 /**
- * How a total is paid: store credit first (when asked), the card for the
- * rest. Sales tax is owed on top of the price whatever pays for it, so
- * credit can cover the tax too and the card takes what credit does not.
+ * How a basket is paid: store credit first (when asked), up to the pre-tax
+ * total, and the card for the rest. No sales tax is charged on store credit:
+ * the tax is worked out on what is left of the taxed lines after the credit
+ * (`computeTax`) and goes on the card. Credit never pays tax, so a basket
+ * fully covered by credit owes none.
  */
-function settle(total: number, tax: number, creditAvailable: number, useCredit: boolean | undefined): { credit: number; charge: number; below_minimum: boolean } {
-  const due = total + tax;
-  const credit = useCredit ? Math.min(Math.max(0, creditAvailable), due) : 0;
-  const charge = due - credit;
-  return { credit, charge, below_minimum: charge > 0 && charge < MIN_CARD_CHARGE };
+function settle(lines: { kind: string; price_cents: number }[], total: number, creditAvailable: number, useCredit: boolean | undefined, plan: TaxPlan): { credit: number; tax: Tax; charge: number; below_minimum: boolean } {
+  const credit = useCredit ? Math.min(Math.max(0, creditAvailable), total) : 0;
+  const tax = computeTax(lines, plan.location, plan.cfg, credit);
+  const charge = total - credit + tax.tax_cents;
+  return { credit, tax, charge, below_minimum: charge > 0 && charge < MIN_CARD_CHARGE };
 }
 
 const LOCATION_REQUIRED = 'Choose your country (and, in the United States, your state and ZIP code) so sales tax can be worked out.';
 
+type TaxPlan = { cfg: TaxSettings; location: TaxLocation | null; given: TaxLocation | null };
+
 /**
- * Sales tax for whatever is being bought, at the location the browser sent
- * or, failing that, the one this buyer used last time. With sales tax off
- * nothing is read or checked: the answer is the empty `Tax`.
+ * What the tax on a basket will be worked out from: the rates, and the
+ * location the browser sent or, failing that, the one this buyer used last
+ * time. With sales tax off nothing is read or checked.
  */
-async function taxFor(u: SessionUser, lines: { kind: string; price_cents: number }[], sent: unknown): Promise<{ tax: Tax; given: TaxLocation | null }> {
+async function taxPlan(u: SessionUser, sent: unknown): Promise<TaxPlan> {
   const cfg = await taxSettings();
-  if (!cfg.enabled) return { tax: computeTax(lines, null, cfg), given: null };
+  if (!cfg.enabled) return { cfg, location: null, given: null };
   const given = parseLocation(sent);
-  return { tax: computeTax(lines, given ?? (await savedLocation(u.id)), cfg), given };
+  return { cfg, location: given ?? (await savedLocation(u.id)), given };
 }
 const belowMinimum = async () => `The smallest card payment is ${await money(MIN_CARD_CHARGE)}. Add something else to your basket.`;
 
@@ -256,10 +260,11 @@ export default async function commerceRoutes(app: FastifyInstance) {
     const body = parse(basketSchema, req.body);
     if (!rateLimit('quote', u.id, 120, 600)) throw new HttpError(429, 'Too many price checks. Try again in a few minutes.');
     const b = await priceBasket(req, u, body, { quote: true });
-    const { tax } = await taxFor(u, b.drafts, body.location);
+    const plan = await taxPlan(u, body.location);
     const w = await one<{ credit_cents: number }>('select credit_cents from wallets where user_id = $1', [u.id]);
     const available = w?.credit_cents ?? 0;
-    const pay = settle(b.total_cents, tax.tax_cents, available, body.use_credit);
+    const pay = settle(b.drafts, b.total_cents, available, body.use_credit, plan);
+    const tax = pay.tax;
     const lines = b.drafts.map((d, n) => {
       const codeOff = Number(d.meta.code_discount_cents ?? 0);
       const list = Number(d.meta.list_price_cents ?? d.price_cents + codeOff);
@@ -296,19 +301,22 @@ export default async function commerceRoutes(app: FastifyInstance) {
     const returnTo = sameSite(body.return_to, '/library');
     const { drafts, code, code_discount_cents: discount, total_cents: total } = await priceBasket(req, u, body, { quote: false });
     const codeId: string | null = code?.id ?? null;
-    const { tax, given } = await taxFor(u, drafts, body.location);
-    if (tax.needs_location) throw badRequest(LOCATION_REQUIRED, 'location_required');
+    const plan = await taxPlan(u, body.location);
+    const given = plan.given;
 
     const pay = await getSetting('payments');
     const orderId = await tx(async (db) => {
       await db.query('insert into wallets (user_id) values ($1) on conflict do nothing', [u.id]);
       const w = await one<{ credit_cents: number }>('select credit_cents from wallets where user_id = $1 for update', [u.id], db);
-      const { credit, charge, below_minimum } = settle(total, tax.tax_cents, w?.credit_cents ?? 0, body.use_credit);
+      // The tax depends on how much store credit goes in, so it is worked out here, with the wallet locked.
+      const { credit, tax, charge, below_minimum } = settle(drafts, total, w?.credit_cents ?? 0, body.use_credit, plan);
+      if (tax.needs_location) throw badRequest(LOCATION_REQUIRED, 'location_required');
       if (below_minimum) throw badRequest(await belowMinimum(), 'below_minimum');
       // Fail before anything is written if a card payment is needed and none can be taken.
       if (charge > 0) await getProvider();
       const o = await one<{ id: string }>(
-        // total_cents is the pre-tax total, as always; the tax sits beside it and the card is asked for total + tax - credit.
+        // total_cents is the pre-tax total, as always; the tax sits beside it and the card is asked for total - credit + tax.
+        // taxable_cents is what the tax was worked out on: the taxed lines less the store credit that went toward them.
         `insert into orders (user_id, status, total_cents, credit_cents, provider, discount_code_id, ip, user_agent, meta,
                              tax_cents, taxable_cents, tax_country, tax_state, tax_zip, tax_rate_bps)
          values ($1,'pending',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) returning id`,

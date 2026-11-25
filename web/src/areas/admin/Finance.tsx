@@ -138,9 +138,9 @@ export function OrderDetail() {
                   <DefList
                     items={[
                       ['Tax collected', d.tax.tax_cents > 0 ? `${$(d.tax.tax_cents)} · ${d.tax.label}` : 'None'],
-                      ['Taxable amount', $(d.tax.taxable_cents)],
+                      ['Taxable amount', `${$(d.tax.taxable_cents)}${o.credit_cents ? ' (after store credit, which is not taxed)' : ''}`],
                       ['Billing location', d.tax.state ? `${d.tax.state_name} ${d.tax.zip ?? ''}, United States` : `Outside the United States (${d.tax.country})`],
-                      ['Charged to the buyer', `${$(d.tax.charged_cents)} (total ${$(o.total_cents)} + tax ${$(d.tax.tax_cents)}${o.credit_cents ? ` − store credit ${$(o.credit_cents)}` : ''})`],
+                      ['Charged to the buyer', `${$(d.tax.charged_cents)} (total ${$(o.total_cents)}${o.credit_cents ? ` − store credit ${$(o.credit_cents)}` : ''} + tax ${$(d.tax.tax_cents)})`],
                       ...(d.tax.refunded_cents > 0 ? [['Tax refunded', $(d.tax.refunded_cents)] as [string, string]] : []),
                     ]}
                   />
@@ -275,7 +275,7 @@ export function SalesTaxPage() {
                 />
               )}
               <p className="text-sm text-muted">
-                Taxable sales are the prices tax was worked out on: after discounts, before store credit, without tips and gift cards. Tax is not revenue: the sales, revenue and earnings figures elsewhere in admin are all before tax. The site reports what it collected; filing and paying it is done with your accountant.
+                Taxable sales are the amounts tax was worked out on: after discounts and after store credit, without tips and gift cards. Sales paid for with store credit are not taxed and are not in this figure. Tax is not revenue: the sales, revenue and earnings figures elsewhere in admin are all before tax. The site reports what it collected; filing and paying it is done with your accountant.
               </p>
             </div>
           )}

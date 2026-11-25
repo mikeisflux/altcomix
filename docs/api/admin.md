@@ -262,7 +262,7 @@ Item: `{ id, status, total_cents, tax_cents, fee_cents, provider, provider_ref, 
 `order` is the full `orders` row plus the buyer's `email`, `username`, `display_name` and the `discount_code` text.
 `order.total_cents` is before sales tax. `tax` is the sales tax collected on top of it (all zero / null when none):
 `label` is null when no tax was charged, `refunded_cents` is the tax already returned to the buyer and
-`charged_cents` = `total_cents + tax_cents − credit_cents`. Tax is not revenue: no creator share, fee or ledger row includes it.
+`charged_cents` = `total_cents − credit_cents + tax_cents`; `taxable_cents` is what tax was charged on (after store credit). Tax is not revenue: no creator share, fee or ledger row includes it.
 
 **POST /api/admin/orders/:id/refund** — admin.
 Body: `{ reason (3+ chars), to_wallet?: boolean, provider_refunded?: boolean }`.
@@ -317,7 +317,8 @@ days in UTC, both included; default: the last full calendar month),
   A sale counts on the day it was paid (`paid_at`); tax that went back to a
   buyer counts on the day of the refund (`sales_tax_refunds.created_at`).
 - `taxable_cents` is what tax was worked out on: the taxed lines after
-  discounts, before store credit, without tips and gift cards. A state at 0%
+  discounts and after store credit, without tips and gift cards. Sales paid
+  for with store credit are not taxed and are not in this figure. A state at 0%
   still appears with its taxable sales. `orders` counts orders and membership
   charges. `rate_bps` is the rate set for the state now, not at the time of sale.
 - States are listed in alphabetical order; only states with sales or refunds

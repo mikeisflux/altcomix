@@ -572,7 +572,7 @@ function SalesTax({ value, secrets }: TabProps) {
           Your accountant decides where you must collect sales tax and at what rate. Enter a rate only for the states they name. Every other state stays at 0% and buyers there pay no tax. The site collects the tax and reports it under Finance → Sales tax; it does not file returns or pay the states for you.
         </Notice>
       </FormSection>
-      <FormSection title="Rate for each state" description="Tax is charged on comics, bundles, page-credit packs and memberships (the first payment and every renewal). Tips and gift cards are not taxed. The tax is kept apart from creator earnings: creators are paid on the price before tax.">
+      <FormSection title="Rate for each state" description="Tax is charged on comics, bundles, page-credit packs and memberships (the first payment and every renewal). Tips and gift cards are not taxed, and neither is anything paid for with store credit: tax is charged only on the part a buyer pays by card. The tax is kept apart from creator earnings: creators are paid on the price before tax.">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0 flex-1 sm:max-w-xs"><SearchInput value={search} onChange={setSearch} placeholder="Find a state" label="Find a state" /></div>
           <Badge tone={withRate ? 'ok' : 'neutral'}>{withRate === 0 ? 'No states with a rate' : `${withRate} ${withRate === 1 ? 'state' : 'states'} with a rate`}</Badge>
