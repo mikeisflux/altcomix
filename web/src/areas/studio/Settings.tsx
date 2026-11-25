@@ -140,7 +140,7 @@ function Tips() {
 }
 
 type PayoutInfo = { payout: { configured: boolean; method: string | null; legal_name: string | null; destination_hint: string | null; updated_at: string | null }; methods: string[] };
-const METHOD_LABEL: Record<string, string> = { paypal: 'PayPal', wise: 'Wise', bank_transfer: 'Bank transfer' };
+const METHOD_LABEL: Record<string, string> = { paypal: 'PayPal', venmo: 'Venmo', cashapp: 'Cash App', wise: 'Wise', bank_transfer: 'Bank transfer' };
 
 function Payouts() {
   const { brand, role } = useBrand();
@@ -161,8 +161,8 @@ function Payouts() {
               <Group label="Method"><Segmented value={m} onChange={setMethod} options={d.methods.map((x) => ({ value: x, label: METHOD_LABEL[x] ?? x }))} /></Group>
               <FormRow>
                 <Field label="Legal name of the payee"><Input value={legal ?? d.payout.legal_name ?? ''} onChange={(e) => setLegal(e.target.value)} required minLength={2} maxLength={120} /></Field>
-                <Field label={m === 'bank_transfer' ? 'IBAN, or account and routing numbers' : `Email of the ${METHOD_LABEL[m]} account`} hint={d.payout.configured ? 'For your security the saved value is never shown in full. Enter it again to change anything.' : undefined}>
-                  <Input type={m === 'bank_transfer' ? 'text' : 'email'} value={destination} onChange={(e) => setDestination(e.target.value)} required minLength={5} maxLength={200} autoComplete="off" />
+                <Field label={m === 'venmo' ? 'Venmo username' : m === 'cashapp' ? 'Cash App $cashtag' : 'PayPal email or @PayPal.Me name'} hint={d.payout.configured ? 'Enter it again to change anything.' : m === 'venmo' ? 'Like @yourname' : m === 'cashapp' ? 'Like $yourname' : 'The email on the PayPal account, or @yourname'}>
+                  <Input type="text" value={destination} onChange={(e) => setDestination(e.target.value)} placeholder={m === 'venmo' ? '@yourname' : m === 'cashapp' ? '$yourname' : 'you@example.com or @yourname'} required minLength={2} maxLength={200} autoComplete="off" autoCapitalize="none" spellCheck={false} />
                 </Field>
               </FormRow>
               <Button type="submit" variant="primary" loading={save.isPending}>Save payout details</Button>

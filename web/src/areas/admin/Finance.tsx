@@ -357,7 +357,7 @@ function Payouts() {
         </div>
       ),
     },
-    { key: 'method', header: 'Send to', cell: (p) => <div className="max-w-[170px] text-xs"><div className="capitalize">{String(p.method).replace(/_/g, ' ')}</div><div className="truncate text-muted" title={p.destination ?? ''}>{p.destination ?? 'No destination given'}</div></div> },
+    { key: 'method', header: 'Send to', cell: (p) => <div className="max-w-[170px] text-xs"><div>{({ paypal: 'PayPal', venmo: 'Venmo', cashapp: 'Cash App' } as Record<string, string>)[String(p.method)] ?? String(p.method).replace(/_/g, ' ')}</div><div className="truncate text-muted" title={p.destination ?? ''}>{p.destination ?? 'No destination given'}</div></div> },
     {
       key: 'actions', header: 'Status',
       cell: (p) => (

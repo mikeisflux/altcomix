@@ -19,7 +19,7 @@ type Entry = { id: string; created_at: string; kind: string; amount_cents: numbe
 type Payout = { id: string; amount_cents: number; status: string; method: string; note: string | null; reference: string | null; created_at: string; reviewed_at: string | null; paid_at: string | null; requested_by: string | null };
 
 const KIND_LABEL: Record<string, string> = { sale: 'Sale', subscription: 'Membership', tip: 'Tip', payout: 'Payout', refund: 'Refund', adjustment: 'Adjustment' };
-const METHOD_LABEL: Record<string, string> = { paypal: 'PayPal', wise: 'Wise', bank_transfer: 'Bank transfer' };
+const METHOD_LABEL: Record<string, string> = { paypal: 'PayPal', venmo: 'Venmo', cashapp: 'Cash App', wise: 'Wise', bank_transfer: 'Bank transfer' };
 const PAYOUT_TONE: Record<string, 'info' | 'ok' | 'danger' | 'neutral' | 'warn'> = { requested: 'info', approved: 'warn', paid: 'ok', rejected: 'danger', failed: 'danger' };
 
 function Body() {

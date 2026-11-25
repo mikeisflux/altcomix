@@ -20,7 +20,28 @@ const RESERVED = new Set(['admin', 'api', 'studio', 'media', 'read', 'store', 'l
 const SOCIAL_KEYS = ['x', 'facebook', 'instagram', 'bluesky', 'youtube', 'discord', 'tiktok'] as const;
 const ROLES = ['owner', 'admin', 'editor', 'analyst'] as const;
 const RANK: Record<MemberRole, number> = { analyst: 1, editor: 2, admin: 3, owner: 4 };
-const PAYOUT_METHODS = ['paypal', 'wise', 'bank_transfer'] as const;
+const PAYOUT_METHODS = ['paypal', 'venmo', 'cashapp'] as const;
+
+/**
+ * Where a payout is sent, in the form each service uses, or null when it is not valid:
+ * PayPal: the account's email, or a PayPal.Me name written @name.
+ * Venmo: @username (5-30 letters, numbers, hyphens or underscores).
+ * Cash App: $cashtag (1-20 letters or numbers, starting with a letter).
+ */
+export function payoutDestination(method: (typeof PAYOUT_METHODS)[number], raw: string): string | null {
+  const v = raw.trim();
+  if (method === 'paypal') {
+    if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) return v.toLowerCase();
+    const name = v.replace(/^(https?:\/\/)?(www\.)?paypal\.me\//i, '').replace(/^@/, '');
+    return /^[A-Za-z0-9]{3,20}$/.test(name) ? '@' + name : null;
+  }
+  if (method === 'venmo') {
+    const name = v.replace(/^(https?:\/\/)?(www\.)?venmo\.com\/(u\/)?/i, '').replace(/^@/, '');
+    return /^[A-Za-z0-9_-]{5,30}$/.test(name) ? '@' + name : null;
+  }
+  const tag = v.replace(/^(https?:\/\/)?(www\.)?cash\.app\//i, '').replace(/^\$/, '');
+  return /^[A-Za-z][A-Za-z0-9]{0,19}$/.test(tag) ? '$' + tag : null;
+}
 
 const emptyToNull = (v: string) => (v === '' ? null : v);
 const link = z
@@ -56,6 +77,8 @@ const identity = z.object({
 });
 
 function maskDestination(dest: string): string {
+  // Tags (@name, $cashtag) are public handles, so most of one is shown.
+  if (/^[@$]/.test(dest)) return dest.length <= 4 ? dest : dest.slice(0, 3) + '•'.repeat(Math.min(6, dest.length - 4)) + dest.slice(-1);
   const at = dest.indexOf('@');
   if (at > 0) return `${dest[0]}${'•'.repeat(Math.max(2, Math.min(6, at - 1)))}${dest.slice(at)}`;
   const tail = dest.replace(/\s+/g, '').slice(-4);
@@ -330,15 +353,20 @@ export default async function (app: FastifyInstance) {
     const body = parse(
       z.object({
         method: z.enum(PAYOUT_METHODS),
-        destination: z.string().trim().min(5, 'Enter where the money should go').max(200),
+        destination: z.string().trim().min(2, 'Enter where the money should go').max(200),
         legal_name: z.string().trim().min(2, 'Enter the legal name of the payee').max(120),
       }),
       req.body,
     );
-    if (body.method !== 'bank_transfer' && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(body.destination)) {
-      throw badRequest('Enter the email address of the account that should be paid');
+    const destination = payoutDestination(body.method, body.destination);
+    if (!destination) {
+      throw badRequest(
+        body.method === 'paypal' ? 'Enter the email of the PayPal account, or its PayPal.Me name as @name'
+          : body.method === 'venmo' ? 'Enter the Venmo username, like @yourname'
+            : 'Enter the Cash App $cashtag, like $yourname',
+      );
     }
-    const payout = { ...body, updated_at: new Date().toISOString() };
+    const payout = { ...body, destination, updated_at: new Date().toISOString() };
     await exec('update publishers set payout = $2 where id = $1', [id, JSON.stringify(payout)]);
     audit(req, 'brand.payout_settings', { kind: 'publisher', id }, { method: body.method });
     return { payout: payoutView(payout) };
