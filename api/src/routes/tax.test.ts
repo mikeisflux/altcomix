@@ -89,9 +89,12 @@ const emails = (brandId: string, template = 'tax_form_needed') => q('select * fr
 
 before(async () => {
   // This file's database is reused between runs. Earnings left by earlier runs would
-  // push this run's brands off the first page of the admin list, so start clean.
+  // push this run's brands off the first page of the admin list (earnings, paid payouts and
+  // saved forms all put a brand on it), so start clean.
   await exec('delete from ledger');
   await exec('delete from payouts');
+  await exec('delete from tax_notices');
+  await exec('delete from tax_profiles');
   await setSetting('revenue', { tax_reporting_threshold_cents: LIMIT, tax_form_required: true, payout_minimum_cents: 2000, payout_hold_days: 7 }, null);
 });
 after(async () => {

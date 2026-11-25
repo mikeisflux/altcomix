@@ -111,7 +111,7 @@ test('webhook signatures: t=<ts>,v1=<hmac sha256 of "ts.body">, 5 minute window'
   assert.equal(pay.verifyDivinitySignature(body, sig, SECRET, now), true);
   assert.equal(pay.verifyDivinitySignature(body + ' ', sig, SECRET, now), false, 'body tampered');
   assert.equal(pay.verifyDivinitySignature(body, sig, 'other-secret', now), false);
-  assert.equal(pay.verifyDivinitySignature(body, sig.replace(/v1=./, 'v1=0'), SECRET, now), false);
+  assert.equal(pay.verifyDivinitySignature(body, sig.replace(/v1=(.)/, (_m, c) => `v1=${c === '0' ? '1' : '0'}`), SECRET, now), false);
   assert.equal(pay.verifyDivinitySignature(body, pay.signDivinityPayload(body, SECRET, Math.floor(now / 1000) - 301), SECRET, now), false, 'too old');
   assert.equal(pay.verifyDivinitySignature(body, pay.signDivinityPayload(body, SECRET, Math.floor(now / 1000) + 120), SECRET, now), false, 'from the future');
   assert.equal(pay.verifyDivinitySignature(body, '', SECRET, now), false);
