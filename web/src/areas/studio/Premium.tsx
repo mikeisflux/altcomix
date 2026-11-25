@@ -301,9 +301,9 @@ export function PremiumPage() {
           const status = live && sub ? (
             <Card data-testid="premium-status">
               <CardHeader
-                title={<span className="flex flex-wrap items-center gap-2">{d.product.name} {pastDue ? <Badge tone="danger">{grant ? 'Payment failed' : 'Paused: payment failed'}</Badge> : ending ? <Badge tone="warn">Canceled, ends {date(sub.current_period_end)}</Badge> : <Badge tone="ok">Active</Badge>}</span>}
+                title={<span className="flex flex-wrap items-center gap-2">{d.product.name} {pastDue ? <Badge tone="danger">{'Payment failed'}</Badge> : ending ? <Badge tone="warn">Canceled, ends {date(sub.current_period_end)}</Badge> : <Badge tone="ok">Active</Badge>}</span>}
                 description={
-                  pastDue ? (grant ? 'The renewal payment for the paid plan did not go through. After four failed tries the paid plan ends. The grant above keeps the features on meanwhile.' : 'The features are paused until a payment goes through. After four failed tries the plan ends. Your saved links and data are kept.')
+                  pastDue ? (grant ? 'The renewal payment for the paid plan did not go through. After four failed tries the paid plan ends. The grant above keeps the features on meanwhile.' : 'The renewal payment did not go through. The features stay on while we retry the card. After four failed tries the plan ends and the features turn off; your saved links and data are kept.')
                     : ending ? `Renewal is canceled. ${brand.name} keeps ${d.product.name} until ${date(sub.current_period_end)}, then it ends. The card will not be charged again.`
                     : `Active until ${date(sub.current_period_end)}. Renews on ${date(sub.renews_at)} for ${renewalText}.`
                 }

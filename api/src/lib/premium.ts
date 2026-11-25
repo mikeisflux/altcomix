@@ -5,12 +5,28 @@ import { HttpError } from './http.ts';
  * Creator Premium: the gate. A brand has Premium while it has a paid plan or
  * a complimentary grant that is running and whose period has not ended —
  * the same rule as the reader membership (`hasMembership` in lib/access.ts):
- * a plan that is canceled keeps going to the end of the paid year, and one
- * whose renewal payment is being retried is closed until it is paid.
+ * a plan that is canceled keeps going to the end of the paid year. Unlike the
+ * reader membership, a plan whose renewal payment is being retried stays on
+ * until the last retry fails (the owner's decision).
  *
  * Every Premium feature asks `brandHasPremium`; nothing else decides.
  * The billing itself is in lib/payments.ts (the PREMIUM book).
  */
+
+/**
+ * SQL condition (on a premium_subscriptions row) for "this plan keeps Premium on":
+ * its period is running, or it is a paid plan whose yearly renewal is being
+ * collected. A renewal that is declined is retried for nine days (`past_due`),
+ * and the brand keeps Premium through those retries; it ends only when the
+ * last retry fails and the plan becomes `expired`. The two-day allowance covers
+ * the short gap between the year ending and the first renewal attempt.
+ */
+export const PREMIUM_ON = `(
+  (status in ('active','past_due') and current_period_end > now())
+  or (status = 'past_due' and provider <> 'comp')
+  or (status = 'active' and provider <> 'comp' and not cancel_at_period_end and payment_method_token is not null
+      and current_period_end > now() - interval '2 days')
+)`;
 
 const TTL_MS = 15_000;
 const cache = new Map<string, { value: boolean; at: number }>();
@@ -20,8 +36,7 @@ export async function brandHasPremium(publisherId: string): Promise<boolean> {
   if (hit && Date.now() - hit.at < TTL_MS) return hit.value;
   const value = Boolean(
     await one(
-      `select 1 from premium_subscriptions
-        where publisher_id = $1 and status in ('active','past_due') and current_period_end > now() limit 1`,
+      `select 1 from premium_subscriptions where publisher_id = $1 and ${PREMIUM_ON} limit 1`,
       [publisherId],
     ),
   );

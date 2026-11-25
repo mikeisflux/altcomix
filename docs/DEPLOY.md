@@ -436,3 +436,9 @@ addresses, so the home page previews correctly however it is served. Per-page pr
 pass page requests to the API: that is the `location /` + `location @app` pair in
 `scripts/deploy/nginx.conf`. Adult series show a blurred cover under an "18+ inside" bar.
 Re-render the graphics with `NODE_PATH=$(npm root -g) node web/scripts/brand-assets.mjs`.
+
+### Creator Premium: renewals
+
+- A reminder email goes to the payer 7 days before each yearly charge (date, amount with tax, how to cancel). One per renewal.
+- If the renewal is declined, the card is retried after 1, 3 and 5 days. The brand keeps Premium during the retries; it ends when the fourth try fails.
+- Subscribers renew at the price they started at. A new price in /admin applies to new subscriptions only.

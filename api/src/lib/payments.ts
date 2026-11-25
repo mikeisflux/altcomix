@@ -8,7 +8,7 @@ import { captureError } from './errors.ts';
 import { HttpError, conflict } from './http.ts';
 import { allocate, creditSale, creditTip, estimateFee, refundParts, reverseOrder, reverseOrderPartly } from './ledger.ts';
 import { notify } from './notify.ts';
-import { invalidatePremium } from './premium.ts';
+import { PREMIUM_ON, invalidatePremium } from './premium.ts';
 import { membershipTax, recordTaxRefund, taxLabel, taxRefunded } from './salestax.ts';
 import { getSetting } from './settings.ts';
 
@@ -1124,6 +1124,44 @@ async function premiumMail(sub: Row, subject: string, body: string): Promise<voi
   await sendTemplate('premium_billing', u.email, { subject, name: u.display_name, body, product: prem.name, brand: brand.name, url: `${config.appUrl}/studio/${brand.slug}/premium` }, { userId: sub.user_id });
 }
 
+export const PREMIUM_REMINDER_DAYS = 7;
+
+/**
+ * Tell the payer a week ahead that the yearly plan is about to renew: the date,
+ * the amount (with tax when there is tax) and how to cancel. One reminder per
+ * renewal; plans that are canceled, granted or without a saved card get none.
+ */
+export async function sendPremiumRenewalReminders(): Promise<number> {
+  const due = await q(
+    `update premium_subscriptions set renewal_reminded_for = current_period_end
+      where status = 'active' and provider <> 'comp' and not cancel_at_period_end and payment_method_token is not null
+        and current_period_end > now() and current_period_end <= now() + interval '${PREMIUM_REMINDER_DAYS} days'
+        and renewal_reminded_for is distinct from current_period_end
+      returning *`,
+  );
+  let sent = 0;
+  for (const sub of due) {
+    try {
+      const [prem, brand] = [await getSetting('creator_premium'), await premiumBrand(sub.publisher_id)];
+      if (!brand) continue;
+      const t = await membershipTax(sub.user_id, sub.price_cents);
+      const amount = t.tax_cents > 0
+        ? `${await money(sub.price_cents + t.tax_cents)} (${await money(sub.price_cents)} plus ${await money(t.tax_cents)} ${taxLabel(t.state, t.rate_bps).replace(/^S/, 's')})`
+        : await money(sub.price_cents);
+      await premiumMail(
+        sub,
+        `${prem.name} for ${brand.name} renews on ${ymd(sub.current_period_end)}`,
+        `${prem.name} for ${brand.name} renews for another year on ${ymd(sub.current_period_end)}. Your saved card will be charged ${amount}. You do not need to do anything to keep it. To stop the renewal, cancel from the ${prem.name} page before that date; the brand keeps ${prem.name} until then and the card is not charged.`,
+      );
+      await notify(sub.user_id, 'premium', `${prem.name} renews on ${ymd(sub.current_period_end)}`, `${brand.name}: your saved card will be charged ${amount}.`, `/studio/${brand.slug}/premium`).catch(() => {});
+      sent++;
+    } catch (e) {
+      captureError(e, { source: 'job', endpoint: 'premium:renewal-reminder' });
+    }
+  }
+  return sent;
+}
+
 /** A Premium charge went through: the receipt (first year) or the renewal receipt, both with the tax line when there was tax. */
 async function premiumPaid(sub: Row, c: Row, first: boolean): Promise<void> {
   const [prem, brand] = [await getSetting('creator_premium'), await premiumBrand(sub.publisher_id)];
@@ -1160,7 +1198,7 @@ async function premiumDeclined(sub: Row, attempts: number, final: boolean, error
     await premiumMail(sub, `${prem.name} has ended for ${brand.name}`, `We could not collect the renewal payment after several tries, so ${prem.name} for ${brand.name} has ended. Print edition links are saved but no longer shown to readers, and the advanced analytics are closed. Everything comes back if you subscribe again.`);
     await notify(sub.user_id, 'premium', `${prem.name} has ended for ${brand.name}`, 'We could not collect the renewal payment.', link);
   } else if (attempts === 1) {
-    await premiumMail(sub, `We could not renew ${prem.name} for ${brand.name}`, `Your card was declined (${error}). We will try again over the next few days. ${prem.name} features are paused until the payment goes through. To fix it now, update the card.`);
+    await premiumMail(sub, `We could not renew ${prem.name} for ${brand.name}`, `Your card was declined (${error}). We will try again over the next few days. ${prem.name} features stay on while we retry. If the fourth try fails the plan ends and the features turn off. To fix it now, update the card.`);
     await notify(sub.user_id, 'premium', `${prem.name} payment failed`, `Update the card to keep ${prem.name} for ${brand.name}.`, link);
   }
 }
@@ -1300,7 +1338,7 @@ export async function premiumGrantOf(publisherId: string): Promise<{ id: string;
 export async function brandPremiumSummary(publisherId: string) {
   const paid = await one(
     `select id, status, price_cents, current_period_start, current_period_end, cancel_at_period_end,
-            (status in ('active','past_due') and current_period_end > now()) as current
+            ${PREMIUM_ON} as current
        from premium_subscriptions where publisher_id = $1 and provider <> 'comp' and status <> 'pending'
       order by (status in ('active','past_due')) desc, created_at desc limit 1`,
     [publisherId],

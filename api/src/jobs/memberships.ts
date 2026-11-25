@@ -1,6 +1,6 @@
 import { exec, q } from '../db.ts';
 import { captureError } from '../lib/errors.ts';
-import { BOOKS, MEMBERSHIP, PREMIUM, attemptCharge, billPeriod, captureCharge, captureOrder, confirmSession, failOrder, premiumPayerLeft } from '../lib/payments.ts';
+import { BOOKS, MEMBERSHIP, PREMIUM, attemptCharge, billPeriod, captureCharge, captureOrder, confirmSession, failOrder, premiumPayerLeft, sendPremiumRenewalReminders } from '../lib/payments.ts';
 import { invalidatePremium } from '../lib/premium.ts';
 import type { Job } from '../server.ts';
 
@@ -22,7 +22,7 @@ import type { Job } from '../server.ts';
  *      the processor, and abandoned ones are closed
  */
 export async function runMembershipCycle(): Promise<Record<string, number>> {
-  const n = { expired: 0, ended: 0, billed: 0, paid: 0, declined: 0, captured: 0, reconciled: 0 };
+  const n = { expired: 0, ended: 0, billed: 0, paid: 0, declined: 0, captured: 0, reconciled: 0, reminded: 0 };
   const safe = async (what: string, fn: () => Promise<unknown>) => {
     try {
       return await fn();
@@ -94,6 +94,7 @@ export async function runMembershipCycle(): Promise<Record<string, number>> {
 
   const orphans = await q<{ id: string }>(`select id from orders where status = 'pending' and provider_ref is null and created_at < now() - interval '1 hour' limit 100`);
   for (const o of orphans) await safe('orphan', () => failOrder(o.id, 'Checkout was never started'));
+  n.reminded = Number((await safe('remind', () => sendPremiumRenewalReminders())) ?? 0);
   await exec(`delete from subscriptions where status = 'pending' and created_at < now() - interval '1 day'`);
   await exec(`delete from premium_subscriptions where status = 'pending' and created_at < now() - interval '1 day'`);
   return n;

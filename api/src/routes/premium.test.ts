@@ -405,7 +405,7 @@ test('sales tax: 7% in the payer\'s state makes the charge 14000 + 980, the repo
     const firstEnd = (await plan(s.brand.id))!.current_period_end;
     calls.length = 0;
     await yearPasses(s.brand.id);
-    assert.equal(await brandHasPremium(s.brand.id), false, 'the paid year is over until the renewal goes through');
+    assert.equal(await brandHasPremium(s.brand.id), true, 'Premium stays on while the renewal is collected');
     await runMembershipCycle();
     rows = await charges(s.brand.id);
     assert.deepEqual(rows.map((c) => [c.status, c.amount_cents, c.tax_cents, c.tax_state]), [['paid', 14000, 980, 'IN'], ['paid', 14000, 980, 'IN']]);
@@ -446,7 +446,7 @@ test('sales tax: 7% in the payer\'s state makes the charge 14000 + 980, the repo
   }
 });
 
-test('a declined renewal: Premium is paused, the card is retried after 1, 3 and 5 days, then the plan lapses; links stay saved and come back on a new subscription', async () => {
+test('a declined renewal: Premium stays on while the card is retried after 1, 3 and 5 days, then the plan lapses; links stay saved and come back on a new subscription', async () => {
   const s = await studio();
   const base = `/api/studio/brands/${s.brand.id}/premium`;
   assert.equal((await s.c.post(`${base}/start`)).json.completed, true);
@@ -466,13 +466,12 @@ test('a declined renewal: Premium is paused, the card is retried after 1, 3 and 
     const retryIn = (Date.parse(rows[1].next_attempt_at) - Date.now()) / 86_400_000;
     assert.ok(retryIn > 0.9 && retryIn < 1.1, `first retry in ${retryIn} days`);
 
-    // the gates close while the payment is failing: the paid year is over
-    assert.equal(await brandHasPremium(s.brand.id), false);
-    assert.deepEqual(await publicLinks(s), [null, [], null]);
-    assert.equal((await s.c.get(PREMIUM_REPORTS(s)[0])).json.code, 'premium_required');
-    assert.equal((await s.c.patch(`/api/studio/releases/${s.release.id}`, { print_url: 'https://print.example/late' })).json.code, 'premium_required');
+    // Premium stays on while the renewal is being retried, even though the paid year is over
+    assert.equal(await brandHasPremium(s.brand.id), true);
+    assert.deepEqual(await publicLinks(s), [LINK, [LINK], LINK]);
+    assert.equal((await s.c.get(PREMIUM_REPORTS(s)[0])).status, 200);
     const view = (await s.c.get(base)).json;
-    assert.deepEqual([view.active, view.subscription.status, view.subscription.payment_problem.attempts, view.subscription.payment_problem.message], [false, 'past_due', 1, 'Your card was declined by the payment processor']);
+    assert.deepEqual([view.active, view.subscription.status, view.subscription.payment_problem.attempts, view.subscription.payment_problem.message], [true, 'past_due', 1, 'Your card was declined by the payment processor']);
     assert.equal(view.saved_print_links, 1);
     const failed = await one(`select subject, html from emails where template = 'premium_billing' and user_id = $1 order by created_at desc limit 1`, [s.user.id]);
     assert.match(failed!.subject, /We could not renew Creator Premium for Brand /);
@@ -877,4 +876,41 @@ test('a reader membership and Creator Premium held by the same person run side b
   assert.deepEqual((await charges(s.brand.id)).map((c) => [c.amount_cents, c.status]), [[14000, 'paid']]);
   assert.equal(await hasMembership(s.user.id), true);
   assert.equal(await brandHasPremium(s.brand.id), false);
+});
+
+test('renewal reminder: one email 7 days before the yearly charge, with the amount; none for canceled or granted plans', async () => {
+  const { sendPremiumRenewalReminders } = await import('../lib/payments.ts');
+  const s = await studio();
+  const base = `/api/studio/brands/${s.brand.id}/premium`;
+  assert.equal((await s.c.post(`${base}/start`)).json.completed, true);
+  await exec(`update premium_subscriptions set payment_method_token = 'pm_prem_test' where publisher_id = $1`, [s.brand.id]);
+  const reminders = async () => (await one<{ n: number }>(`select count(*)::int as n from emails where template = 'premium_billing' and user_id = $1 and subject like '%renews on%'`, [s.user.id]))!.n;
+
+  // more than a week away: nothing
+  await sendPremiumRenewalReminders();
+  assert.equal(await reminders(), 0);
+
+  // inside the last 7 days: exactly one, however often the job runs
+  await exec(`update premium_subscriptions set current_period_end = now() + interval '6 days' where publisher_id = $1`, [s.brand.id]);
+  await sendPremiumRenewalReminders();
+  await sendPremiumRenewalReminders();
+  assert.equal(await reminders(), 1);
+  const mail = await one(`select subject, html from emails where template = 'premium_billing' and user_id = $1 and subject like '%renews on%'`, [s.user.id]);
+  assert.match(mail!.html, /140\.00/);
+  assert.match(mail!.html, /cancel/i);
+
+  // the next year's renewal gets its own reminder
+  await exec(`update premium_subscriptions set current_period_end = current_period_end + interval '1 year' where publisher_id = $1`, [s.brand.id]);
+  await sendPremiumRenewalReminders();
+  assert.equal(await reminders(), 1);
+  await exec(`update premium_subscriptions set current_period_end = now() + interval '3 days' where publisher_id = $1`, [s.brand.id]);
+  await sendPremiumRenewalReminders();
+  assert.equal(await reminders(), 2);
+
+  // canceled plans and grants are never reminded
+  const c = await studio();
+  assert.equal((await c.c.post(`/api/studio/brands/${c.brand.id}/premium/start`)).json.completed, true);
+  await exec(`update premium_subscriptions set payment_method_token = 'pm_prem_test', cancel_at_period_end = true, current_period_end = now() + interval '2 days' where publisher_id = $1`, [c.brand.id]);
+  await sendPremiumRenewalReminders();
+  assert.equal((await one<{ n: number }>(`select count(*)::int as n from emails where template = 'premium_billing' and user_id = $1 and subject like '%renews on%'`, [c.user.id]))!.n, 0);
 });
