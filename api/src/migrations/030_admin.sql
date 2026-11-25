@@ -125,7 +125,7 @@ $md$),
 
 ## Who we are
 
-NSFWComix is operated by *[Owner: legal name and address of the operator]*. Contact: see the [contact page](/p/contact).
+NSFWComix is operated by NSFW Comix. Contact: see the [contact page](/p/contact).
 
 ## What we collect
 
@@ -203,7 +203,7 @@ $md$),
 
 ## 1. Agreement
 
-By using NSFWComix you agree to these terms. NSFWComix is operated by *[Owner: legal name of the operator]*.
+By using NSFWComix you agree to these terms. NSFWComix is operated by NSFW Comix.
 
 ## 2. Your account
 
@@ -213,11 +213,11 @@ You are responsible for your account and for keeping your password safe. Give ac
 
 - When you buy a release you get a personal, non-transferable license to read it on NSFWComix for as long as the service offers it. Where a download is included, the file is for your personal use.
 - Membership gives access to the membership catalog while your membership is active. The catalog can change.
-- Prices are shown before you pay. *[Owner: state how taxes are handled.]*
+- Prices are shown before you pay.
 
 ## 4. Refunds
 
-*[Owner: state your refund policy, including any legal right to withdraw that applies to your customers.]*
+All sales are final. We do not give refunds.
 
 ## 5. Membership renewal and cancellation
 
@@ -245,7 +245,7 @@ You can close your account at any time. We may suspend or close accounts that br
 
 ## 11. Governing law
 
-*[Owner: state the governing law and courts.]*
+These terms are governed by the laws of the State of Indiana, and any dispute is heard in the state or federal courts located in Indiana.
 
 ## 12. Changes
 
@@ -280,7 +280,7 @@ You decide what is free, what is sold and at what price, and whether a series is
 
 ## 6. Payouts
 
-Earnings become available after a holding period. You can request a payout once your available balance reaches the minimum shown in Studio. You are responsible for the accuracy of your payout details and for your own taxes. *[Owner: state any tax forms or identity checks you require.]*
+Earnings become available after a holding period. You can request a payout once your available balance reaches the minimum shown in Studio. You are responsible for the accuracy of your payout details and for your own taxes. If your earnings in a calendar year reach the tax reporting limit, Studio asks you to fill in a tax information form, and payouts wait until it is complete. We use it to send you, and file, the tax form the law requires for that year.
 
 ## 7. Refunds and chargebacks
 
