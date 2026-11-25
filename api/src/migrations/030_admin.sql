@@ -164,7 +164,7 @@ Depending on where you live you may have the right to see, correct, export or de
 
 ## Children
 
-NSFWComix is not intended for children under the age at which they can consent to data processing in their country. *[Owner: confirm the minimum age.]*
+NSFWComix is for adults. You must be 18 or older to use it.
 
 ## Changes
 
@@ -207,7 +207,7 @@ By using NSFWComix you agree to these terms. NSFWComix is operated by NSFW Comix
 
 ## 2. Your account
 
-You are responsible for your account and for keeping your password safe. Give accurate information. One person, one account, unless we agree otherwise. *[Owner: state the minimum age.]*
+You are responsible for your account and for keeping your password safe. Give accurate information. One person, one account, unless we agree otherwise. You must be 18 or older to have an account.
 
 ## 3. Reading and buying
 
