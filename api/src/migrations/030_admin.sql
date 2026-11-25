@@ -98,7 +98,7 @@ What creators and publishers can expect from NSFWComix as a service. It sits alo
 
 We aim to keep the store, the reader and Studio available around the clock. Planned maintenance is announced on the site in advance where possible.
 
-*[Owner: decide whether to state an uptime target. Do not publish a number you are not measuring.]*
+Our target is 98% uptime.
 
 ## Your files
 
