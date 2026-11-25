@@ -281,7 +281,7 @@ function Revenue({ brandId, q }: { brandId: string; q: RangeQuery }) {
         const m = (c: number) => moneyExact(c, d.currency);
         return (
           <div className="space-y-4">
-            <Panel title="Earnings by month" note="What reached your balance, after payment fees and the platform share." actions={<Csv brandId={brandId} path="revenue" q={q} />}>
+            <Panel title="Earnings by month" note="What reached your balance: your share of what readers paid." actions={<Csv brandId={brandId} path="revenue" q={q} />}>
               <Table rows={d.rows} rowKey={(r) => r.month} empty="Nothing was earned in this period" columns={[
                 { key: 'm', header: 'Month', cell: (r) => r.month },
                 { key: 't', header: 'Tips', align: 'right', cell: (r) => m(r.tips_cents) },

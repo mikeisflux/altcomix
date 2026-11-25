@@ -87,9 +87,9 @@ function Body() {
 
             <Section title="How your earnings are calculated">
               <div className="grid gap-3 text-sm text-muted sm:grid-cols-3">
-                <Card className="p-3.5"><strong className="text-paper">Sales: you keep {bps(e.share.sale_bps)}</strong><p className="mt-1">Of each purchase to read or download a release, after the card processor's fee.</p></Card>
-                <Card className="p-3.5"><strong className="text-paper">Membership: you keep {bps(e.share.subscription_bps)}</strong><p className="mt-1">Each month, what a {settings.membership.name} member paid (after fees) is divided between the series they read, by the number of pages they read in each. Your part of that, times {bps(e.share.subscription_bps)}, is your membership figure. It is settled once the month ends.</p></Card>
-                <Card className="p-3.5"><strong className="text-paper">Tips: you keep {bps(e.share.tip_bps)}</strong><p className="mt-1">Of every tip, after the card processor's fee.</p></Card>
+                <Card className="p-3.5"><strong className="text-paper">Sales: you keep {bps(e.share.sale_bps)}</strong><p className="mt-1">Of the price of each purchase to read or download a release. The payment processor's fee and the platform's part come out of the rest, not out of yours.</p></Card>
+                <Card className="p-3.5"><strong className="text-paper">Membership: you keep {bps(e.share.subscription_bps)}</strong><p className="mt-1">Each month, what a {settings.membership.name} member paid is divided between the series they read, by the number of pages they read in each. Your part of that, times {bps(e.share.subscription_bps)}, is your membership figure. It is settled once the month ends.</p></Card>
+                <Card className="p-3.5"><strong className="text-paper">Tips: you keep {bps(e.share.tip_bps)}</strong><p className="mt-1">Of every tip. The payment processor's fee comes out of the rest.</p></Card>
               </div>
               <p className="text-sm text-muted">If your earnings in a calendar year reach the tax reporting limit, we ask for a tax information form before paying out. See where you stand under <Link className="link" to={`/studio/${brand.slug}/tax`}>Tax information</Link>.</p>
               <p className="text-sm text-muted">New earnings are pending for {e.payout_hold_days} days in case of refunds, then become available. The month-by-month membership breakdown is under <Link className="link" to={`/studio/${brand.slug}/analytics?view=revenue`}>Analytics, Revenue</Link>.</p>

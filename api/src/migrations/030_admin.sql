@@ -156,7 +156,7 @@ We use cookies that are necessary to sign you in and protect forms. If analytics
 
 Account data is kept while the account exists. Purchase and payout records are kept as long as accounting rules require. Security logs are kept for a limited period.
 
-*[Owner: confirm the retention periods that apply to you.]*
+When you delete your account, we delete or anonymize your account data within 30 days. Purchase, payout and tax records are kept for seven years. Security and access logs are kept for up to 12 months. Backups are overwritten within 90 days.
 
 ## Your rights
 
@@ -182,7 +182,7 @@ $md$),
 
 NSFWComix sets the cookies needed to sign you in and to protect forms from forged requests. These are required for the site to work.
 
-*[Owner: if analytics is enabled, describe it here and how to opt out.]*
+We may also use an analytics service to count visits and see which pages are used, so we can improve the site. It is not used for advertising. To opt out, email [support@nsfwcomix.com](mailto:support@nsfwcomix.com) from the address on your account and we will exclude you.
 
 ## Mature content
 
@@ -273,7 +273,7 @@ You decide what is free, what is sold and at what price, and whether a series is
 
 ## 5. Earnings
 
-- **Sales and tips:** you receive your share of each payment after payment processing costs.
+- **Sales and tips:** you receive your share of the price the reader paid. The payment processor's fee and the platform's part come out of the rest.
 - **Membership:** each member's payment for a month is divided among the brands that member read that month, in proportion to pages read, and you receive your share of your part.
 - The share percentages that apply to your brand are shown in Studio. *[Owner: decide how much notice you give before changing them.]*
 - **Revenue splits** you set up between collaborators are applied automatically.

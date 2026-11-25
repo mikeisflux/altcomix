@@ -77,9 +77,12 @@ export function breakdown(
   ownerId: string,
   splits: { payee_publisher_id: string; share_bps: number }[] = [],
 ): Breakdown {
+  // The creator's share is a percentage of the price the reader paid (not of what is left after
+  // the processing fee). The processor takes its fee, and the platform keeps the remainder:
+  // with a 93.5% share and a 3.5% fee the platform keeps 3%.
   const fee = Math.min(priceCents, Math.max(0, feeCents));
   const net = priceCents - fee;
-  const creator = bpsOf(net, shareBps);
+  const creator = Math.min(net, bpsOf(priceCents, shareBps));
   return { price_cents: priceCents, fee_cents: fee, creator_cents: creator, platform_cents: net - creator, shares: splitShares(creator, ownerId, splits) };
 }
 
@@ -149,12 +152,12 @@ export async function creditTip(db: Queryable, a: { publisherId: string; orderId
   return b;
 }
 
-/** One series' part of a settled membership month. `netCents` is already net of fees. */
+/** One series' part of a settled membership month: its part of the membership fees paid, and of the processing fees on them. */
 export async function creditSubscription(
   db: Queryable,
-  a: { publisherId: string; seriesId: string; month: string; netCents: number; note: string },
+  a: { publisherId: string; seriesId: string; month: string; grossCents: number; feeCents: number; note: string },
 ): Promise<Breakdown> {
-  const b = breakdown(a.netCents, 0, await shareBps(a.publisherId, 'sub', db), a.publisherId, await seriesSplits(a.seriesId, db));
+  const b = breakdown(a.grossCents, a.feeCents, await shareBps(a.publisherId, 'sub', db), a.publisherId, await seriesSplits(a.seriesId, db));
   await writeShares(db, { kind: 'subscription', ownerId: a.publisherId, seriesId: a.seriesId, month: a.month, note: a.note }, b);
   return b;
 }

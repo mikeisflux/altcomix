@@ -73,7 +73,8 @@ test('breakdown: fee + every creator row + platform is exactly the price, for aw
           assert.equal(creators, b.creator_cents);
           assert.equal(b.fee_cents + creators + b.platform_cents, price, `price ${price} fee ${fee} bps ${bps}`);
           assert.ok(b.fee_cents >= 0 && b.platform_cents >= 0 && b.shares.every((s) => s.cents >= 0 && Number.isInteger(s.cents)));
-          assert.equal(b.creator_cents, bpsOf(price - b.fee_cents, bps));
+          // the creator's share is a percentage of the price, limited to what is left after the fee
+          assert.equal(b.creator_cents, Math.min(price - b.fee_cents, bpsOf(price, bps)));
           checked++;
         }
       }

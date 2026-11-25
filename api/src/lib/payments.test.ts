@@ -163,13 +163,13 @@ test('hosted checkout: request shape, then return page + webhooks converge on on
   assert.equal(o2!.payment_ref, `pi_${o1!.provider_ref}`);
   assert.equal(o2!.captured_at, null);
   assert.equal(await owns(reader.id), true);
-  assert.equal(o2!.fee_cents, 36);
+  assert.equal(o2!.fee_cents, 7);
 
-  // exact conservation: 199 = 36 fee + creators (owner + 25% payee) + platform
+  // exact conservation: 199 = 7 fee + creators (owner + 25% payee) + platform
   const rows = await q('select publisher_id, amount_cents from ledger where order_id = $1 order by amount_cents desc', [id]);
-  assert.deepEqual(rows.map((x) => [x.publisher_id, x.amount_cents]), [[brand.id, 104], [payee.id, 34]]);
+  assert.deepEqual(rows.map((x) => [x.publisher_id, x.amount_cents]), [[brand.id, 140], [payee.id, 46]]);
   const item = await one('select creator_cents from order_items where order_id = $1', [id]);
-  assert.equal(item!.creator_cents, 138);
+  assert.equal(item!.creator_cents, 186);
 
   // Webhooks arrive afterwards, twice each: nothing is granted or paid out again; the capture now goes through.
   respond = () => undefined;
@@ -178,7 +178,7 @@ test('hosted checkout: request shape, then return page + webhooks converge on on
     await pay.handleDivinityEvent({ event: 'payment.succeeded', data: { paymentIntentId: `pi_${o1!.provider_ref}`, amount: 199, pledgeId: id, projectId: 'nsfwcomix-store', platformUserId: reader.id, hold: { holdId: 'hold_1', amount: 199, status: 'ACTIVE' } } });
   }
   assert.equal(await ledgerRows(id), 2);
-  assert.equal(await ledgerSum(id), 138);
+  assert.equal(await ledgerSum(id), 186);
   o2 = await order(id);
   assert.ok(o2!.captured_at, 'captured once the hold exists');
   assert.ok(of('capture').every((x) => x.body.pledgeId === id));
@@ -392,7 +392,7 @@ test('refund: processor first, then entitlements and ledger are reversed; repeat
   await assert.rejects(pay.refundOrder(id, { reason: 'Bought twice' }), /did not accept the refund/);
   assert.equal((await order(id))!.status, 'paid');
   assert.equal(await owns(reader.id), true);
-  assert.equal(await ledgerSum(id), 138);
+  assert.equal(await ledgerSum(id), 186);
 
   respond = () => undefined;
   calls.length = 0;
@@ -475,9 +475,9 @@ test('membership: SETUP checkout saves only a pm_ token, first period is charged
     { platformUserId: reader.id, paymentMethodId: 'pm_saved_1', amount: 599, pledgeId: cs[0].id, projectId: 'nsfwcomix-membership', idempotencyKey: 'attempt-1', ip: '198.51.100.7', ua: 'Mozilla/5.0 (Member)' },
   );
   assert.deepEqual(of('capture').map((x) => x.body.pledgeId), [cs[0].id]);
-  assert.deepEqual([cs[0].status, cs[0].amount_cents, cs[0].fee_cents, Boolean(cs[0].captured_at)], ['paid', 599, 47, true]);
+  assert.deepEqual([cs[0].status, cs[0].amount_cents, cs[0].fee_cents, Boolean(cs[0].captured_at)], ['paid', 599, 21, true]);
   const months = await q('select gross_cents, fee_cents, charge_id from sub_months where user_id = $1', [reader.id]);
-  assert.deepEqual(months.map((m) => [m.gross_cents, m.fee_cents, m.charge_id]), [[599, 47, cs[0].id]]);
+  assert.deepEqual(months.map((m) => [m.gross_cents, m.fee_cents, m.charge_id]), [[599, 21, cs[0].id]]);
   assert.ok(Date.parse(s!.current_period_end) > Date.now() + 27 * 86400e3);
   assert.equal((await one<{ n: number }>(`select count(*)::int as n from emails where template = 'membership_started' and user_id = $1`, [reader.id]))!.n, 1);
   // the processor's payment.succeeded for that charge is a no-op

@@ -157,8 +157,8 @@ Item: `{ id, slug, name, kind, kind_requested, avatar_key, avatar_url, country, 
   "balance": { "balance_cents": 0, "available_cents": 0, "pending_cents": 0 },
   "earned_by_kind": { "sale": 0, "subscription": 0, "tip": 0, "payout": 0, "refund": 0, "adjustment": 0 },
   "payouts": [{ "id": "", "amount_cents": 0, "status": "requested", "method": "", "reference": null, "created_at": "", "reviewed_at": null, "paid_at": null }],
-  "shares": { "defaults": { "sale_share_bps": 8500, "sub_share_bps": 8000, "tip_share_bps": 9500 },
-              "effective": { "sale_share_bps": 8500, "sub_share_bps": 8000, "tip_share_bps": 9500 } }
+  "shares": { "defaults": { "sale_share_bps": 9350, "sub_share_bps": 8000, "tip_share_bps": 9500 },
+              "effective": { "sale_share_bps": 9350, "sub_share_bps": 8000, "tip_share_bps": 9500 } }
 }
 ```
 Share overrides on `brand` are `null` when the platform default applies.
@@ -591,7 +591,7 @@ The seeded text is a first draft marked as such, for the owner to review.
 {
   "sections": {
     "site": { "name": "", "tagline": "", "support_email": "", "currency": "usd", "socials": {}, "registration_open": true, "maintenance": false },
-    "revenue": { "sale_share_bps": 8500, "sub_share_bps": 8000, "tip_share_bps": 9500, "payout_minimum_cents": 2000, "payout_hold_days": 7, "fee_pct_bps": 290, "fee_fixed_cents": 30,
+    "revenue": { "sale_share_bps": 9350, "sub_share_bps": 8000, "tip_share_bps": 9500, "payout_minimum_cents": 2000, "payout_hold_days": 7, "fee_pct_bps": 350, "fee_fixed_cents": 0,
                  "tax_reporting_threshold_cents": 200000, "tax_form_required": true },   // creator taxes: the yearly limit and whether the form is required
     "membership": { "name": "", "monthly_cents": 599, "annual_cents": 5900, "trial_days": 0, "page_credit_cents": 5 },
     "storage": { "driver": "local", "r2_account_id": "", "r2_bucket": "", "r2_access_key_id": "", "r2_secret_access_key": { "set": false }, "r2_public_url": "" },

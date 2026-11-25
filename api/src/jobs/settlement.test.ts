@@ -81,7 +81,7 @@ test('a month that has not ended cannot be settled', async () => {
 test('preview computes the split and writes nothing', async () => {
   const p = await previewSettlement('2019-03');
   assert.equal(p.already_settled, false);
-  assert.equal(p.creator_cents, 1361);
+  assert.equal(p.creator_cents, 1440);
   assert.equal((await one<{ n: number }>('select count(*)::int as n from ledger'))!.n, 0);
   assert.equal((await one<{ n: number }>('select count(*)::int as n from settlements'))!.n, 0);
   assert.equal((await one<{ n: number }>('select count(*)::int as n from sub_months where settled_at is not null'))!.n, 0);
@@ -91,33 +91,35 @@ test('settlement splits each member by what they read, pools non-readers, honors
   const r = await settleMonth(MONTH, { ranBy: null });
   /*
    * By hand:
-   *   A net 552 over X:7, Y:3     -> X 386.4, Y 165.6 -> 386 + 165, spare cent to Y (.6)   => X 386, Y 166
-   *   C net 491 over Y:1          -> Y 491
-   *   B net 552 -> pool, shared by all membership reads X:7, Y:4
-   *                               -> X 351.27, Y 200.72 -> 351 + 200, spare cent to Y (.72) => X 351, Y 201
-   *   series net: X = 386 + 351 = 737, Y = 166 + 491 + 201 = 858   (737 + 858 = 1595 = 552 + 552 + 491)
-   *   X (80%): floor(589.6) = 589 -> payee 25% = floor(147.25) = 147, owner 442; platform 148
-   *   Y (90%): floor(772.2) = 772, platform 86
+   * Creator shares are a percentage of what members paid (before processing fees):
+   *   A paid 599 over X:7, Y:3    -> X 419.3, Y 179.7 -> 419 + 179, spare cent to Y (.7)   => X 419, Y 180
+   *   C paid 491 over Y:1         -> Y 491
+   *   B paid 599 -> pool, shared by all membership reads X:7, Y:4
+   *                               -> X 381.18, Y 217.82 -> 381 + 217, spare cent to Y (.82) => X 381, Y 218
+   *   series gross: X = 419 + 381 = 800, Y = 180 + 491 + 218 = 889   (800 + 889 = 1689)
+   *   fees 94 spread by gross     -> X 44.52, Y 49.48 -> 44 + 49, spare cent to X (.52)    => X 45, Y 49
+   *   X (80% of 800) = 640 -> payee 25% = 160, owner 480; platform 800 - 45 - 640 = 115; net of fees 755
+   *   Y (90% of 889) = floor(800.1) = 800; platform 889 - 49 - 800 = 40; net of fees 840
    */
   assert.equal(r.already_settled, false);
   assert.equal(r.subscribers, 3);
   assert.equal(r.gross_cents, 1689);
   assert.equal(r.fee_cents, 94);
-  assert.equal(r.pool_cents, 552);
+  assert.equal(r.pool_cents, 599);
   assert.equal(r.undistributed_cents, 0);
-  assert.deepEqual(r.series.map((s) => [s.series_id, s.pages, s.net_cents, s.creator_cents, s.platform_cents]), [[X, 7, 737, 589, 148], [Y, 4, 858, 772, 86]]);
-  assert.equal(r.creator_cents, 1361);
-  assert.equal(r.platform_cents, 234);
+  assert.deepEqual(r.series.map((s) => [s.series_id, s.pages, s.net_cents, s.creator_cents, s.platform_cents]), [[X, 7, 755, 640, 115], [Y, 4, 840, 800, 40]]);
+  assert.equal(r.creator_cents, 1440);
+  assert.equal(r.platform_cents, 155);
   // to the cent: everything members paid went to fees, creators or the platform
   assert.equal(r.fee_cents + r.creator_cents + r.platform_cents, r.gross_cents);
 
   const ledger = await q(`select publisher_id, series_id, amount_cents, gross_cents, month, kind, available_at > now() + interval '6 days' as held from ledger order by series_id, amount_cents desc`);
-  assert.deepEqual(ledger.map((l) => [l.publisher_id, l.series_id, l.amount_cents, l.gross_cents]), [[P1, X, 442, 737], [PAYEE, X, 147, 0], [P2, Y, 772, 858]]);
+  assert.deepEqual(ledger.map((l) => [l.publisher_id, l.series_id, l.amount_cents, l.gross_cents]), [[P1, X, 480, 800], [PAYEE, X, 160, 0], [P2, Y, 800, 889]]);
   assert.ok(ledger.every((l) => l.kind === 'subscription' && l.month === MONTH && l.held), 'rows are subscription earnings for the month, held for the payout delay');
   assert.equal(ledger.reduce((n, l) => n + l.amount_cents, 0), r.creator_cents);
 
   const row = await one('select * from settlements where month = $1', [MONTH]);
-  assert.deepEqual([row!.subscribers, row!.gross_cents, row!.fee_cents, row!.creator_cents, row!.platform_cents], [3, 1689, 94, 1361, 234]);
+  assert.deepEqual([row!.subscribers, row!.gross_cents, row!.fee_cents, row!.creator_cents, row!.platform_cents], [3, 1689, 94, 1440, 155]);
   assert.equal((await one<{ n: number }>('select count(*)::int as n from sub_months where month = $1 and settled_at is null', [MONTH]))!.n, 0);
   // the other month's rows are untouched
   assert.equal((await one<{ n: number }>('select count(*)::int as n from sub_months where month = $1 and settled_at is null', [EMPTY]))!.n, 1);
@@ -127,7 +129,7 @@ test('running the same month again changes nothing', async () => {
   const before = await q('select id, amount_cents from ledger order by id');
   const again = await settleMonth('2019-03');
   assert.equal(again.already_settled, true);
-  assert.equal(again.creator_cents, 1361);
+  assert.equal(again.creator_cents, 1440);
   const both = await Promise.all([settleMonth(MONTH), settleMonth(MONTH)]);
   assert.ok(both.every((b) => b.already_settled));
   assert.deepEqual(await q('select id, amount_cents from ledger order by id'), before);
@@ -139,8 +141,8 @@ test('two runs racing for an unsettled month produce one settlement', async () =
   assert.equal(racers.filter((r) => !r.already_settled).length, 1);
   const done = racers.find((r) => !r.already_settled)!;
   // nobody read a membership page that month: there is no creator to pay, and the report says so
-  assert.equal(done.pool_cents, 552);
-  assert.equal(done.undistributed_cents, 552);
+  assert.equal(done.pool_cents, 599);
+  assert.equal(done.undistributed_cents, 599);
   assert.equal(done.creator_cents, 0);
   assert.equal(done.platform_cents, 552);
   assert.equal(done.fee_cents + done.creator_cents + done.platform_cents, done.gross_cents);

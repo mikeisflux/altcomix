@@ -41,7 +41,7 @@ export type SettlementResult = {
   fee_cents: number;
   creator_cents: number;
   platform_cents: number;
-  /** Net from members who read nothing, shared out by everyone's reads. */
+  /** Fees paid by members who read nothing, shared out by everyone's reads. */
   pool_cents: number;
   /** Pool money with nobody to pay because no membership page was read all month; stays with the platform. */
   undistributed_cents: number;
@@ -59,7 +59,7 @@ function currentMonth(): string {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString().slice(0, 10);
 }
 
-type Plan = Omit<SettlementResult, 'already_settled' | 'creator_cents' | 'platform_cents' | 'series'> & { nets: { series_id: string; publisher_id: string; pages: number; net_cents: number }[]; ids: string[] };
+type Plan = Omit<SettlementResult, 'already_settled' | 'creator_cents' | 'platform_cents' | 'series'> & { nets: { series_id: string; publisher_id: string; pages: number; net_cents: number; gross_cents: number; fee_cents: number }[]; ids: string[] };
 
 /** Pure arithmetic over the month's rows; no writes. */
 async function plan(month: string, db: Queryable): Promise<Plan> {
@@ -94,11 +94,13 @@ async function plan(month: string, db: Queryable): Promise<Plan> {
     gross += s.gross_cents;
     fee += f;
     const mine = (byUser.get(s.user_id) ?? []).sort((a, b) => (a.series_id < b.series_id ? -1 : 1));
+    // Each member's fee is shared out whole (before processing fees) among what they read:
+    // creator shares are a percentage of what readers paid.
     if (!mine.length) {
-      pool += s.gross_cents - f;
+      pool += s.gross_cents;
       continue;
     }
-    allocate(s.gross_cents - f, mine.map((m) => m.pages), mine.map((m) => m.series_id)).forEach((c, i) => add(mine[i].series_id, c));
+    allocate(s.gross_cents, mine.map((m) => m.pages), mine.map((m) => m.series_id)).forEach((c, i) => add(mine[i].series_id, c));
   }
   const all = [...totalPages].sort((a, b) => (a[0] < b[0] ? -1 : 1));
   let undistributed = 0;
@@ -111,7 +113,13 @@ async function plan(month: string, db: Queryable): Promise<Plan> {
     fee_cents: fee,
     pool_cents: pool,
     undistributed_cents: undistributed,
-    nets: all.map(([series_id, pages]) => ({ series_id, publisher_id: publisherOf.get(series_id)!, pages, net_cents: net.get(series_id) ?? 0 })),
+    nets: (() => {
+      // The month's processing fees are spread over the series in proportion to the money each received.
+      const grossOf = all.map(([series_id]) => net.get(series_id) ?? 0);
+      const paidOut = grossOf.reduce((n, c) => n + c, 0);
+      const fees = paidOut > 0 ? allocate(Math.min(fee, paidOut), grossOf, all.map((a) => a[0])) : grossOf.map(() => 0);
+      return all.map(([series_id, pages], i) => ({ series_id, publisher_id: publisherOf.get(series_id)!, pages, gross_cents: grossOf[i], fee_cents: Math.min(grossOf[i], fees[i]), net_cents: grossOf[i] - Math.min(grossOf[i], fees[i]) }));
+    })(),
     ids: subs.map((s) => s.id),
   };
 }
@@ -146,7 +154,7 @@ async function run(month: string, ranBy: string | null, db: Queryable): Promise<
   const series: SettlementSeries[] = [];
   let creator = 0;
   for (const n of p.nets) {
-    const b = await creditSubscription(db, { publisherId: n.publisher_id, seriesId: n.series_id, month, netCents: n.net_cents, note: `Membership reads, ${month.slice(0, 7)} (${n.pages} pages)` });
+    const b = await creditSubscription(db, { publisherId: n.publisher_id, seriesId: n.series_id, month, grossCents: n.gross_cents, feeCents: n.fee_cents, note: `Membership reads, ${month.slice(0, 7)} (${n.pages} pages)` });
     creator += b.creator_cents;
     series.push({ ...n, creator_cents: b.creator_cents, platform_cents: b.platform_cents });
   }

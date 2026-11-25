@@ -43,7 +43,7 @@ const EDGES: [string, string][] = [
 export function Welcome() {
   useTitle('Your comic. Your rules.');
   const { settings, user } = useSession();
-  const pct = (bps: number) => Math.round(bps / 100);
+  const pct = (bps: number) => (bps % 100 ? (bps / 100).toFixed(1) : String(bps / 100));
   const r = settings.revenue;
   const premium = settings.creator_premium ?? { name: 'Creator Premium', annual_cents: 14000 };
   const publish = user ? '/studio' : '/register?next=/studio';
@@ -152,12 +152,12 @@ export function Welcome() {
           <div className="rounded-3xl bg-accent p-7 text-accent-ink">
             <div className="font-display text-7xl font-extrabold leading-[0.9] tracking-[-0.05em] sm:text-[5.5rem]">{pct(r.sale_share_bps)}%</div>
             <div className="mt-3 text-lg font-semibold">of every direct sale</div>
-            <p className="mt-1.5 text-[15px] leading-relaxed">Issues, volumes, bundles and downloads, after card fees.</p>
+            <p className="mt-1.5 text-[15px] leading-relaxed">Issues, volumes, bundles and downloads. That is of the price the reader pays, before any fees.</p>
           </div>
           <div className="rounded-3xl border border-line bg-surface p-7">
             <div className="font-display text-7xl font-extrabold leading-[0.9] tracking-[-0.05em] sm:text-[5.5rem]">{pct(r.sub_share_bps)}%</div>
             <div className="mt-3 text-lg font-semibold">of membership money</div>
-            <p className="mt-1.5 text-[15px] leading-relaxed text-muted">Each member's fee is split among the creators that member read that month, by pages.</p>
+            <p className="mt-1.5 text-[15px] leading-relaxed text-muted">Each member's fee is split among the creators that member read that month, by pages. Creators get this share of the full fee.</p>
           </div>
           <div className="rounded-3xl border border-line bg-surface p-7">
             <div className="font-display text-7xl font-extrabold leading-[0.9] tracking-[-0.05em] sm:text-[5.5rem]">{pct(r.tip_share_bps)}%</div>

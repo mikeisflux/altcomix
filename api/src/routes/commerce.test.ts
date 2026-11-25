@@ -159,10 +159,10 @@ test('buying a release in the sandbox unlocks it; earnings are split and add up 
   const o = (await c.get(`/api/orders/${buy.json.order_id}`)).json.order;
   assert.deepEqual([o.status, o.total_cents, o.charged_cents, o.items.length, o.return_to], ['paid', 199, 199, 1, `/read/${r1.id}`]);
   const ledger = await q('select publisher_id, amount_cents, kind from ledger where order_id = $1 order by amount_cents desc', [o.id]);
-  assert.deepEqual(ledger.map((l) => [l.publisher_id, l.amount_cents, l.kind]), [[brand.id, 104, 'sale'], [payee.id, 34, 'sale']]);
+  assert.deepEqual(ledger.map((l) => [l.publisher_id, l.amount_cents, l.kind]), [[brand.id, 140, 'sale'], [payee.id, 46, 'sale']]);
   const row = await one('select fee_cents, total_cents from orders where id = $1', [o.id]);
-  const platform = row!.total_cents - row!.fee_cents - 138;
-  assert.deepEqual([row!.fee_cents, platform], [36, 25]); // 199 = 36 + 104 + 34 + 25
+  const platform = row!.total_cents - row!.fee_cents - 186;
+  assert.deepEqual([row!.fee_cents, platform], [7, 6]); // 199 = 7 processor + 140 + 46 creators + 6 platform
   assert.equal((await c.post('/api/checkout', { items: [{ kind: 'release', id: r1.id }] })).status, 409, 'cannot buy what you own');
   assert.equal((await new Client().get(`/api/orders/${o.id}`)).status, 401);
   assert.equal((await (await signedIn()).c.get(`/api/orders/${o.id}`)).status, 404, "another reader cannot see this order");
@@ -208,7 +208,7 @@ test('membership unlocks the catalog; reads are recorded as subscription reads; 
   assert.equal((await c.get('/api/home')).json.continue_reading.length, 1);
 
   const pot = await one('select gross_cents, fee_cents from sub_months where user_id = $1', [user.id]);
-  assert.deepEqual([pot!.gross_cents, pot!.fee_cents], [599, 47]);
+  assert.deepEqual([pot!.gross_cents, pot!.fee_cents], [599, 21]);
 
   const cancel = (await c.post('/api/membership/cancel')).json;
   assert.deepEqual([cancel.member, cancel.subscription.cancel_at_period_end, cancel.subscription.renews_at], [true, true, null]);
@@ -308,9 +308,9 @@ test('tips, gift cards and store credit: one basket, credit applied on the next 
   assert.equal(basket.json.completed, true, basket.res.payload);
   const order = await one('select * from orders where id = $1', [basket.json.order_id]);
   const items = await q('select kind, price_cents, creator_cents from order_items where order_id = $1 order by kind', [order!.id]);
-  const fees = 1333 * 0.029 + 30;
+  const fees = 1333 * 0.035; // the processor keeps 3.5% of what is charged
   assert.equal(order!.fee_cents, Math.round(fees));
-  // the tip pays 95% of its share after fees; the gift card pays no creator
+  // the tip pays the creator 95% of the tip; the gift card pays no creator
   assert.equal(items[0].creator_cents, 0);
   assert.ok(items[1].creator_cents > 290 && items[1].creator_cents < 333 * 0.95);
   const tip = await one('select amount_cents, message, show_amount from tips where order_id = $1', [order!.id]);
@@ -342,9 +342,9 @@ test('tips, gift cards and store credit: one basket, credit applied on the next 
   assert.equal((await friend.c.get('/api/account/wallet')).json.wallet.credit_cents, 602);
   assert.equal((await friend.c.get('/api/library/owned')).json.total, 2);
   assert.equal((await friend.c.get(`/media/page/${r2.page_ids[4]}/medium`)).status, 200);
-  // 398 with no fee: 85% = 338 to creators (payee 25% = 84, owner 254), 60 to the platform
+  // 398 paid with store credit, so no processor fee: 93.5% = 372 to creators (payee 25% = 93, owner 279), 26 to the platform
   const led = await q('select publisher_id, amount_cents from ledger where order_id = $1 order by amount_cents desc', [all.json.order_id]);
-  assert.deepEqual(led.map((l) => [l.publisher_id, l.amount_cents]), [[brand.id, 254], [payee.id, 84]]);
+  assert.deepEqual(led.map((l) => [l.publisher_id, l.amount_cents]), [[brand.id, 279], [payee.id, 93]]);
   assert.match((await friend.c.post('/api/checkout', { items: [{ kind: 'series', id: premium.slug }] })).json.error, /nothing left to buy/);
 });
 

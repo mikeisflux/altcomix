@@ -387,7 +387,7 @@ function ShareForm({ id, brand, shares }: { id: string; brand: R; shares: R }) {
     </Field>
   );
   return (
-    <Section title="Revenue share" description="The part of each payment this brand keeps, after processing fees. Leave a box empty to use the platform default." actions={<Button loading={busy === 'shares'} onClick={save}>Save shares</Button>}>
+    <Section title="Revenue share" description="The part of each payment this brand keeps, as a percentage of what the reader paid. Leave a box empty to use the platform default." actions={<Button loading={busy === 'shares'} onClick={save}>Save shares</Button>}>
       <FormRow cols={3}>
         {field('sale', 'Sales', shares.defaults.sale_share_bps)}
         {field('sub', 'Membership reads', shares.defaults.sub_share_bps)}

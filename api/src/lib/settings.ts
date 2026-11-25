@@ -21,15 +21,17 @@ export const SETTINGS = {
   },
   revenue: {
     defaults: {
-      // Creator share of each kind of money, in basis points, after payment fees.
-      sale_share_bps: 8500,
+      // Creator share of each kind of money, in basis points of the price the reader paid.
+      // The processor takes its fee (below) and the platform keeps what is left:
+      // sales 93.5% creator + 3.5% processor + 3% platform; membership 80% + 3.5% + 16.5%.
+      sale_share_bps: 9350,
       sub_share_bps: 8000,
       tip_share_bps: 9500,
       payout_minimum_cents: 2000,
       payout_hold_days: 7,
-      // Estimated card processing cost used when the processor does not report a fee.
-      fee_pct_bps: 290,
-      fee_fixed_cents: 30,
+      // What the payment processor keeps of each charge.
+      fee_pct_bps: 350,
+      fee_fixed_cents: 0,
       // Creator taxes: a brand whose earnings in a calendar year reach this is asked for a tax
       // information form. The owner sets the figure with their accountant.
       tax_reporting_threshold_cents: 200000,

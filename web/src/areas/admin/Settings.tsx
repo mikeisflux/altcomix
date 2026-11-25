@@ -211,7 +211,7 @@ function Revenue({ value, secrets }: TabProps) {
     }));
   return (
     <>
-      <FormSection title="Creator shares" description="The part of each payment creators keep after the processing fee. The platform keeps the rest. A brand can be given its own shares on its admin page.">
+      <FormSection title="Creator shares" description="The part of each payment creators keep, as a percentage of what the reader paid. The payment processor takes its fee (below) and the platform keeps what is left. A brand can be given its own shares on its admin page.">
         <FormRow cols={3}>
           <Pct label="Sales" value={f.sale} onChange={(sale) => s.set({ sale })} hint="Single releases, series and bundles." />
           <Pct label="Membership reads" value={f.sub} onChange={(sub) => s.set({ sub })} hint="Applied at monthly settlement." />
@@ -230,7 +230,7 @@ function Revenue({ value, secrets }: TabProps) {
         <Field label="Tax reporting limit (per calendar year)" hint="Ask your accountant which limit applies to you" className="max-w-xs"><MoneyInput cents={f.tax_reporting_threshold_cents} onChange={(c) => s.set({ tax_reporting_threshold_cents: c })} /></Field>
         <Switch checked={Boolean(f.tax_form_required)} onChange={(v) => s.set({ tax_form_required: v })} label="Require the tax information form" description="On: brands that reach the limit are asked for the form and cannot request a payout until it is on file. Off: nobody is asked and no payout is held." />
       </FormSection>
-      <FormSection title="Processing fee estimate" description={`Used only when the payment processor does not report its own fee. Amounts are in ${currency.toUpperCase()}.`}>
+      <FormSection title="Payment processor's fee" description={`What the payment processor keeps of each charge. Creator shares above are percentages of what the reader paid; the processor takes this, and the platform keeps what is left. With 93.5% to creators and 3.5% to the processor, the platform keeps 3% of a sale. Amounts are in ${currency.toUpperCase()}.`}>
         <FormRow>
           <Pct label="Percentage of the payment" value={f.fee} onChange={(fee) => s.set({ fee })} />
           <Field label="Plus a fixed amount"><MoneyInput cents={f.fee_fixed_cents} onChange={(c) => s.set({ fee_fixed_cents: c })} /></Field>

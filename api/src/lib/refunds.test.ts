@@ -14,7 +14,7 @@ let brand: Record<string, any>, payee: Record<string, any>, series: Record<strin
 
 before(async () => {
   await setSetting('payments', { provider: 'sandbox' }, null);
-  await setSetting('revenue', { sale_share_bps: 8500, tip_share_bps: 9500, fee_pct_bps: 290, fee_fixed_cents: 30 }, null);
+  await setSetting('revenue', { sale_share_bps: 9350, tip_share_bps: 9500, fee_pct_bps: 350, fee_fixed_cents: 0 }, null);
   brand = await f.brand((await f.user()).id);
   payee = await f.brand((await f.user()).id);
   series = await f.series(brand.id);
@@ -69,21 +69,22 @@ test('refundParts: creator + platform + fee is exactly the refund, in proportion
 test('a partial refund reverses creator earnings, platform and fee in proportion; the reader keeps the release', async () => {
   const { id, user } = await paidOrder([199]);
   const before = await order(id);
-  // 199 = 36 fee + 138 creators (104 owner + 34 payee) + 25 platform
-  assert.deepEqual([before!.fee_cents, (await ledger(id)).map((l) => l.amount_cents)], [36, [104, 34]]);
+  // 199 = 7 processor (3.5%) + 186 creators (93.5%: 140 owner + 46 payee) + 6 platform (3%)
+  assert.deepEqual([before!.fee_cents, (await ledger(id)).map((l) => l.amount_cents)], [7, [140, 46]]);
 
   assert.deepEqual(await refundEvent(id, 100, 're_part_1'), { success: true, message: `Order ${id} partly refunded` });
   const o = await order(id);
   assert.deepEqual([o!.status, o!.refunded_cents, o!.refunded_at], ['paid', 100, null], 'the order stays paid');
   assert.equal(await owns(user.id), true, 'entitlements are kept');
   const [entry] = o!.meta.partial_refunds;
-  assert.deepEqual([entry.ref, entry.amount_cents, entry.creator_cents, entry.platform_cents, entry.fee_cents, entry.reason], ['re_part_1', 100, 69, 13, 18, 'Damaged pages']);
+  assert.deepEqual([entry.ref, entry.amount_cents, entry.creator_cents, entry.platform_cents, entry.fee_cents, entry.reason], ['re_part_1', 100, 93, 3, 4, 'Damaged pages']);
   assert.equal(entry.creator_cents + entry.platform_cents + entry.fee_cents, 100, 'exact conservation');
   const rows = await ledger(id);
   const back = rows.filter((l) => l.kind === 'refund');
-  // 69 of creator money shared like the earnings were: owner 104/138, payee 34/138
-  assert.deepEqual(back.map((l) => [l.publisher_id, l.amount_cents, l.gross_cents]), [[brand.id, -52, -100], [payee.id, -17, 0]]);
-  assert.equal(sum(rows), 138 - 69);
+  // 100 of 199 back: creators 93.47, platform 3.02, processor 3.52 -> 93 + 3 + 3, spare cent to the processor (.52)
+  // 93 of creator money shared like the earnings were: owner 140/186, payee 46/186
+  assert.deepEqual(back.map((l) => [l.publisher_id, l.amount_cents, l.gross_cents]), [[brand.id, -70, -100], [payee.id, -23, 0]]);
+  assert.equal(sum(rows), 186 - 93);
   assert.ok((await q(`select 1 from notifications where user_id = $1 and kind = 'refund' and title = 'Part of your order was refunded'`, [user.id])).length === 1);
 
   // the processor redelivers the same event: nothing more happens
@@ -167,7 +168,7 @@ test('full refunds are unchanged; odd partial events are ignored safely', async 
   // a plain full refund (partial: false) behaves exactly as before: one opposite row per earning row
   const full = await paidOrder([199]);
   assert.match((await refundEvent(full.id, 199, 're_full', false)).message, /refunded$/);
-  assert.deepEqual((await ledger(full.id)).map((l) => [l.kind, l.amount_cents, l.gross_cents]), [['sale', 104, 199], ['sale', 34, 0], ['refund', -104, -199], ['refund', -34, 0]]);
+  assert.deepEqual((await ledger(full.id)).map((l) => [l.kind, l.amount_cents, l.gross_cents]), [['sale', 140, 199], ['sale', 46, 0], ['refund', -140, -199], ['refund', -46, 0]]);
   assert.deepEqual([(await order(full.id))!.status, await owns(full.user.id)], ['refunded', false]);
   assert.equal(await owns(user.id), true);
 });

@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import {
-  ArrowUpRight, BarChart3, Bell, BookOpen, ChevronRight, Download, Gift, LibraryBig, LogOut, Menu, MessageCircle, MessagesSquare, PenLine,
+  ArrowUpRight, BarChart3, Bell, BookOpen, ChevronRight, Download, Gift, LibraryBig, LogOut, Megaphone, Menu, MessageCircle, MessagesSquare, PenLine,
   Receipt, Search, Settings, ShieldCheck, Sparkles, Store, Ticket, UserRound, X,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -236,6 +236,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const socials = Object.entries(settings.site.socials ?? {}).filter(([, v]) => v);
   return (
     <div className="flex h-full flex-col gap-1 overflow-y-auto px-3 py-4">
+      <SidebarLink to="/welcome" icon={<Megaphone />} onClick={onNavigate}>Why NSFWComix</SidebarLink>
       <SidebarLink to="/" end icon={<Store />} onClick={onNavigate}>Store</SidebarLink>
       <SidebarLink to="/library" icon={<LibraryBig />} onClick={onNavigate}>Library</SidebarLink>
       <SidebarLink to="/unlimited" icon={<Sparkles />} onClick={onNavigate}>{user?.member ? 'Unlimited' : 'Go Unlimited'}</SidebarLink>
