@@ -14,6 +14,7 @@ import { botGuard } from './lib/botblock.ts';
 import { captureError } from './lib/errors.ts';
 import { HttpError } from './lib/http.ts';
 import { getSetting } from './lib/settings.ts';
+import { renderIndex, seriesCard } from './lib/share.ts';
 import { contentTypeFor, storage } from './lib/storage.ts';
 
 /**
@@ -89,13 +90,14 @@ export async function buildApp(): Promise<FastifyInstance> {
     return reply.code(500).send({ error: 'Something went wrong on our side. It has been logged.' });
   });
 
-  app.setNotFoundHandler((req, reply) => {
+  app.setNotFoundHandler(async (req, reply) => {
     const path = req.url.split('?')[0];
     if (path.startsWith('/api/') || path.startsWith('/media/')) return reply.code(404).send({ error: 'Not found' });
     // A missing script or stylesheet must be a real 404, never the app's HTML.
     if (path.startsWith('/assets/') || /\.[a-z0-9]{2,5}$/i.test(path)) return reply.code(404).type('text/plain').send('Not found');
     // Single-page app: every other path renders the web client.
-    if (existsSync(join(config.webDist, 'index.html'))) return reply.header('cache-control', 'no-cache').type('text/html').sendFile('index.html', config.webDist);
+    const html = await renderIndex(req.url);
+    if (html) return reply.header('cache-control', 'no-cache').type('text/html; charset=utf-8').send(html);
     return reply.code(404).send({ error: 'Web client is not built. Run `npm run build`, or use the Vite dev server.' });
   });
 
@@ -107,6 +109,14 @@ export async function buildApp(): Promise<FastifyInstance> {
     reply.header('cache-control', 'public, max-age=31536000, immutable').type(obj.contentType || contentTypeFor(key));
     if (obj.size) reply.header('content-length', obj.size);
     return reply.send(obj.stream);
+  });
+
+  // Link-preview picture for a series (see lib/share.ts).
+  app.get('/share/series/:file', async (req, reply) => {
+    const file = (req.params as { file: string }).file;
+    const png = file.endsWith('.png') ? await seriesCard(file.slice(0, -4)) : null;
+    if (!png) return reply.code(404).type('text/plain').send('Not found');
+    return reply.header('cache-control', 'public, max-age=86400').type('image/png').send(png);
   });
 
   const routesDir = join(import.meta.dirname, 'routes');
@@ -121,7 +131,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   if (existsSync(config.webDist)) {
     // Files are looked up per request, so a new web build is served without restarting the API.
     await app.register(fastifyStatic, { root: config.webDist, wildcard: true, index: false, maxAge: '1h' });
-    app.get('/', (_req, reply) => reply.header('cache-control', 'no-cache').type('text/html').sendFile('index.html', config.webDist));
+    app.get('/', async (req, reply) => reply.header('cache-control', 'no-cache').type('text/html; charset=utf-8').send(await renderIndex(req.url)));
   }
 
   return app;

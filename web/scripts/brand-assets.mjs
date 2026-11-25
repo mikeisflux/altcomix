@@ -65,6 +65,28 @@ const og = `
   </div>
 </div>`;
 
+
+// Link-preview card for one series: the API drops the cover into the empty slot on the left.
+const ogSeries = `
+<div style="width:1200px;height:630px;background:${INK};color:${PAPER};position:relative;overflow:hidden;font-family:InterV,sans-serif">
+  ${dots(HOT, 560, 'right:-170px;bottom:-200px;opacity:.55')}
+  <div style="position:absolute;left:88px;top:61px;width:360px;height:540px;background:${SUN}"></div>
+  <div style="position:absolute;left:72px;top:45px;width:360px;height:540px;background:#1d1b18"></div>
+  <div style="position:absolute;left:520px;top:64px;display:flex;align-items:center;gap:14px">${keycap(64)}<span class="d" style="font-size:49px">comix</span></div>
+  <div style="position:absolute;left:520px;bottom:72px">
+    <div class="d" style="font-size:104px;line-height:.9;letter-spacing:-.05em">Read it<br><span style="color:${HOT}">frame by frame.</span></div>
+    <p style="margin-top:22px;font-size:26px;font-weight:500;color:#c9c1b1">Creator-owned comics. Adult work welcome.</p>
+  </div>
+</div>`;
+
+// Goes over the blurred cover of an adult series, so the preview is safe to post anywhere.
+const ogMature = `
+<div style="width:360px;height:540px;position:relative;overflow:hidden;background:rgba(16,15,13,.28)">
+  <div style="position:absolute;left:-40px;top:218px;width:440px;height:92px;background:${INK};transform:rotate(-9deg);display:flex;align-items:center;justify-content:center">
+    <span class="d" style="font-size:54px;color:${SUN};letter-spacing:-.02em">18+ inside</span>
+  </div>
+</div>`;
+
 const shots = [
   // [file, html, width, height, transparent]
   ['favicon-32.png', icon(32), 32, 32, true],
@@ -77,12 +99,14 @@ const shots = [
   ['brand/logo-on-light.png', lockup(160, INK, INK, HOT, 'rgba(255,255,255,.14)'), null, null, true],
   ['brand/logo-one-colour-light.png', lockup(160, INK, INK, PAPER, 'rgba(255,255,255,.14)'), null, null, true],
   ['brand/og-image.png', og, 1200, 630, false],
+  ['brand/og-series.png', ogSeries, 1200, 630, false],
+  ['brand/og-mature-overlay.png', ogMature, 360, 540, true],
 ];
 
 mkdirSync(join(pub, 'brand'), { recursive: true });
 const browser = await chromium.launch();
 for (const [file, html, w, h, transparent] of shots) {
-  const page = await browser.newPage({ viewport: { width: w ?? 1400, height: h ?? 400 }, deviceScaleFactor: w && w <= 64 ? 1 : w && w >= 1200 ? 1 : 2 });
+  const page = await browser.newPage({ viewport: { width: w ?? 1400, height: h ?? 400 }, deviceScaleFactor: w && w <= 64 ? 1 : w && w >= 1200 ? 1 : file.startsWith('brand/og-') ? 1 : 2 });
   await page.setContent(`<style>${css}</style><div id="x" style="display:inline-block">${html}</div>`);
   await page.evaluate(() => document.fonts.ready);
   await page.locator('#x').screenshot({ path: join(pub, file), omitBackground: transparent });

@@ -307,3 +307,12 @@ integration keys.
   written in /admin is matched by subject. Inbound mail has not been tested
   against real SendGrid delivery, only against requests shaped like its
   documented format.
+
+## Link previews (social sharing)
+
+`web/index.html` carries the default preview tags with full `https://nsfwcomix.com/...`
+addresses, so the home page previews correctly however it is served. Per-page previews
+(a series' own title, description and picture at `/share/series/<slug>.png`) need nginx to
+pass page requests to the API: that is the `location /` + `location @app` pair in
+`scripts/deploy/nginx.conf`. Adult series show a blurred cover under an "18+ inside" bar.
+Re-render the graphics with `NODE_PATH=$(npm root -g) node web/scripts/brand-assets.mjs`.
