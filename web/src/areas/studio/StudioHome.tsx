@@ -94,6 +94,14 @@ function BrandList({ brands }: { brands: StudioBrand[] }) {
   return (
     <div>
       <PageHeader title="Your brands" description="Choose the brand you want to work on." actions={<Button onClick={() => setOpen(true)}>New brand</Button>} />
+      {brands.filter((b) => b.tax_form_needed).map((b) => (
+        <div key={b.id} className="mb-4">
+          <Notice tone="warn" action={<LinkButton to={`/studio/${b.slug}/tax`} variant="sun">Fill in the tax form</LinkButton>}>
+            <strong className="block text-[15px]">Tax information needed for {b.name}</strong>
+            Its earnings have reached the tax reporting limit. Payouts wait until the tax information form is complete.
+          </Notice>
+        </div>
+      ))}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {brands.map((b) => (
           <Link key={b.id} to={`/studio/${b.slug}`} className="flex items-center gap-3.5 rounded-2xl border border-line bg-surface p-4 transition-colors hover:border-line-strong hover:bg-raised">

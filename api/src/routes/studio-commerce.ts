@@ -10,6 +10,7 @@ import { HttpError, audit, badRequest, conflict, notFound, pageParams, parse, re
 import { coverThumbKey, idParam, isUuid, parseCsv, requireVerifiedEmail, sendCsv } from '../lib/ingest.ts';
 import { getSetting } from '../lib/settings.ts';
 import { publicUrl } from '../lib/storage.ts';
+import { taxStatus } from '../lib/tax.ts';
 
 /** Studio: promo codes, bundles, discounts, earnings and payout requests. */
 
@@ -647,6 +648,8 @@ export default async function (app: FastifyInstance) {
       one<{ at: string }>('select min(available_at) as at from ledger where publisher_id = $1 and available_at > now() and amount_cents > 0', [id]),
     ]);
     const m = await money(pool, id);
+    const tax = await taxStatus(id);
+    const configured = Boolean(brand.payout?.method && brand.payout?.destination);
     return {
       currency: site.currency,
       ...m,
@@ -654,8 +657,10 @@ export default async function (app: FastifyInstance) {
       totals_by_kind: totals,
       payout_minimum_cents: revenue.payout_minimum_cents,
       payout_hold_days: revenue.payout_hold_days,
-      payout_configured: Boolean(brand.payout?.method && brand.payout?.destination),
-      can_request: Boolean(brand.payout?.method && brand.payout?.destination) && m.requestable_cents >= revenue.payout_minimum_cents,
+      payout_configured: configured,
+      can_request: configured && m.requestable_cents >= revenue.payout_minimum_cents && !tax?.payout_blocked,
+      // Earnings reached the tax reporting limit and no tax information form is on file: payout requests are refused (see studio-tax.ts).
+      tax_form_required: Boolean(tax?.payout_blocked),
       share: {
         sale_bps: brand.sale_share_bps ?? revenue.sale_share_bps,
         subscription_bps: brand.sub_share_bps ?? revenue.sub_share_bps,
@@ -716,6 +721,9 @@ export default async function (app: FastifyInstance) {
       const brand = (await db.query('select name, payout, suspended_at from publishers where id = $1 and deleted_at is null for update', [id])).rows[0];
       if (!brand) throw notFound('Brand not found');
       if (brand.suspended_at) throw new HttpError(403, 'This brand is suspended. Contact support about payouts.');
+      if ((await taxStatus(id, db))?.payout_blocked) {
+        throw new HttpError(409, 'Your earnings have reached the tax reporting limit. Fill in the tax information form for this brand, then request your payout.', 'tax_form_required');
+      }
       if (!brand.payout?.method || !brand.payout?.destination) throw badRequest('Add your payout details before requesting a payout');
       const m = await money(db, id);
       const amount = body.amount_cents ?? m.requestable_cents;

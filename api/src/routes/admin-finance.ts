@@ -10,6 +10,7 @@ import { HttpError, audit, badRequest, conflict, notFound, pageParams, parse, re
 import { reverseOrder } from '../lib/ledger.ts';
 import { notify } from '../lib/notify.ts';
 import { getSetting } from '../lib/settings.ts';
+import { taxStatus, taxStatuses, taxWarning } from '../lib/tax.ts';
 
 type PaymentsModule = {
   refundOrder?: (orderId: string, opts: { reason?: string }) => Promise<unknown>;
@@ -329,6 +330,9 @@ export default async function adminFinanceRoutes(app: FastifyInstance) {
            ${w.sql} order by po.created_at ${qy.status && qy.status !== 'requested' ? 'desc' : 'asc'} limit ${limit} offset ${offset}`,
         w.values,
       );
+      // A warning, not a block: the brand reached the tax reporting limit and has no usable form on file.
+      const tax = await taxStatuses([...new Set(items.map((i) => i.publisher_id as string))]);
+      for (const i of items) i.tax_warning = taxWarning(tax.get(i.publisher_id));
       const totals = await q('select status, count(*)::int as count, coalesce(sum(amount_cents),0)::float8 as cents from payouts group by status');
       return { items, total, page, limit, totals };
     });
@@ -366,7 +370,7 @@ export default async function adminFinanceRoutes(app: FastifyInstance) {
       });
       await payoutEmail(p!, 'approved', body.note || 'Your payout has been approved and will be sent shortly.');
       audit(req, 'payout.approve', { kind: 'payout', id }, { publisher_id: p!.publisher_id, amount_cents: p!.amount_cents, method: p!.method });
-      return { ok: true, payout: p, balance: await brandBalance(p!.publisher_id) };
+      return { ok: true, payout: p, balance: await brandBalance(p!.publisher_id), tax_warning: taxWarning(await taxStatus(p!.publisher_id)) };
     });
 
     s.post('/api/admin/payouts/:id/paid', async (req) => {
@@ -385,7 +389,7 @@ export default async function adminFinanceRoutes(app: FastifyInstance) {
       }
       await payoutEmail(p, 'paid', body.note || `Sent via ${p.method}. Reference: ${body.reference}`);
       audit(req, 'payout.paid', { kind: 'payout', id }, { publisher_id: p.publisher_id, amount_cents: p.amount_cents, reference: body.reference });
-      return { ok: true, payout: p };
+      return { ok: true, payout: p, tax_warning: taxWarning(await taxStatus(p.publisher_id)) };
     });
 
     /** Reject a requested or approved payout. Money already debited goes back to the brand. */

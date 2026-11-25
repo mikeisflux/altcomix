@@ -38,6 +38,8 @@ const SCHEMAS: Record<SettingKey, z.ZodObject> = {
     payout_hold_days: z.number().int().min(0).max(90),
     fee_pct_bps: z.number().int().min(0).max(2000),
     fee_fixed_cents: z.number().int().min(0).max(500),
+    tax_reporting_threshold_cents: z.number().int().min(100, 'The tax reporting limit must be at least 1.00').max(100_000_000),
+    tax_form_required: z.boolean(),
   }),
   membership: z.object({
     name: str(60).min(1),

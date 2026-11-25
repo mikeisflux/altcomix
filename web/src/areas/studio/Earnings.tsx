@@ -7,11 +7,12 @@ import { date, dateTime, moneyExact } from '@/lib/format';
 import { useSession } from '@/lib/session';
 import { Badge, Button, Card, Field, MoneyInput, Notice, Pagination, Segmented, Stat, Table, useConfirm } from '@/ui';
 import { BrandPage, Q, RoleNotice, Section, bps, can, cap, useAct, useBrand } from './shared';
+import { TaxBanner } from './Tax';
 
 type Earnings = {
   currency: string; balance_cents: number; pending_cents: number; available_cents: number; reserved_cents: number; requestable_cents: number;
   next_release_at: string | null; totals_by_kind: { kind: string; amount_cents: number; gross_cents: number; entries: number }[];
-  payout_minimum_cents: number; payout_hold_days: number; payout_configured: boolean; can_request: boolean;
+  payout_minimum_cents: number; payout_hold_days: number; payout_configured: boolean; can_request: boolean; tax_form_required: boolean;
   share: { sale_bps: number; subscription_bps: number; tip_bps: number };
 };
 type Entry = { id: string; created_at: string; kind: string; amount_cents: number; gross_cents: number | null; balance_cents: number; available_at: string | null; pending: boolean; month: string | null; note: string | null; series_title: string | null; release_title: string | null };
@@ -41,6 +42,7 @@ function Body() {
         const m = (c: number | null | undefined) => moneyExact(c, e.currency);
         return (
           <div className="space-y-5">
+            <TaxBanner brand={{ ...brand, tax_form_needed: e.tax_form_required }} />
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
               <Stat label="Available" value={m(e.available_cents)} hint="Cleared and ready to pay out" />
               <Stat label="Pending" value={m(e.pending_cents)} hint={e.next_release_at ? `Next clears ${date(e.next_release_at)}` : `Earnings clear after ${e.payout_hold_days} days`} />
@@ -50,7 +52,15 @@ function Body() {
             <p className="text-sm text-muted">Balance {m(e.balance_cents)} = available {m(e.available_cents)} + pending {m(e.pending_cents)}. Requested payouts stay in the balance, shown as reserved, until we approve them; then they appear in the ledger as a payout.</p>
 
             <Section title="Request a payout" description={`Paid to the method on file. The smallest payout is ${m(e.payout_minimum_cents)}.`}>
-              {!e.payout_configured ? (
+              {e.tax_form_required ? (
+                <div className="space-y-3">
+                  <Notice tone="warn" action={<Link className="link" to={`/studio/${brand.slug}/tax`}>Fill in the tax form</Link>}>
+                    Payouts are on hold. Your earnings reached the tax reporting limit, so we need your tax information form before we can pay you. Your balance is safe and keeps growing in the meantime.
+                  </Notice>
+                  <Button variant="primary" disabled aria-describedby="payout-blocked">Request payout</Button>
+                  <p id="payout-blocked" className="text-xs text-faint">Unlocks as soon as the tax information form is submitted.</p>
+                </div>
+              ) : !e.payout_configured ? (
                 <Notice tone="warn" action={<Link className="link" to={`/studio/${brand.slug}/settings/payouts`}>Add payout details</Link>}>Tell us where to send your money before requesting a payout.</Notice>
               ) : e.requestable_cents < e.payout_minimum_cents ? (
                 <Notice tone="info">You can request a payout once {m(e.payout_minimum_cents)} is available. Right now {m(e.requestable_cents)} is.</Notice>
@@ -81,6 +91,7 @@ function Body() {
                 <Card className="p-3.5"><strong className="text-paper">Membership: you keep {bps(e.share.subscription_bps)}</strong><p className="mt-1">Each month, what a {settings.membership.name} member paid (after fees) is divided between the series they read, by the number of pages they read in each. Your part of that, times {bps(e.share.subscription_bps)}, is your membership figure. It is settled once the month ends.</p></Card>
                 <Card className="p-3.5"><strong className="text-paper">Tips: you keep {bps(e.share.tip_bps)}</strong><p className="mt-1">Of every tip, after the card processor's fee.</p></Card>
               </div>
+              <p className="text-sm text-muted">If your earnings in a calendar year reach the tax reporting limit, we ask for a tax information form before paying out. See where you stand under <Link className="link" to={`/studio/${brand.slug}/tax`}>Tax information</Link>.</p>
               <p className="text-sm text-muted">New earnings are pending for {e.payout_hold_days} days in case of refunds, then become available. The month-by-month membership breakdown is under <Link className="link" to={`/studio/${brand.slug}/analytics?view=revenue`}>Analytics, Revenue</Link>.</p>
             </Section>
 

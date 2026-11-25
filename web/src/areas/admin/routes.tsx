@@ -9,6 +9,7 @@ import { AuditPage, CronPage, ErrorsPage } from './Logs';
 import { BrandDetail, BrandsPage, UserDetail, UsersPage } from './People';
 import { SecurityPage, TwoFactorPage } from './Security';
 import { SettingsPage } from './Settings';
+import { TaxPage } from './Tax';
 import { AnnouncementsPage, FeaturedPage, FeedbackPage, NewsEditor, NewsPage, PageEditor, PagesPage } from './Storefront';
 import { useTitle } from './shared';
 
@@ -36,6 +37,7 @@ export const adminRoutes: RouteObject[] = [
       { path: 'memberships', element: <MembershipsPage /> },
       { path: 'payouts', element: <PayoutsPage /> },
       { path: 'settlement', element: <SettlementPage /> },
+      { path: 'tax', element: <TaxPage /> },
       { path: 'codes', element: <CodesPage /> },
       { path: 'featured', element: <FeaturedPage /> },
       { path: 'announcements', element: <AnnouncementsPage /> },

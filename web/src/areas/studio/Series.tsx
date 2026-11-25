@@ -8,6 +8,7 @@ import { compact } from '@/lib/format';
 import { useSession } from '@/lib/session';
 import { Badge, Button, EmptyState, ErrorState, Field, FormRow, FormSection, Input, LinkButton, MultiSelect, Notice, Segmented, Select, Skeleton, Textarea, toast } from '@/ui';
 import { ACCESS_LABEL, BrandPage, Cover, IMAGE_TYPES, Q, VISIBILITY_LABEL, can, cap, useBrand, Group } from './shared';
+import { TaxBanner } from './Tax';
 
 type SeriesRow = {
   id: string; slug: string; title: string; type: string; language: string; status: string; visibility: string; access_model: string;
@@ -21,6 +22,7 @@ export function SeriesList() {
   const editor = can(role, 'editor');
   return (
     <BrandPage title="Series" actions={editor && <LinkButton to={`/studio/${brand.slug}/new`} variant="primary" icon={<Plus className="size-4" />}>New series</LinkButton>}>
+      <TaxBanner brand={brand} />
       <Q query={list} loader={<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-36" />)}</div>}>
         {(d) =>
           d.series.length === 0 ? (

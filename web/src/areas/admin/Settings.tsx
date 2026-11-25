@@ -205,6 +205,8 @@ function Revenue({ value, secrets }: TabProps) {
       sale_share_bps: pct(f.sale, 'Sales share'), sub_share_bps: pct(f.sub, 'Membership share'), tip_share_bps: pct(f.tip, 'Tips share'),
       payout_minimum_cents: f.payout_minimum_cents ?? 0, payout_hold_days: int(f.hold, 'Hold', 0, 90),
       fee_pct_bps: pct(f.fee, 'Fee percentage', 20), fee_fixed_cents: f.fee_fixed_cents ?? 0,
+      tax_reporting_threshold_cents: (f.tax_reporting_threshold_cents ?? 0) >= 100 ? f.tax_reporting_threshold_cents : 'Tax reporting limit: enter a figure of at least 1.00.',
+      tax_form_required: Boolean(f.tax_form_required),
     }));
   return (
     <>
@@ -222,6 +224,10 @@ function Revenue({ value, secrets }: TabProps) {
             <span className="relative block"><Input inputMode="numeric" value={f.hold} onChange={(e) => s.set({ hold: e.target.value })} className="pr-14" /><span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted">days</span></span>
           </Field>
         </FormRow>
+      </FormSection>
+      <FormSection title="Creator taxes" description="When a brand's earnings in a calendar year reach the limit, its owners are asked for a tax information form and payouts wait until it is in. The site collects and exports the information; it does not file anything.">
+        <Field label="Tax reporting limit (per calendar year)" hint="Ask your accountant which limit applies to you" className="max-w-xs"><MoneyInput cents={f.tax_reporting_threshold_cents} onChange={(c) => s.set({ tax_reporting_threshold_cents: c })} /></Field>
+        <Switch checked={Boolean(f.tax_form_required)} onChange={(v) => s.set({ tax_form_required: v })} label="Require the tax information form" description="On: brands that reach the limit are asked for the form and cannot request a payout until it is on file. Off: nobody is asked and no payout is held." />
       </FormSection>
       <FormSection title="Processing fee estimate" description={`Used only when the payment processor does not report its own fee. Amounts are in ${currency.toUpperCase()}.`}>
         <FormRow>

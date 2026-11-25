@@ -298,16 +298,66 @@ Audit: `membership_charge.refund`.
 `approved|paid|rejected|all`), `publisher_id`. Requested payouts are oldest first.
 Returns list + `totals: [{ status, count, cents }]`.
 Item: `{ id, publisher_id, publisher_name, publisher_slug, publisher_suspended_at, amount_cents, status, method, destination, note, reference, created_at, reviewed_at, paid_at, requested_by, requested_by_email, reviewed_by, reviewed_by_username, balance_cents, available_cents, debited }`
-(`debited` = a ledger row for this payout already exists).
+(`debited` = a ledger row for this payout already exists; `tax_warning` = a sentence when the brand has reached the tax reporting limit and has no usable tax form, else `null`).
 
 | Method & path | Body | Response | Notes | Audit |
 |---|---|---|---|---|
-| POST `/api/admin/payouts/:id/approve` | `{ note? }` | `{ ok, payout, balance }` | Only from `requested`. In one transaction, under a lock on the brand: checks the available balance covers the amount, inserts the negative `payout` ledger row, marks it approved. `400` if the balance is short or the brand is suspended; `409` if not `requested` | `payout.approve` |
-| POST `/api/admin/payouts/:id/paid` | `{ reference, note? }` | `{ ok, payout }` | Only from `approved` (`409` otherwise) | `payout.paid` |
+| POST `/api/admin/payouts/:id/approve` | `{ note? }` | `{ ok, payout, balance, tax_warning }` | Only from `requested`. In one transaction, under a lock on the brand: checks the available balance covers the amount, inserts the negative `payout` ledger row, marks it approved. `400` if the balance is short or the brand is suspended; `409` if not `requested` | `payout.approve` |
+| POST `/api/admin/payouts/:id/paid` | `{ reference, note? }` | `{ ok, payout, tax_warning }` | Only from `approved` (`409` otherwise) | `payout.paid` |
 | POST `/api/admin/payouts/:id/reject` | `{ note }` (3+ chars) | `{ ok, payout, returned_cents }` | From `requested` or `approved`. Money already debited goes back to the brand as an `adjustment` row | `payout.reject` |
 
 Each sends the `payout_update` email and an in-app notification to the brand
 owners and the person who asked. `payout` is the full `payouts` row.
+A missing tax form never blocks approve or paid: `tax_warning` only reports it.
+
+### Creator taxes — `admin-tax.ts`
+
+Where each brand stands against the tax reporting limit in one calendar year.
+The site collects and exports; it files nothing. Earnings are computed as in
+`docs/api/studio.md` section 10a.
+
+**GET /api/admin/tax** — admin. Query: `year` (default the current year, not
+in the future), `over=1` (earnings reached the limit), `missing=1` (no usable
+form: missing or needs update), `q` (brand name, address or legal name),
+`page`, `limit`.
+
+```
+{ items: [{ publisher_id, name, slug, deleted_at, earnings_cents, payouts_paid_cents,   // payouts marked paid in that year
+            over_limit, form_status: "on_file"|"missing"|"needs_update",
+            is_us_person, legal_name, classification, tin_type, tin_last4,
+            tax_residence_country, foreign_tin_last4, needs_update_note, form_updated_at }],
+  total, page, limit, year, years: [2026, 2025],
+  currency, limit_cents, form_required,
+  totals: { brands, over_limit, over_limit_without_form, over_limit_earnings_cents } }
+```
+A brand is listed when it has earnings, a paid payout or a tax form. Sorted by
+earnings, highest first. Never a full taxpayer ID.
+
+| Method & path | Who | Body | Response | Audit |
+|---|---|---|---|---|
+| POST `/api/admin/tax/export` | admin; `include_ids` super | `{ year?, include_ids?, confirm? }` | `{ filename, csv, rows, include_ids, unreadable }` | `tax.export` / `tax.export_with_ids` |
+| POST `/api/admin/tax/:publisherId/reveal` | super | none | `{ publisher_id, name, legal_name, is_us_person, tin_type, tin, foreign_tin }` | `tax.reveal_taxpayer_id` |
+| POST `/api/admin/tax/:publisherId/needs-update` | admin | `{ note }` (3+ chars) | `{ ok, notified }` | `tax.needs_update` |
+
+- **Export**: one CSV row per brand over the limit in `year`: `year, brand,
+  brand_address, form_status, us_person, legal_name, business_name,
+  classification, llc_tax_class, other_description, address_*,
+  taxpayer_id_type, taxpayer_id_last4, tax_residence_country,
+  foreign_tax_id_last4, date_of_birth, signed_by, signed_at, earnings,
+  payouts_paid, currency` (amounts in currency units, two decimals). With
+  `include_ids: true` and `confirm: true` (super admin; `403` otherwise, `400`
+  without `confirm`) the columns `taxpayer_id` and `foreign_tax_id` are added.
+  The CSV comes back inside JSON so the request carries the CSRF token; the web
+  app saves it as a file. `unreadable` names brands whose stored ID could not
+  be decrypted.
+- **Reveal** returns the full ID for one dialog. `404` when the brand has no
+  form.
+- **Needs update** sets the profile to `needs_update` with the note, and tells
+  the brand owners in the Studio and by email. The brand's payouts wait again
+  if it is over the limit, until the form is resubmitted.
+- The export and reveal audit rows are written before the response and never
+  contain an ID (year, row count and whether IDs were included; brand name and
+  ID type).
 
 ### Settlement — super
 
@@ -437,7 +487,8 @@ The seeded text is a first draft marked as such, for the owner to review.
 {
   "sections": {
     "site": { "name": "", "tagline": "", "support_email": "", "currency": "usd", "socials": {}, "registration_open": true, "maintenance": false },
-    "revenue": { "sale_share_bps": 8500, "sub_share_bps": 8000, "tip_share_bps": 9500, "payout_minimum_cents": 2000, "payout_hold_days": 7, "fee_pct_bps": 290, "fee_fixed_cents": 30 },
+    "revenue": { "sale_share_bps": 8500, "sub_share_bps": 8000, "tip_share_bps": 9500, "payout_minimum_cents": 2000, "payout_hold_days": 7, "fee_pct_bps": 290, "fee_fixed_cents": 30,
+                 "tax_reporting_threshold_cents": 200000, "tax_form_required": true },   // creator taxes: the yearly limit and whether the form is required
     "membership": { "name": "", "monthly_cents": 599, "annual_cents": 5900, "trial_days": 0, "page_credit_cents": 5 },
     "storage": { "driver": "local", "r2_account_id": "", "r2_bucket": "", "r2_access_key_id": "", "r2_secret_access_key": { "set": false }, "r2_public_url": "" },
     "email": { "provider": "log", "sendgrid_api_key": { "set": false }, "sendgrid_webhook_key": { "set": false }, "mailgun_api_key": { "set": false },
@@ -814,6 +865,8 @@ See `scripts/deploy/crontab.example`.
 `series.unfeature`, `report.actioned`, `report.dismissed`, `comment.hide`,
 `comment.unhide`, `comment.delete`, `order.refund`, `membership_charge.refund`,
 `payout.approve`, `payout.paid`, `payout.reject`, `settlement.run`,
+`tax.export`, `tax.export_with_ids`, `tax.reveal_taxpayer_id`, `tax.needs_update`,
+`tax.profile_submit`, `tax.profile_update` (the last two by the brand),
 `code.create`, `code.disable`, `code.enable`, `gift_card.create`,
 `gift_card.void`, `featured.create`, `featured.update`, `featured.reorder`,
 `featured.image`, `featured.delete`, `announcement.create`,

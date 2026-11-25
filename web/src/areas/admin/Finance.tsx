@@ -305,7 +305,7 @@ function Payouts() {
   const approve = async (p: R) => {
     const v = await ask({
       title: `Approve ${$(p.amount_cents)} to ${p.publisher_name}?`,
-      body: `This takes ${$(p.amount_cents)} out of the brand's balance now (${$(p.available_cents)} is available). You then send the money by ${p.method} and mark it paid.`,
+      body: `This takes ${$(p.amount_cents)} out of the brand's balance now (${$(p.available_cents)} is available). You then send the money by ${p.method} and mark it paid.${p.tax_warning ? ` Warning: ${p.tax_warning}` : ''}`,
       fields: [{ name: 'note', label: 'Message to the creator', hint: 'Optional. Included in the approval email.' }],
       confirmLabel: 'Approve payout',
     });
@@ -314,7 +314,7 @@ function Payouts() {
   const paid = async (p: R) => {
     const v = await ask({
       title: `Mark ${$(p.amount_cents)} as paid?`,
-      body: `Only do this once the money has left your account. ${p.publisher_name} is told it is on its way.`,
+      body: `Only do this once the money has left your account. ${p.publisher_name} is told it is on its way.${p.tax_warning ? ` Warning: ${p.tax_warning}` : ''}`,
       fields: [
         { name: 'reference', label: 'Transfer reference', required: true, hint: 'The bank or PayPal transaction ID. The creator sees it.' },
         { name: 'note', label: 'Message to the creator' },
@@ -343,6 +343,7 @@ function Payouts() {
           <span className="block truncate text-xs text-muted" title={p.requested_by_email ?? ''}>{p.requested_by_email ?? 'Requester removed'}</span>
           <span className="block text-xs text-faint">{ago(p.created_at)}</span>
           {p.publisher_suspended_at && <Badge tone="danger">Brand suspended</Badge>}
+          {p.tax_warning && <Link to="/admin/tax?over=1&missing=1" title={p.tax_warning}><Badge tone="warn">Tax form missing</Badge></Link>}
         </div>
       ),
     },

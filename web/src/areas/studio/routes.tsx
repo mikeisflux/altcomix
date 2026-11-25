@@ -14,6 +14,7 @@ import { SeriesReleases } from './SeriesReleases';
 import { SettingsPage } from './Settings';
 import { StorePage } from './Store';
 import { AcceptInvite, StudioHome } from './StudioHome';
+import { TaxPage } from './Tax';
 import { BrandGuard } from './shared';
 
 export const studioRoutes: RouteObject[] = [
@@ -29,6 +30,7 @@ export const studioRoutes: RouteObject[] = [
       { path: 'new', element: <SeriesNew /> },
       { path: 'analytics', element: <Analytics /> },
       { path: 'earnings', element: <EarningsPage /> },
+      { path: 'tax', element: <TaxPage /> },
       { path: 'codes', element: <CodesPage /> },
       { path: 'store', element: <StorePage /> },
       { path: 'marketing', element: <MarketingPage /> },

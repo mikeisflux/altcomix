@@ -594,7 +594,9 @@ All admin and up.
   requestable_cents,    // available - reserved
   next_release_at,      // when the next pending amount becomes available, or null
   totals_by_kind: [{ kind, amount_cents, gross_cents, entries }],   // sale | subscription | tip | payout | refund | adjustment
-  payout_minimum_cents, payout_hold_days, payout_configured, can_request,
+  payout_minimum_cents, payout_hold_days, payout_configured,
+  can_request,          // false while tax_form_required is true
+  tax_form_required,    // earnings reached the tax reporting limit and no usable tax form is on file (section 10a)
   share: { sale_bps, subscription_bps, tip_bps } }
 ```
 
@@ -615,13 +617,99 @@ Payout: `{ id, amount_cents, status: "requested"|"approved"|"paid"|"rejected", m
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/api/studio/brands/:id/payouts` | `{ payouts }` newest first |
-| POST | `/api/studio/brands/:id/payouts` | `{ amount_cents?, note? }` — amount defaults to everything requestable. 400 if payout details are missing, the amount is under `payout_minimum_cents`, or over `requestable_cents`. 201 `{ payout, balance_cents, pending_cents, available_cents, reserved_cents, requestable_cents }` |
+| POST | `/api/studio/brands/:id/payouts` | `{ amount_cents?, note? }` — amount defaults to everything requestable. 400 if payout details are missing, the amount is under `payout_minimum_cents`, or over `requestable_cents`. **409 with `code: "tax_form_required"`** when the brand has reached the tax reporting limit and has no submitted tax form (section 10a). 201 `{ payout, balance_cents, pending_cents, available_cents, reserved_cents, requestable_cents }` |
 | DELETE | `/api/studio/brands/:id/payouts/:payoutId` | Withdraw a request still `requested`; 409 otherwise |
 
 A request only inserts the `payouts` row (method and destination copied from
 the payout details). The ledger debit is written when a platform admin
 approves it; until a ledger row with that `payout_id` exists the amount shows
 as `reserved`, so it is never counted twice.
+
+---
+
+## 10a. Tax information — `studio-tax.ts`, `lib/tax.ts`
+
+Brand admin and up (a platform admin passes as an owner, as everywhere in the
+Studio). Editors and analysts get 403.
+
+A brand whose **earnings in a calendar year** reach
+`settings.revenue.tax_reporting_threshold_cents` is asked for a tax information
+form; while `settings.revenue.tax_form_required` is on, payout requests are
+refused until one is on file. The check covers this calendar year and the one
+before it.
+
+Earnings in a year = the sum of `amount_cents` over the brand's ledger rows
+with `kind in ('sale','tip','subscription','refund')` whose `created_at` is in
+that calendar year (America/Indiana/Indianapolis time). Refund rows are
+negative, so the figure is net of refunds. `payout` and `adjustment` rows are
+not counted.
+
+### `GET /api/studio/brands/:id/tax`
+
+```
+{ currency,
+  status: { required,               // the admin setting
+            limit_cents, year, earnings_cents, previous_year, previous_earnings_cents,
+            limit_reached, reached_year,          // this year first, else last year, else null
+            form_status: "on_file"|"missing"|"needs_update",
+            form_needed,                          // limit reached and form_status is not "on_file"
+            payout_blocked },                     // required && form_needed
+  profile: null | {
+    status: "submitted"|"needs_update", is_us_person, legal_name, business_name,
+    classification,             // individual | single_member_llc | c_corp | s_corp | partnership | trust_estate | llc | other
+    llc_tax_class,              // c_corp | s_corp | partnership (classification "llc" only)
+    other_description,          // classification "other" only
+    address_street, address_city, address_state, address_postal, address_country,
+    tin_type: "ssn"|"ein"|null, tin_last4,        // never the full ID
+    tax_residence_country, foreign_tin_last4, date_of_birth,
+    signature_name, signed_at, certification_text,
+    needs_update_note,          // the admin's note while status is "needs_update"
+    updated_at },
+  prefill: { legal_name, legal_name_source: "payout_details"|"owner_name"|null, business_name, address_country },
+  certifications: { us, non_us },   // the statement to show and send back unchanged
+  classifications, llc_tax_classes,
+  notified_at }                     // when the "limit reached" notice was sent, or null
+```
+
+`prefill` is what is already on file (payout details' legal name, else the
+owner's display name; the brand name; the brand's country). It never contains a
+taxpayer ID.
+
+### `PUT /api/studio/brands/:id/tax`
+
+The whole form every time. Body:
+
+```
+{ is_us_person, legal_name, business_name?, classification, llc_tax_class?, other_description?,
+  address_street, address_city, address_state?, address_postal?, address_country,   // 2-letter country
+  // US person
+  tin_type: "ssn"|"ein", tin,                       // the full ID, always re-entered
+  // not a US person
+  tax_residence_country, foreign_tin?, date_of_birth?, not_us_person: true,
+  signature_name, certify: true, certification_text }   // certification_text = certifications.us / .non_us as shown
+```
+
+Rules: a US address needs a state code and a 5-digit ZIP; `tin` is 9 digits
+(dashes and spaces allowed) and obvious junk is refused (all one digit,
+123456789, SSN area 000/666, group 00, serial 0000, EIN prefix 00); a non-US
+payee needs a residence country other than US and `not_us_person: true`, and
+no US taxpayer ID is kept for it; `date_of_birth` is kept for individuals only.
+400 `code: "validation"` with a sentence that never repeats the number; 409 if
+`certification_text` is not the current wording. Response
+`{ profile, status }` (same shapes as GET).
+
+The ID is stored encrypted (`lib/crypto.ts`, AES-256-GCM keyed from
+`APP_SECRET`) with the last four digits beside it; the signature is stored with
+the time, the IP address and the exact statement. Submitting replaces the
+brand's one row, sets `status` back to `submitted` and clears any
+"needs update" note. Audit: `tax.profile_submit` / `tax.profile_update`
+(classification and ID type only).
+
+### Brand objects
+
+`GET /api/studio/brands` and `GET /api/studio/brands/by-slug/:slug` carry
+`tax_form_needed` (= `status.payout_blocked`), set only for brand admins and
+owners, for the Studio banners.
 
 ---
 
@@ -663,6 +751,16 @@ images, originals and archives. The rule is `canView` in `lib/access.ts`. The se
   `detect_frames`, and resumes running ones whose heartbeat is older than 45 s.
   Uploads also start their job immediately in the API process.
 - `jobs/publish-scheduled.ts` (every 30 s): publishes `scheduled` releases whose `publish_at` has passed.
+
+- **tax-notices** (every 10 minutes): brands that reached the tax reporting
+  limit this calendar year or last and have no tax form on file. Owners get one
+  in-app notification (`kind: "tax"`) and the `tax_form_needed` email, once per
+  brand per year (`tax_notices`). Does nothing while `tax_form_required` is off.
+
+## Schema added (`085_tax_profiles.sql`)
+
+- `tax_profiles`: one row per brand (see section 10a).
+- `tax_notices (publisher_id, year)`: the "limit reached" notice was sent.
 
 ## Schema added (`010_studio.sql`)
 

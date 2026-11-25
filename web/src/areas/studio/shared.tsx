@@ -26,6 +26,8 @@ export type StudioBrand = {
   created_at: string; role: Role; series_count: number; member_count: number;
   /** Only on the brand opened in the Studio (by-slug): a platform admin who is not on the team. */
   viewing_as_admin?: boolean; follower_count?: number;
+  /** Earnings reached the tax reporting limit and no usable tax form is on file. Only set for brand admins and owners. */
+  tax_form_needed?: boolean;
 };
 
 export function useBrands(enabled = true) {

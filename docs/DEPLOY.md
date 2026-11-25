@@ -206,6 +206,32 @@ after saving. A blank secret field keeps what is stored.
    brackets. They are not legal advice. Rewrite them before launch.
 7. **Health.** Should show no warnings you do not expect.
 
+### Creator taxes
+
+- **The limit is yours to set, with your accountant.** Settings > Revenue >
+  *Tax reporting limit (per calendar year)* ships at $2,000 as a starting
+  value, not as advice. *Require the tax information form* is on by default.
+- When a brand's earnings in a calendar year reach the limit, its owners are
+  told in the Studio and by email (template `tax_form_needed`, editable under
+  Email > Templates) and sent to a form that collects who is being paid, their
+  address, tax classification and taxpayer ID, with a typed signature. The
+  brand cannot request a payout until the form is on file. Approving or paying
+  an existing request is not blocked; the Payouts screen shows a warning.
+- Admin > Creator taxes lists every brand for a year and exports the brands
+  over the limit as a CSV for your accountant. Full taxpayer IDs are only in
+  the file when a super admin ticks the box and confirms, and both that export
+  and every on-screen reveal of an ID are written to the audit log.
+- **The site collects the information and exports it. It does not file
+  anything with the IRS and does not generate the IRS form itself.** Preparing
+  and sending the forms is done by you or your accountant from the export.
+- Taxpayer IDs are encrypted with `APP_SECRET`. If `APP_SECRET` is changed or
+  lost, the stored IDs cannot be read and every brand has to submit its form
+  again. Back it up with the database.
+- The certification wording creators sign is in `api/src/lib/tax.ts`
+  (`CERTIFICATIONS`). Have your accountant or lawyer read it before launch.
+- The notice is sent by the in-process `tax-notices` job (every 10 minutes).
+  It has no `/api/cron` endpoint, so it needs the jobs process running.
+
 ## 6. Processes
 
 ```bash

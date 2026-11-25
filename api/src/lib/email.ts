@@ -155,6 +155,12 @@ export const TEMPLATES: Record<string, { subject: string; html: string; vars: st
     vars: ['amount', 'status', 'brand', 'note', 'url'],
     category: 'transactional',
   },
+  tax_form_needed: {
+    subject: '{{brand}}: tax information needed before your next payout',
+    html: '<p>Hi {{name}},</p><p>Earnings for <strong>{{brand}}</strong> in {{year}} have reached the tax reporting limit of {{limit}}. We need a few details about who is being paid so we can prepare your year-end tax form.</p><p>The form takes a few minutes. Payouts for {{brand}} wait until it is complete.</p>{{button:Fill in the tax information form|url}}<p>Your taxpayer ID is stored encrypted and is only used for tax reporting.</p>',
+    vars: ['name', 'brand', 'year', 'limit', 'url', 'site'],
+    category: 'transactional',
+  },
   new_release: {
     subject: 'New from {{series}}: {{release}}',
     html: '<p><strong>{{release}}</strong> is out now.</p><p>{{synopsis}}</p>{{button:Read now|url}}',

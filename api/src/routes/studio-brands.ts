@@ -11,6 +11,7 @@ import { idParam, receiveImage, requireVerifiedEmail, storeWebp } from '../lib/i
 import type { Row } from '../db.ts';
 import { publicUrl, storage } from '../lib/storage.ts';
 import { LANGUAGES } from '../lib/taxonomy.ts';
+import { taxStatus, taxStatuses } from '../lib/tax.ts';
 
 /** Studio: brands (identity, images, payout details, team, conventions). */
 
@@ -113,8 +114,12 @@ export default async function (app: FastifyInstance) {
         order by p.name`,
       [u.id],
     );
+    // Only the people who can fill in the tax form (brand admins and owners) are told it is needed.
+    const tax = await taxStatuses(rows.filter((r) => r.role === 'owner' || r.role === 'admin').map((r) => r.id));
     const brands = [];
-    for (const r of rows) brands.push({ ...(await brandView(r, r.role)), series_count: r.series_count, member_count: r.member_count });
+    for (const r of rows) {
+      brands.push({ ...(await brandView(r, r.role)), series_count: r.series_count, member_count: r.member_count, tax_form_needed: Boolean(tax.get(r.id)?.payout_blocked) });
+    }
     return { brands };
   });
 
@@ -171,7 +176,8 @@ export default async function (app: FastifyInstance) {
     );
     // Same rule as requireMember: a platform admin acts as an owner everywhere in the Studio.
     const role: MemberRole = isAdmin(u) ? 'owner' : member!.role;
-    return { brand: { ...(await brandView(b, role)), ...counts, member_role: member?.role ?? null, viewing_as_admin: isAdmin(u) && !member } };
+    const taxFormNeeded = role === 'owner' || role === 'admin' ? Boolean((await taxStatus(b.id))?.payout_blocked) : false;
+    return { brand: { ...(await brandView(b, role)), ...counts, member_role: member?.role ?? null, viewing_as_admin: isAdmin(u) && !member, tax_form_needed: taxFormNeeded } };
   });
 
   app.get('/api/studio/brands/:id', async (req) => {

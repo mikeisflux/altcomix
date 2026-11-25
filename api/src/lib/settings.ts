@@ -30,6 +30,11 @@ export const SETTINGS = {
       // Estimated card processing cost used when the processor does not report a fee.
       fee_pct_bps: 290,
       fee_fixed_cents: 30,
+      // Creator taxes: a brand whose earnings in a calendar year reach this is asked for a tax
+      // information form. The owner sets the figure with their accountant.
+      tax_reporting_threshold_cents: 200000,
+      // Off = no form is asked for and payouts are never held for one.
+      tax_form_required: true as boolean,
     },
     secret: [],
   },

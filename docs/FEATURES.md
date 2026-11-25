@@ -145,6 +145,7 @@ Top tabs: SETTINGS, ANALYTICS, SERIES.
 | 7.15 | Revenue: Donation settings | Tips on/off, monthly goal | | done |
 | 7.16 | Revenue: Revenue splitting (beta) | Per-series percentage splits to collaborators | Splits are paid automatically into each collaborator's own balance | done |
 | 7.17 | Revenue: Payouts & revenue | Ledger, balance, payout requests | Every cent itemized; pending vs confirmed never differ silently | done |
+| 7.17a | (not seen) | Tax information: year-to-date earnings against the tax reporting limit, and a form (US and non-US payees, typed signature) asked for once the limit is reached; payouts wait until it is on file | Name and country filled in from what is already on file; the taxpayer ID is stored encrypted and only its last 4 digits are ever shown again | done |
 | 7.18 | Billing: Subscriptions, Payment methods, Order history | Not needed for creators | Publishing is free: no paid "Pro" tier to unlock a better share | n/a |
 | 7.19 | Team: Members | Invite by email/username | | done |
 | 7.20 | Team: Roles | Owner, Admin, Editor, Analyst | | done |
@@ -310,6 +311,7 @@ Crowdfunding), COMMUNITY (Forums).
 | # | NSFWComix | Status |
 |---|---|---|
 | 14.1 | `/admin` panel: dashboard, users, brands, series moderation, orders, memberships, payouts, settlement, codes, featured rows, announcements, pages, news, feedback, reports, audit log | done |
+| 14.1a | Creator taxes in `/admin`: limit and on/off switch in Settings > Revenue; per-year list of brands with earnings, over-the-limit and form status, filters, CSV export for the accountant (full taxpayer IDs only for a super admin who ticks and confirms), audited one-time reveal of an ID, "needs update" request to a brand. The site collects and exports; it does not file with the IRS or produce the IRS form | done |
 | 14.2 | Integrations editable in `/admin`: Cloudflare R2 storage, SendGrid email, payments, reCAPTCHA, analytics | partial |
 | 14.3 | Email: templates, queue, log, suppression list, unsubscribe | done |
 | 14.3a | Inbound mail: admin mailboxes (support@, dmca@ ...) fed by SendGrid Inbound Parse, read and answered in /admin/inbox, blocked senders, optional automatic reply | done (not yet tried against live SendGrid delivery) |

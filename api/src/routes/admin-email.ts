@@ -10,7 +10,7 @@ const SAMPLE: Record<string, string> = {
   name: 'Sam Reader', url: 'https://example.com/sample-link', site: 'NSFWComix', total: '$12.00', title: 'Night Ferry #1', message: 'Thanks for backing the book!',
   code: 'ABCD-EFGH-JKLM', brand: 'Harbour Press', inviter: 'Alex Editor', role: 'editor', amount: '$48.20', status: 'approved', note: 'Sent by bank transfer.',
   series: 'Night Ferry', release: 'Issue 2: Low Tide', synopsis: 'The ferry leaves without its captain.', subject: 'Sample subject', body: 'Sample body text.',
-  plan: 'monthly', renews: '1 January', from: 'Jo Artist', preview: 'Loved the last issue...',
+  plan: 'monthly', renews: '1 January', year: '2026', limit: '$2,000.00', from: 'Jo Artist', preview: 'Loved the last issue...',
   items: '<table role="presentation" width="100%"><tr><td>Night Ferry #1</td><td align="right">$4.00</td></tr><tr><td>Night Ferry #2</td><td align="right">$8.00</td></tr></table>',
 };
 
