@@ -29,7 +29,7 @@ create table inbound_emails (
   cc            text not null default '',
   subject       text not null default '',
   text_body     text not null default '',
-  -- Already sanitised by lib/inbound-mail.ts; still only ever shown inside a sandboxed frame.
+  -- Already sanitized by lib/inbound-mail.ts; still only ever shown inside a sandboxed frame.
   html_body     text not null default '',
   message_id    text,
   in_reply_to   text,

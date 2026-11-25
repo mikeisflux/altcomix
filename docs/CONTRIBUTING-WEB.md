@@ -41,10 +41,10 @@ page), `web/src/styles.css` (design tokens).
   Mutations show a toast on success and the server's error message on failure,
   and disable their button while running. Destructive actions ask first with
   `useConfirm()`.
-- **Design**: use the tokens and components that exist. Semantic colour
+- **Design**: use the tokens and components that exist. Semantic color
   classes only (`bg-surface`, `bg-raised`, `border-line`, `text-muted`,
   `text-accent-hover`, `bg-accent` …), never raw hex or Tailwind palette
-  colours. Headings use the display font automatically. One primary button per
+  colors. Headings use the display font automatically. One primary button per
   view. Sentence case. Write labels and messages for the person using the
   screen: plain, specific, no jargon, no placeholder copy, no lorem ipsum.
   This is an original product: do not imitate another site's branding, layout

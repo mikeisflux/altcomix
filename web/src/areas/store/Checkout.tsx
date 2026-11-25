@@ -471,7 +471,7 @@ export function CheckoutReturn() {
     body = (
       <>
         <CircleAlert className="size-12 text-danger" aria-hidden />
-        <h1 className="text-2xl font-bold">{order.payment_state === 'expired' ? 'The checkout timed out' : order.payment_state === 'canceled' ? 'Checkout cancelled' : 'The payment did not go through'}</h1>
+        <h1 className="text-2xl font-bold">{order.payment_state === 'expired' ? 'The checkout timed out' : order.payment_state === 'canceled' ? 'Checkout canceled' : 'The payment did not go through'}</h1>
         <p className="text-muted">{order.failure ?? 'Your card was not charged.'} Any store credit you used is back in your account.</p>
         <LinkButton to={next} variant="primary">Go back and try again</LinkButton>
       </>
@@ -486,7 +486,7 @@ export function CheckoutReturn() {
   } else if (cancelled) {
     body = (
       <>
-        <h1 className="text-2xl font-bold">Checkout cancelled</h1>
+        <h1 className="text-2xl font-bold">Checkout canceled</h1>
         <p className="text-muted">You left the secure checkout before paying, so nothing was charged.</p>
         <LinkButton to={next} variant="primary">Go back</LinkButton>
       </>

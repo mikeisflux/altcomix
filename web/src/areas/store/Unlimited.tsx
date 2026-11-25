@@ -36,7 +36,7 @@ export function Unlimited() {
   const [plan, setPlan] = useState<Plan>('annual');
 
   const mine = useQuery({ queryKey: ['membership', user?.id], queryFn: () => api<Membership>('/api/membership'), enabled: Boolean(user) });
-  const catalogue = useQuery({
+  const catalog = useQuery({
     queryKey: ['browse', 'membership-preview'],
     queryFn: () => api<{ items: SeriesCard[]; total: number }>('/api/series', { query: { access: 'membership', sort: 'popular', limit: 18 } }),
   });
@@ -66,8 +66,8 @@ export function Unlimited() {
           onPaid: () => void toast.success(`Welcome to ${m.name}`),
           success: {
             title: `Welcome to ${m.name}`,
-            body: 'Your membership is active. Everything in the membership catalogue is open to you now.',
-            action: { label: next ? 'Back to reading' : 'Browse the catalogue', to: onward },
+            body: 'Your membership is active. Everything in the membership catalog is open to you now.',
+            action: { label: next ? 'Back to reading' : 'Browse the catalog', to: onward },
           },
           onRetry: () => start.mutate(),
         });
@@ -98,7 +98,7 @@ export function Unlimited() {
         <div className="mx-auto max-w-2xl">
           <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-2xl bg-accent text-accent-ink"><Sparkles className="size-6" aria-hidden /></div>
           <h1 className="text-4xl font-extrabold sm:text-5xl">{m.name}</h1>
-          <p className="mt-4 text-lg text-paper/85">One membership, every comic in the membership catalogue, and your money goes to the creators you actually read.</p>
+          <p className="mt-4 text-lg text-paper/85">One membership, every comic in the membership catalog, and your money goes to the creators you actually read.</p>
         </div>
       </header>
 
@@ -118,7 +118,7 @@ export function Unlimited() {
             )}
             {sub?.payment_problem && <div className="mt-4 text-left"><Notice tone="warn">Your last renewal payment did not go through. Update your card to keep your membership.</Notice></div>}
             <div className="mt-5 flex flex-wrap justify-center gap-2">
-              <LinkButton to={safeNext(next, '/browse?access=membership')} variant="primary" icon={<BookOpen className="size-4" />}>{next ? 'Back to reading' : 'Browse the catalogue'}</LinkButton>
+              <LinkButton to={safeNext(next, '/browse?access=membership')} variant="primary" icon={<BookOpen className="size-4" />}>{next ? 'Back to reading' : 'Browse the catalog'}</LinkButton>
               <LinkButton to="/account/membership">Manage membership</LinkButton>
             </div>
           </Card>
@@ -171,7 +171,7 @@ export function Unlimited() {
         <div className="grid gap-4 md:grid-cols-3">
           <Card className="p-5">
             <BookOpen className="size-6 text-accent-hover" aria-hidden />
-            <h3 className="mt-3 text-lg font-semibold">Read the whole membership catalogue</h3>
+            <h3 className="mt-3 text-lg font-semibold">Read the whole membership catalog</h3>
             <p className="mt-1.5 text-sm text-muted">Every release that a creator has put into the membership opens in full while you are a member. Look for the Unlimited badge on covers.</p>
           </Card>
           <Card className="p-5">
@@ -189,10 +189,10 @@ export function Unlimited() {
         </div>
       </section>
 
-      {/* A taste of the catalogue */}
-      {catalogue.data && catalogue.data.items.length > 0 && (
-        <Shelf id="in-membership" title="In the membership now" subtitle={`${catalogue.data.total} series and counting`} action={<SectionLink to="/browse?access=membership">View all</SectionLink>}>
-          {catalogue.data.items.map((s) => <CoverCard key={s.id} series={s} className={SHELF_ITEM} />)}
+      {/* A taste of the catalog */}
+      {catalog.data && catalog.data.items.length > 0 && (
+        <Shelf id="in-membership" title="In the membership now" subtitle={`${catalog.data.total} series and counting`} action={<SectionLink to="/browse?access=membership">View all</SectionLink>}>
+          {catalog.data.items.map((s) => <CoverCard key={s.id} series={s} className={SHELF_ITEM} />)}
         </Shelf>
       )}
     </div>

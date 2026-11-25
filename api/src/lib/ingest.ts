@@ -90,14 +90,14 @@ export function sniff(path: string): 'pdf' | 'zip' | 'other' {
   }
 }
 
-/** Dominant colour of the page edge, as #rrggbb. Used as the reader background behind the page. */
+/** Dominant color of the page edge, as #rrggbb. Used as the reader background behind the page. */
 export async function edgeColor(input: Buffer | string): Promise<string> {
   const size = 64;
   const { data, info } = await sharp(input)
     .rotate()
     .flatten({ background: '#ffffff' })
     .resize(size, size, { fit: 'fill' })
-    .toColourspace('srgb')
+    .toColorspace('srgb')
     .raw()
     .toBuffer({ resolveWithObject: true });
   const ch = info.channels;
@@ -260,7 +260,7 @@ export async function addPage(p: NewPage): Promise<{ id: string; created: boolea
   const bg = await edgeColor(thumb!);
 
   const created = await tx(async (db) => {
-    // Serialise page-list changes per release so positions stay dense.
+    // Serialize page-list changes per release so positions stay dense.
     const rel = await db.query('select id from releases where id = $1 for update', [p.releaseId]);
     if (!rel.rowCount) return false;
     const pos = await db.query('select coalesce(max(position), 0) + 1 as next from pages where release_id = $1', [p.releaseId]);
@@ -774,7 +774,7 @@ export async function publishRelease(releaseId: string): Promise<Row> {
 /**
  * Call whenever a series may have just left draft. The first time it has, the
  * series is stamped `launched_at` and its followers (and the brand's) get ONE
- * notification and email summarising the releases that were published while it
+ * notification and email summarizing the releases that were published while it
  * was still a draft, instead of the per-release messages that were skipped.
  * Later calls do nothing. Returns how many people were told, or null when this
  * was not the launch.

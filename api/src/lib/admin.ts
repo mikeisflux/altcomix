@@ -19,7 +19,7 @@ import { storage } from './storage.ts';
  *
  * Conventions (carried over from IndieCrowdfund):
  *   - every handler re-checks the role itself (requireAdmin / requireSuperAdmin);
- *     nothing relies on a parent layout or hook for authorisation
+ *     nothing relies on a parent layout or hook for authorization
  *   - every mutation writes an audit_log row
  *   - secrets never leave the server
  */
@@ -27,12 +27,12 @@ import { storage } from './storage.ts';
 /** The footer pages. Admins edit these; they cannot add or remove slugs. */
 export const CMS_SLUGS = ['about', 'creator-promise', 'contact', 'content-policy', 'publisher-sla', 'privacy', 'privacy-choices', 'terms', 'publisher-terms', 'faq'];
 
-/** Paths that stay reachable while an admin still has to enrol in 2FA. */
+/** Paths that stay reachable while an admin still has to enroll in 2FA. */
 const MFA_EXEMPT_PREFIX = '/api/admin/security/2fa';
 
 /**
  * When settings.security.admin_2fa_required is on, staff without TOTP can only
- * reach the enrolment endpoints. Authorisation itself stays in each handler.
+ * reach the enrolment endpoints. Authorization itself stays in each handler.
  */
 async function mfaGate(req: FastifyRequest, reply: FastifyReply): Promise<void> {
   reply.header('cache-control', 'no-store');

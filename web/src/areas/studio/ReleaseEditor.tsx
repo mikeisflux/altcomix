@@ -107,7 +107,7 @@ function PublishPanel({ d, editable, brandSlug }: { d: ReleaseDetail; editable: 
     invalidate: inv,
     onDone: () => { setScheduling(false); setWhen(''); },
   });
-  const unpublish = useAct(() => api(`/api/studio/releases/${r.id}/unpublish`, { method: 'POST' }), { success: r.status === 'scheduled' ? 'Schedule cancelled' : 'Unpublished. Readers can no longer open it.', invalidate: inv });
+  const unpublish = useAct(() => api(`/api/studio/releases/${r.id}/unpublish`, { method: 'POST' }), { success: r.status === 'scheduled' ? 'Schedule canceled' : 'Unpublished. Readers can no longer open it.', invalidate: inv });
   const rotate = useAct(() => api<{ url: string }>(`/api/studio/releases/${r.id}/preview-link/rotate`, { method: 'POST' }), { success: 'New private link created. The old one no longer works.', invalidate: [k.preview] });
   // The API builds links from its configured address; open them on the site you are on.
   const here = (url: string) => { try { const u = new URL(url); return window.location.origin + u.pathname + u.search; } catch { return url; } };
@@ -506,7 +506,7 @@ function Workspace({ d, editable, base }: { d: ReleaseDetail; editable: boolean;
             </div>
             {editable && <Button variant="sun" size="lg" loading={detect.isPending || detecting} disabled={ingesting} icon={<Wand2 className="size-5" />} onClick={startDetect}>{pages.data && pages.data.frames_missing < pages.data.pages.length ? 'Detect frames again' : 'Detect frames for all pages'}</Button>}
           </div>
-          {detecting && (() => { const j = active.find((x) => x.kind === 'detect_frames')!; return <div className="mt-3" role="status" aria-live="polite"><ProgressBar value={j.done} max={j.total || 1} label={`Analysing page ${Math.min(j.done + 1, j.total)} of ${j.total}…`} /></div>; })()}
+          {detecting && (() => { const j = active.find((x) => x.kind === 'detect_frames')!; return <div className="mt-3" role="status" aria-live="polite"><ProgressBar value={j.done} max={j.total || 1} label={`Analyzing page ${Math.min(j.done + 1, j.total)} of ${j.total}…`} /></div>; })()}
           {summary && !detecting && (
             <div className="mt-3 rounded-xl border border-line bg-ink p-3 text-sm">
               <p><strong>{summary.detected - needLook.length < 0 ? 0 : summary.detected - needLook.length}</strong> of {summary.detected} {summary.detected === 1 ? 'page' : 'pages'} got frames.{summary.kept > 0 && ` ${summary.kept} kept the frames you made by hand.`}</p>
@@ -517,7 +517,7 @@ function Workspace({ d, editable, base }: { d: ReleaseDetail; editable: boolean;
               ) : <p className="mt-1 text-muted">Nothing needs a look. Spot-check a page or two, then publish.</p>}
             </div>
           )}
-          <p className="mt-2 text-xs text-faint">Detection analyses the gutters between panels on our server. No generative AI is involved.</p>
+          <p className="mt-2 text-xs text-faint">Detection analyzes the gutters between panels on our server.</p>
         </div>
       )}
 

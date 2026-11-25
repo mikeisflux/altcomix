@@ -15,7 +15,7 @@ function Pitch() {
   useTitle('Publish your comics');
   const points = [
     { icon: <BadgeDollarSign />, title: 'Free to publish', body: 'There is no paid plan and nothing to unlock. You keep most of every sale, tip and membership read, and each series shows you the exact percentages before you publish.' },
-    { icon: <Frame />, title: 'Frames in one click', body: 'Upload a PDF, a CBZ or loose images. One button finds the panels on every page so your comic reads frame by frame on a phone. It is classical image analysis, not generative AI, and you can correct any page by hand.' },
+    { icon: <Frame />, title: 'Frames in one click', body: 'Upload a PDF, a CBZ or loose images. One button finds the panels on every page so your comic reads frame by frame on a phone. You can correct any page by hand.' },
     { icon: <Ticket />, title: 'Backer codes', body: 'Ran a crowdfunding campaign? Import your backer list, generate one code per backer for each reward tier and email them from here.' },
     { icon: <BookOpenCheck />, title: 'You set the paywall', body: `Make a series free, sell releases one by one, or include it in ${settings.membership.name}. Choose how much readers can preview before they pay.` },
     { icon: <UsersRound />, title: 'Bring your team', body: 'Invite editors, analysts and co-owners. Split a series\' earnings with collaborators and each is paid into their own balance.' },

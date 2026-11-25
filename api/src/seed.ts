@@ -17,7 +17,7 @@ import { migrate } from './migrate.ts';
  *   Long Way Down                webcomic, vertical scroll
  *   After Hours (adult sample)   marked mature / Not safe for work, to exercise the 18+ gate
  *
- * The pages are drawn here with sharp (panel grids, flat colours, simple
+ * The pages are drawn here with sharp (panel grids, flat colors, simple
  * shapes: no artwork from anywhere else, and nothing explicit in the adult
  * sample) and go through the same upload -> ingestion -> frame detection ->
  * publish path as a creator's files (CBZ, PDF and loose images).
@@ -74,7 +74,7 @@ export async function synthPage(seed: number, index: number, opts: SynthOpts = {
   const h = opts.height ?? 2100;
   const rand = rng(seed * 7919 + index * 104729 + 17);
   const palette = opts.palette ?? PALETTES[seed % PALETTES.length];
-  const pickColour = () => palette[Math.floor(rand() * palette.length)];
+  const pickColor = () => palette[Math.floor(rand() * palette.length)];
   let body: string;
   if (opts.cover ?? index === 0) {
     const [a, b, c] = [palette[0], palette[3], palette[2]];
@@ -93,7 +93,7 @@ export async function synthPage(seed: number, index: number, opts: SynthOpts = {
     const panels = layout
       .map(([x, y, pw, ph], i) => {
         const px = x * w, py = y * h, ww = pw * w, hh = ph * h;
-        const bg = pickColour();
+        const bg = pickColor();
         const fg = palette.find((c) => c !== bg) ?? '#ffffff';
         const horizon = py + hh * (0.55 + rand() * 0.25);
         const cx = px + ww * (0.25 + rand() * 0.5);

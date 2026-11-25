@@ -53,8 +53,7 @@ Read this before touching anything.
 - No placeholders, no fake data, no "coming soon" handlers. If part of your
   brief genuinely cannot be done, leave it out and say so in your report.
 - Never write secrets, real emails, or personal data into the repo (it is
-  public). No AI-generation features: this platform's stance is no generative
-  AI; frame detection is classical image processing.
+  public).
 - Stay inside the files you were assigned. If you need a change in a shared
   file (`lib/*.ts` you do not own, `server.ts`, migrations 001–005), do not
   make it: describe it in your report.

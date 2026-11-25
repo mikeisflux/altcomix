@@ -378,7 +378,7 @@ test('auto-reply: once per sender per day, never to robots, lists or automatic m
   assert.equal(isAutomated('x@y.example', parseHeaders('Return-Path: <>\n')), true);
 });
 
-test('hostile HTML is sanitised before it is stored', async () => {
+test('hostile HTML is sanitized before it is stored', async () => {
   const hostile = [
     '<html><head><title>x</title><style>body{background:url(https://evil.example/bg.png)}</style>',
     '<script>window.__pwned = 1</script><meta http-equiv="refresh" content="0;url=https://evil.example"></head>',
@@ -415,7 +415,7 @@ test('hostile HTML is sanitised before it is stored', async () => {
   assert.doesNotMatch(e.text_body, /alert|background|<|__pwned|javascript/i);
   assert.match(e.text_body, /four \(https:\/\/ok\.example\/page\?a=1&b=2\)/);
 
-  // The sanitiser on its own.
+  // The sanitizer on its own.
   assert.equal(sanitizeMailHtml('<p>a<script>x</p>'), '<p>a</p>');
   assert.equal(sanitizeMailHtml('<img src="x" onerror="alert(1)"'), '');
   assert.equal(sanitizeMailHtml('<a href="https://a.example/" title="x" href="javascript:1">l</a>'), '<a href="https://a.example/" title="https://a.example/" target="_blank" rel="noopener noreferrer nofollow">l</a>');

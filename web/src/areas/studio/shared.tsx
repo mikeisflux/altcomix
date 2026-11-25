@@ -307,7 +307,7 @@ export const TIMEZONES: string[] = ['UTC', ...Intl.supportedValuesOf('timeZone')
 export const STATUS_TONE = { draft: 'neutral', scheduled: 'info', published: 'ok' } as const;
 export const VISIBILITY_LABEL: Record<string, string> = { draft: 'Draft', public: 'Public', unlisted: 'Unlisted' };
 export const ACCESS_LABEL: Record<string, string> = { blocked: 'Blocked', free: 'Free', premium: 'Premium' };
-export const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, ' ');
+export const cap = (s: string) => (s === 'cancelled' ? 'Canceled' : s).charAt(0).toUpperCase() + s.slice(1).replace(/_/g, ' ');
 
 /** Section card with a heading, used all over the editors. */
 export function Section({ title, description, actions, children, id }: { title: string; description?: ReactNode; actions?: ReactNode; children: ReactNode; id?: string }) {

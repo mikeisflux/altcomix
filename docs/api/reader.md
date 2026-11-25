@@ -23,7 +23,7 @@ checkout, membership, codes, embeddable widgets. Source:
   from: `POST /api/checkout` (every kind: releases, series, bundles, tips, gift cards, credits),
   `POST /api/membership/start`, `POST /api/comments`, `POST /api/forums/threads`,
   `POST /api/forums/threads/:id/posts`, `PATCH /api/forums/posts/:id`, `POST /api/reports`,
-  `POST /api/comments/:id/report` and `POST /api/messages`. Reading, following, favouriting,
+  `POST /api/comments/:id/report` and `POST /api/messages`. Reading, following, favoriting,
   `POST /api/checkout/quote` and `POST /api/codes/redeem` stay open. One helper does it
   (`requireConfirmedEmail` in `lib/email.ts`). The web app answers the code with a prompt and a
   "Resend confirmation email" button (`POST /api/auth/resend-verification`, 3 per 15 minutes).
@@ -64,7 +64,7 @@ never listed.
 
 ---
 
-## 1. Catalogue (`routes/catalog.ts`)
+## 1. Catalog (`routes/catalog.ts`)
 
 | Method | Path | Auth | |
 |---|---|---|---|
@@ -311,9 +311,9 @@ PDF export. Limited to 30 downloads per hour per reader.
 | GET | `/api/library/owned` | user | Owned releases (paged) |
 | GET | `/api/library/downloads` | user | Owned releases with a download (paged) |
 | GET | `/api/library/following` | user | Followed series + brands |
-| GET | `/api/library/favorites` | user | Favourite series |
+| GET | `/api/library/favorites` | user | Favorite series |
 | POST / DELETE | `/api/series/:slug/follow` | user | Follow / unfollow a series |
-| POST / DELETE | `/api/series/:slug/favorite` | user | Favourite / unfavourite |
+| POST / DELETE | `/api/series/:slug/favorite` | user | Favorite / unfavorite |
 | POST / DELETE | `/api/brands/:slug/follow` | user | Follow / unfollow a brand |
 
 Shapes:
@@ -333,7 +333,7 @@ Brand    = { "id", "slug", "name", "kind", "avatar_url", "followed_at" }
 - `/owned`, `/downloads` → `{ items: [Owned], total, page, limit }`
 - `/following` → `{ items: [Card], brands: [Brand], page, limit }`; `/favorites` → `{ items: [Card], page, limit }`
 - Follow series: optional body `{ "notify": bool }` (default true; POST again to change it) → `{ following: true, notify, follower_count }`; DELETE → `{ following: false, follower_count }`
-- Favourite → `{ favorite: bool, favorite_count }`
+- Favorite → `{ favorite: bool, favorite_count }`
 - Follow brand → `{ following: bool, follower_count }` (the brand's owners/admins get a notification the first time)
 
 Counters only move when a row was really added or removed, so repeating a call is safe.
@@ -512,7 +512,7 @@ Prefs = { "show_mature": false, "reading_language": null /* any */, "interface_l
 - Sessions → `{ items: [ { id, current, ip, user_agent, created_at, last_seen_at, expires_at } ] }`; `id` is a 16-character handle.
 - `POST /api/account/delete` `{ "password" }` → `{ ok }`. Soft delete: email,
   username, name, bio, avatar, settings and the saved payment method token are
-  wiped; sessions, follows, favourites and notifications are removed; the
+  wiped; sessions, follows, favorites and notifications are removed; the
   membership stops renewing. Orders stay (anonymous). 409 when the reader is
   the only owner of a brand.
 - Wallet → `{ wallet: { credit_cents, page_credits, updated_at }, page_credit_cents, log: [ { id, kind, credit_cents, page_credits, note, created_at } ], total, page, limit }`.
@@ -689,7 +689,7 @@ minutes; beyond that the stored state is returned without asking the processor).
              "return_to",
              "payment_state": "pending"|"paid"|"failed"|"expired"|"canceled"|"refunded",
                                                      // `failed` = the card was not accepted; `expired` = the session timed out;
-                                                     // `canceled` = the checkout was cancelled. All three have status "failed".
+                                                     // `canceled` = the checkout was canceled. All three have status "failed".
              "failure": string|null,                 // one sentence for the buyer, never null when the order failed: the bank's
                                                      // decline reason when the processor gave one ("The card does not have enough
                                                      // available funds. …"), else a plain "nothing was charged" line
@@ -838,7 +838,7 @@ Rules: disabled, not-yet-active and expired codes are refused; `max_redemptions`
 is enforced; one use per account (409); a code with `assigned_email` needs the
 redeemer's **confirmed** address to match (403); discount codes are for
 checkout (`code_wrong_kind`); membership and credit codes owned by a brand are
-not honoured. Limited to 8 attempts per account and 30 per network per hour (429).
+not honored. Limited to 8 attempts per account and 30 per network per hour (429).
 
 ### POST /api/pages/:id/unlock
 

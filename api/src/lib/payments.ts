@@ -557,7 +557,7 @@ export type FailureState = 'failed' | 'expired' | 'canceled';
 export const FAILURE_TEXT: Record<FailureState, string> = {
   failed: 'The card was not accepted, so nothing was charged.',
   expired: 'The checkout timed out before it was paid, so nothing was charged.',
-  canceled: 'The checkout was cancelled before it was paid, so nothing was charged.',
+  canceled: 'The checkout was canceled before it was paid, so nothing was charged.',
 };
 
 /**

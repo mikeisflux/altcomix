@@ -17,7 +17,6 @@ const HARD_LIMITS = [
   'Sexual depiction of a real person without their consent',
   'Published without the rights to the work',
   'Illegal content',
-  'AI-generated comic',
 ];
 const LIMITS_NOTE = 'Explicit adult content is allowed when it carries the 18+ label, so "too explicit" is not a reason to remove a title. If the label is simply missing, add the label instead.';
 
@@ -149,7 +148,7 @@ export function ReportsPage() {
 
   const resolve = (r: R, body: R, ok: string) => run({ key: r.id, fn: () => api<R>(`/api/admin/reports/${r.id}/resolve`, { json: body }), ok: (res) => (res.closed > 1 ? `${ok}. ${res.closed} reports about the same thing were closed.` : ok) });
   const dismiss = async (r: R) => {
-    if (await confirm({ title: 'Dismiss this report?', body: `${r.open_on_target > 1 ? `Nothing is changed. All ${r.open_on_target} open reports about this are closed.` : 'Nothing is changed and the report is closed.'} This is the right call when the work is within the rules, including labelled adult content.`, confirmLabel: 'Dismiss' })) void resolve(r, { decision: 'dismiss' }, 'Report dismissed');
+    if (await confirm({ title: 'Dismiss this report?', body: `${r.open_on_target > 1 ? `Nothing is changed. All ${r.open_on_target} open reports about this are closed.` : 'Nothing is changed and the report is closed.'} This is the right call when the work is within the rules, including labeled adult content.`, confirmLabel: 'Dismiss' })) void resolve(r, { decision: 'dismiss' }, 'Report dismissed');
   };
   /** The usual answer to "this is too explicit": label it, leave it published, close the report. */
   const label18 = async (r: R, seriesId: string) => {
@@ -184,7 +183,7 @@ export function ReportsPage() {
       <PageHeader title="Reports" description="What readers have flagged. Each button closes the report and carries out the step in one go." />
       <div className="mb-4">
         <Notice>
-          Adult and explicit work is allowed when it carries the 18+ label. Remove something only when it breaks a hard limit: {HARD_LIMITS.map((l) => (l.startsWith('AI') ? l : l.charAt(0).toLowerCase() + l.slice(1))).join('; ')}. For a correctly labelled adult title reported as too explicit, dismiss the report.
+          Adult and explicit work is allowed when it carries the 18+ label. Remove something only when it breaks a hard limit: {HARD_LIMITS.map((l) => l.charAt(0).toLowerCase() + l.slice(1)).join('; ')}. For a correctly labeled adult title reported as too explicit, dismiss the report.
         </Notice>
       </div>
       <FilterBar>

@@ -13,7 +13,7 @@ import {
   acceptUpload, coverUrls, deletePages, detectPageFrames, idParam, isUuid, kickJobs, queueArchiveJob, queueDetectJob, receiveMultipart,
   refreshReleaseCover, setSeriesCoverFromPage,
 } from '../lib/ingest.ts';
-import { RefineError, analysePage, detectFromGrey, frameSchema, framesSchema, normaliseFrame, orderFrames, refineFrame, smartFrame } from '../lib/panels.ts';
+import { RefineError, analyzePage, detectFromGray, frameSchema, framesSchema, normalizeFrame, orderFrames, refineFrame, smartFrame } from '../lib/panels.ts';
 import type { Analysis, Frame } from '../lib/panels.ts';
 import { storage } from '../lib/storage.ts';
 
@@ -64,21 +64,21 @@ const jobView = (j: Row) => ({
   detected: j.payload?.detected ?? null, kept_manual: j.payload?.kept_manual ?? null, created_at: j.created_at, finished_at: j.finished_at,
 });
 
-// Analysed pages are kept briefly so a run of smart-frame clicks on one page is instant.
-const analysed = new Map<string, Analysis>();
+// Analyzed pages are kept briefly so a run of smart-frame clicks on one page is instant.
+const analyzed = new Map<string, Analysis>();
 async function analysisFor(page: Row): Promise<Analysis> {
-  const hit = analysed.get(page.id);
+  const hit = analyzed.get(page.id);
   if (hit) {
-    analysed.delete(page.id);
-    analysed.set(page.id, hit);
+    analyzed.delete(page.id);
+    analyzed.set(page.id, hit);
     return hit;
   }
   const store = await storage();
   const img = (await store.read(page.variants?.medium ?? '')) ?? (await store.read(page.source_key));
   if (!img) throw notFound('The image for this page is missing');
-  const a = await analysePage(img);
-  analysed.set(page.id, a);
-  if (analysed.size > 16) analysed.delete(analysed.keys().next().value!);
+  const a = await analyzePage(img);
+  analyzed.set(page.id, a);
+  if (analyzed.size > 16) analyzed.delete(analyzed.keys().next().value!);
   return a;
 }
 
@@ -303,7 +303,7 @@ export default async function (app: FastifyInstance) {
     const body = parse(
       z.object({
         is_free: z.boolean().nullable().optional(),
-        bg_color: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Use a colour like #1a1c20').transform((v) => v.toLowerCase()).optional(),
+        bg_color: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Use a color like #1a1c20').transform((v) => v.toLowerCase()).optional(),
       }),
       req.body,
     );
@@ -320,7 +320,7 @@ export default async function (app: FastifyInstance) {
   app.delete('/api/studio/pages/:id', async (req) => {
     const { page, release } = await requirePage(req);
     await deletePages(release.id, [page.id]);
-    analysed.delete(page.id);
+    analyzed.delete(page.id);
     audit(req, 'page.delete', { kind: 'release', id: release.id }, { count: 1 });
     return { ok: true, deleted: 1 };
   });
@@ -331,7 +331,7 @@ export default async function (app: FastifyInstance) {
     const r = await requireReleaseMember(req, idParam(req), 'editor');
     const body = parse(z.object({ ids: idList }), req.body);
     const deleted = await deletePages(r.id, [...new Set(body.ids)]);
-    for (const id of body.ids) analysed.delete(id);
+    for (const id of body.ids) analyzed.delete(id);
     audit(req, 'page.delete', { kind: 'release', id: r.id }, { count: deleted });
     return { ok: true, deleted };
   });
@@ -395,7 +395,7 @@ export default async function (app: FastifyInstance) {
   app.put('/api/studio/pages/:id/frames', async (req) => {
     const { page, release } = await requirePage(req);
     const body = parse(z.object({ frames: framesSchema, auto_order: z.boolean().optional() }), req.body);
-    let frames = body.frames.map((f) => normaliseFrame(f as Frame));
+    let frames = body.frames.map((f) => normalizeFrame(f as Frame));
     if (body.auto_order) {
       const s = await one<{ reading_dir: 'ltr' | 'rtl' }>('select reading_dir from series where id = $1', [release.series_id]);
       frames = orderFrames(frames, s!.reading_dir);
@@ -412,7 +412,7 @@ export default async function (app: FastifyInstance) {
     const s = await one<{ reading_dir: 'ltr' | 'rtl' }>('select reading_dir from series where id = $1', [release.series_id]);
     if (body.save === false) {
       const a = await analysisFor(page);
-      return { frames: detectFromGrey(a.grey, a.w, a.h, { dir: s!.reading_dir }), saved: false, frames_status: framesStatus(page) };
+      return { frames: detectFromGray(a.gray, a.w, a.h, { dir: s!.reading_dir }), saved: false, frames_status: framesStatus(page) };
     }
     try {
       await detectPageFrames(page, s!.reading_dir);

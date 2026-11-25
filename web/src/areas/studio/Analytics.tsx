@@ -84,7 +84,7 @@ function Overview({ brandId, q }: { brandId: string; q: RangeQuery }) {
             </StatGroup>
             <StatGroup title="Engagement">
               <Stat label="New followers" value={number(d.engagement.followers.value)} delta={d.engagement.followers.change} hint={`${number(d.engagement.followers_total)} in total`} />
-              <Stat label="New favourites" value={number(d.engagement.favorites.value)} delta={d.engagement.favorites.change} hint={`${number(d.engagement.favorites_total)} in total`} />
+              <Stat label="New favorites" value={number(d.engagement.favorites.value)} delta={d.engagement.favorites.change} hint={`${number(d.engagement.favorites_total)} in total`} />
               <Stat label="Forum posts" value={number(d.engagement.forum_posts.value)} delta={d.engagement.forum_posts.change} />
               <Stat label="Comments" value={number(d.engagement.comments.value)} delta={d.engagement.comments.change} />
             </StatGroup>
@@ -217,7 +217,7 @@ function Engagement({ brandId, q }: { brandId: string; q: RangeQuery }) {
           <div className="flex justify-end"><Csv brandId={brandId} path="engagement" q={q} /></div>
           <div className="grid gap-4 lg:grid-cols-3">
             {(['favorites', 'comments', 'forum_posts'] as const).map((k) => (
-              <Panel key={k} title={k === 'favorites' ? 'Favourites per day' : k === 'comments' ? 'Comments per day' : 'Forum posts per day'} note={`${number(d.rows.reduce((n, r) => n + r[k], 0))} in this period`}>
+              <Panel key={k} title={k === 'favorites' ? 'Favorites per day' : k === 'comments' ? 'Comments per day' : 'Forum posts per day'} note={`${number(d.rows.reduce((n, r) => n + r[k], 0))} in this period`}>
                 <BarChart data={d.rows.map((r) => ({ label: day(r.day), value: r[k] }))} format={number} height={120} />
               </Panel>
             ))}

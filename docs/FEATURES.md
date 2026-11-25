@@ -1,4 +1,4 @@
-# NSFWComix feature catalogue
+# NSFWComix feature catalog
 
 Source: 36 screenshots of the GlobalComix creator and reader UI (Drive folder
 "global comix shots", captured 23 Nov 2026), each read at full resolution.
@@ -64,7 +64,7 @@ Divinity payments yet. The `partial` rows:
 
 | # | Seen | NSFWComix | Status |
 |---|---|---|---|
-| 3.1 | "Pick one to start" favourite-genre picker: Superhero & Action; Sci-Fi & Fantasy; Manga, Action & Adventure; Manga, Romance & Fantasy; Horror & Mystery; A little bit of everything. Save / Cancel. | Same six-way picker, tunes the store rows | done |
+| 3.1 | "Pick one to start" favorite-genre picker: Superhero & Action; Sci-Fi & Fantasy; Manga, Action & Adventure; Manga, Romance & Fantasy; Horror & Mystery; A little bit of everything. Save / Cancel. | Same six-way picker, tunes the store rows | done |
 
 ## 4. Account settings
 
@@ -102,7 +102,7 @@ Divinity payments yet. The `partial` rows:
 | 5.2 | "New Releases" row with Last week / Earlier tabs and View All | Same | | done |
 | 5.3 | Cover cards with issue/chapter number badge | Same | Price / Free / Unlimited badge on the card | done |
 | 5.4 | Sale callouts ("50% Off – Volumes …") | Publisher discounts surface as sale rows | | done |
-| 5.5 | "Originals" section | Staff picks + spotlight rows | Indie titles are never buried under licensed catalogues: dedicated "Independent" rows | done |
+| 5.5 | "Originals" section | Staff picks + spotlight rows | Indie titles are never buried under licensed catalogs: dedicated "Independent" rows | done |
 
 ## 6. Brand (publisher / creator) public profile
 
@@ -144,7 +144,7 @@ Top tabs: SETTINGS, ANALYTICS, SERIES.
 | 7.14 | Revenue: Payout settings | Payout method + details | | done |
 | 7.15 | Revenue: Donation settings | Tips on/off, monthly goal | | done |
 | 7.16 | Revenue: Revenue splitting (beta) | Per-series percentage splits to collaborators | Splits are paid automatically into each collaborator's own balance | done |
-| 7.17 | Revenue: Payouts & revenue | Ledger, balance, payout requests | Every cent itemised; pending vs confirmed never differ silently | done |
+| 7.17 | Revenue: Payouts & revenue | Ledger, balance, payout requests | Every cent itemized; pending vs confirmed never differ silently | done |
 | 7.18 | Billing: Subscriptions, Payment methods, Order history | Not needed for creators | Publishing is free: no paid "Pro" tier to unlock a better share | n/a |
 | 7.19 | Team: Members | Invite by email/username | | done |
 | 7.20 | Team: Roles | Owner, Admin, Editor, Analyst | | done |
@@ -156,7 +156,7 @@ Top tabs: SETTINGS, ANALYTICS, SERIES.
 | 8.1 | Title | Same | | done |
 | 8.2 | Language | Same | | done |
 | 8.3 | Original publishing year | Same | | done |
-| 8.4 | Status (Ongoing …) | Ongoing, Completed, Hiatus, Cancelled | | done |
+| 8.4 | Status (Ongoing …) | Ongoing, Completed, Hiatus, Canceled | | done |
 | 8.5 | Type: Comic, Graphic Novel, Manga, WebComic | Same | | done |
 | 8.6 | Genre (single) | Same | | done |
 | 8.7 | Theme (max 6) | Same | | done |
@@ -208,7 +208,7 @@ Crowdfunding), COMMUNITY (Forums).
 | 9.17 | Original publishing year, Status | Same | done |
 | 9.18 | Reading direction | Same | done |
 | 9.19 | Display in public lists (unlisted but reachable by link) | Visibility: Draft / Public / Unlisted | done |
-| 9.20 | Read Now button widget: colour, size, iframe embed code | Same, plus cover-card embed | done |
+| 9.20 | Read Now button widget: color, size, iframe embed code | Same, plus cover-card embed | done |
 | 9.21 | Contributors (people + roles) | Same | done |
 | 9.22 | Languages (add a translated edition) | Same | done |
 | 9.23 | Monetization settings (duplicate of Paywall) | Single Paywall tab | n/a |
@@ -244,7 +244,7 @@ Crowdfunding), COMMUNITY (Forums).
 | 10.12 | Processing bar ("Waiting for server…", "19 / 32 pages processed") | Live progress | | done |
 | 10.13 | Page grid: thumbnail, checkbox, #n, Edit, View, gear | Same | Drag to reorder; multi-select bulk free/delete | done |
 | 10.14 | "Missing Frames" badge on every page until done by hand | Frame status badge | **One click detects frames for the whole release** | done |
-| 10.15 | Double-page pair badges (D-7, D-8 … alternating colours) | Spread pairing badges | | done |
+| 10.15 | Double-page pair badges (D-7, D-8 … alternating colors) | Spread pairing badges | | done |
 | 10.16 | "Free" badge on page thumbnails | Free / Locked badge | | done |
 | 10.17 | Page settings dialog: preview; filename, size, created, status; View Original / Desktop CDN / Mobile CDN / Thumbnail CDN; width, height, DPI; "Always free to read"; Set as series cover; Set as release cover; Save / Cancel / Delete | Same | | done |
 | 10.18 | Publishing status: Share privately (Copy private URL), status dot, date, Preview, Schedule & Publish | Same | | done |
@@ -259,9 +259,9 @@ Crowdfunding), COMMUNITY (Forums).
 | 11.1 | Page pager: first, prev, "n of N", next, last | Same + arrow keys | | done |
 | 11.2 | Zoom out, reset, zoom in, fullscreen | Same + wheel zoom | | partial |
 | 11.3 | Left panel tabs: Text, Frames | Same | | done |
-| 11.4 | Background colour per page (#000000) | Same | Auto-sampled from the page edge | done |
+| 11.4 | Background color per page (#000000) | Same | Auto-sampled from the page edge | done |
 | 11.5 | Frame list ("Frame 1", drag handle, delete) | Same, drag to reorder | | done |
-| 11.6 | "AI-Suggested Frames — SHOW" | "Detect frames" | Classical image analysis of gutters, not generative AI; nothing leaves the server | done |
+| 11.6 | "AI-Suggested Frames — SHOW" | "Detect frames" | Image analysis of gutters; nothing leaves the server | done |
 | 11.7 | Tool: Select | Same (V) | | done |
 | 11.8 | Tool: Grab / pan (H) | Same | | done |
 | 11.9 | Tool: Create frame by clicking vertices (P) | Polygon tool | | done |
@@ -290,7 +290,7 @@ Crowdfunding), COMMUNITY (Forums).
 
 | # | Seen / implied | NSFWComix | Status |
 |---|---|---|---|
-| 13.1 | Library | Continue reading, owned, following, favourites | done |
+| 13.1 | Library | Continue reading, owned, following, favorites | done |
 | 13.2 | Downloads shelf (`/my-shelf/downloads`) | Purchased downloads | done |
 | 13.3 | Membership page | Plan, renewal date, cancel | done |
 | 13.4 | Purchases | Order history with receipts | done |

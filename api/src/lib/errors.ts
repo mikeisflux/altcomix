@@ -8,7 +8,7 @@ import { sha256 } from './crypto.ts';
  */
 const recent = new Map<string, { n: number; at: number }>();
 
-function normalise(msg: string): string {
+function normalize(msg: string): string {
   return msg
     .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '<id>')
     .replace(/\d+/g, '<n>')
@@ -20,7 +20,7 @@ export function captureError(
   ctx: { source: 'api' | 'web' | 'job'; endpoint?: string; level?: 'error' | 'warning'; meta?: Record<string, unknown> },
 ): void {
   const e = err instanceof Error ? err : new Error(String(err));
-  const fingerprint = sha256(`${ctx.source}:${ctx.endpoint ?? ''}:${normalise(e.message)}`);
+  const fingerprint = sha256(`${ctx.source}:${ctx.endpoint ?? ''}:${normalize(e.message)}`);
   const now = Date.now();
   const seen = recent.get(fingerprint);
   // At most 3 writes per fingerprint per 5 seconds.

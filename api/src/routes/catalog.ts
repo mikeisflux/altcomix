@@ -229,7 +229,7 @@ export default async function catalogRoutes(app: FastifyInstance) {
       sale,
       independent: [
         { id: 'independent:new', title: 'New from independent creators', items: indieNew },
-        { id: 'independent:popular', title: 'Independent favourites', items: indiePopular },
+        { id: 'independent:popular', title: 'Independent favorites', items: indiePopular },
       ].filter((r) => r.items.length),
       continue_reading: u ? await continueReading(req, 12) : [],
       favorite_genre: fav ? { id: fav.id, label: fav.label } : null,

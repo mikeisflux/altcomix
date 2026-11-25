@@ -253,7 +253,6 @@ function DiscoverySection({ prefs }: { prefs: Prefs }) {
         label="Show mature content (18+)"
         description="Titles marked for adults are hidden everywhere unless this is on."
       />
-      <p className="mt-2 text-xs text-faint">There is no setting for AI-generated comics because they are not accepted here at all.</p>
       <Modal
         open={asking}
         onClose={() => setAsking(false)}
@@ -468,7 +467,7 @@ function PasswordSection({ username }: { username: string }) {
   );
 }
 
-/** "Chrome on macOS" from a user-agent string; good enough to recognise your own devices. */
+/** "Chrome on macOS" from a user-agent string; good enough to recognize your own devices. */
 function device(ua: string | null): string {
   if (!ua) return 'Unknown device';
   const browser = /Edg\//.test(ua) ? 'Edge' : /OPR\//.test(ua) ? 'Opera' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : /curl\//.test(ua) ? 'curl' : null;
@@ -542,7 +541,7 @@ function SecuritySection() {
           </ul>
           {others > 0 ? (
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
-              <p className="text-sm text-muted">See something you do not recognise? Sign out everywhere else, then change your password.</p>
+              <p className="text-sm text-muted">See something you do not recognize? Sign out everywhere else, then change your password.</p>
               <Button
                 loading={revokeOthers.isPending}
                 onClick={async () => {

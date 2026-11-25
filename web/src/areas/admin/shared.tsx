@@ -259,7 +259,7 @@ export function SearchInput({ value, onChange, placeholder, label }: { value: st
   );
 }
 
-/** A labelled dropdown filter. The first option is normally the "any" choice. */
+/** A labeled dropdown filter. The first option is normally the "any" choice. */
 export function FilterSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: [string, string][] }) {
   return (
     <span className="block w-[calc(50%-0.25rem)] min-w-0 sm:w-auto sm:min-w-36">
@@ -393,7 +393,7 @@ export function EmailFrame({ html, title }: { html: string; title: string }) {
   return <iframe title={title} sandbox="" srcDoc={html} referrerPolicy="no-referrer" className="h-[520px] w-full rounded-xl border border-line bg-paper" />;
 }
 
-/** A labelled group of controls. Use instead of Field when the content is several buttons, which a <label> must not wrap. */
+/** A labeled group of controls. Use instead of Field when the content is several buttons, which a <label> must not wrap. */
 export function Group({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div role="group" aria-label={label}>

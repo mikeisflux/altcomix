@@ -102,7 +102,7 @@ export default async function adminEmailRoutes(app: FastifyInstance) {
       const id = idParam(req);
       const e = await one<{ status: string; to_email: string }>('select status, to_email from emails where id = $1', [id]);
       if (!e) throw notFound('Email not found');
-      if (!['failed', 'suppressed', 'cancelled'].includes(e.status)) throw conflict(`This email is ${e.status}; only failed, suppressed or cancelled emails can be retried`);
+      if (!['failed', 'suppressed', 'cancelled'].includes(e.status)) throw conflict(`This email is ${e.status}; only failed, suppressed or canceled emails can be retried`);
       if (await one('select 1 from email_suppressions where email = $1', [e.to_email.toLowerCase()])) {
         throw badRequest('This address is on the suppression list. Remove it there first.');
       }
@@ -114,10 +114,10 @@ export default async function adminEmailRoutes(app: FastifyInstance) {
     s.post('/api/admin/emails/:id/cancel', async (req) => {
       requireAdmin(req);
       const id = idParam(req);
-      const e = await one(`update emails set status = 'cancelled', error = 'Cancelled by an admin' where id = $1 and status = 'queued' returning to_email`, [id]);
+      const e = await one(`update emails set status = 'cancelled', error = 'Canceled by an admin' where id = $1 and status = 'queued' returning to_email`, [id]);
       if (!e) {
         if (!(await one('select 1 from emails where id = $1', [id]))) throw notFound('Email not found');
-        throw conflict('Only emails still waiting in the queue can be cancelled');
+        throw conflict('Only emails still waiting in the queue can be canceled');
       }
       audit(req, 'email.cancel', { kind: 'email', id }, { to: e.to_email });
       return { ok: true };
@@ -162,7 +162,7 @@ export default async function adminEmailRoutes(app: FastifyInstance) {
             key,
             category: t.category,
             vars: [...new Set([...t.vars, 'site'])],
-            customised: Boolean(o),
+            customized: Boolean(o),
             subject: o?.subject ?? t.subject,
             html: o?.html ?? t.html,
             default_subject: t.subject,

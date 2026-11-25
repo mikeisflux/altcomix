@@ -6,7 +6,7 @@ alter table reports add constraint reports_target_kind_check
   check (target_kind in ('series','release','comment','publisher','user','forum_post','forum_thread'));
 
 -- Partial refunds: how much of the card charge has gone back so far. The
--- order stays `paid` and keeps what it unlocked; each refund is itemised in
+-- order stays `paid` and keeps what it unlocked; each refund is itemized in
 -- orders.meta.partial_refunds (ref, amount, creator / platform / fee parts).
 alter table orders add column refunded_cents integer not null default 0 check (refunded_cents >= 0);
 

@@ -74,7 +74,7 @@ function RedeemResult({ result, next, currency, membershipName }: { result: Rede
       </>
     );
   } else if (result.kind === 'membership') {
-    detail = <>You have {membershipName} until {date(result.member_until)}: everything in the membership catalogue is open to you. It ends by itself on that date and nothing is charged.</>;
+    detail = <>You have {membershipName} until {date(result.member_until)}: everything in the membership catalog is open to you. It ends by itself on that date and nothing is charged.</>;
     action = <LinkButton to="/account/membership" variant="primary" size="sm" className="h-10">See your membership</LinkButton>;
   } else {
     detail = <>You now have {plural(result.page_credits, 'page credit')}. Each credit opens one locked page of a pay-per-page comic; spend them from the reader when you reach a locked page.</>;
@@ -375,7 +375,7 @@ const PAID_WITH: Record<string, string> = { sandbox: 'Test payment (sandbox)', d
  * Printing a receipt prints the receipt and nothing else. A second copy of it
  * is mounted straight under <body>, hidden on screen; the print rules hide
  * every other child of <body> (the whole app shell) and show that copy in
- * dark-on-white by re-pointing the colour tokens inside it.
+ * dark-on-white by re-pointing the color tokens inside it.
  */
 const PRINT_ID = 'receipt-print';
 const PRINT_CSS = `
@@ -567,7 +567,7 @@ export function Membership() {
     mutationFn: () => api<MembershipView>('/api/membership/cancel', { method: 'POST' }),
     onSuccess: async (v) => {
       await apply(v);
-      toast.success(v.member ? 'Renewal cancelled. You keep access until the period ends.' : 'Membership cancelled');
+      toast.success(v.member ? 'Renewal canceled. You keep access until the period ends.' : 'Membership canceled');
     },
     onError: (e) => toast.error(errorMessage(e)),
   });
@@ -640,7 +640,7 @@ export function Membership() {
             title={`You are not a ${plans.name} member`}
             action={<LinkButton to={onward ? `/unlimited?next=${encodeURIComponent(onward)}` : '/unlimited'} variant="primary" size="lg">See what {plans.name} includes</LinkButton>}
           >
-            Read everything in the membership catalogue for {money(plans.monthly_cents, currency)} a month{plans.annual_cents ? ` or ${money(plans.annual_cents, currency)} a year` : ''}
+            Read everything in the membership catalog for {money(plans.monthly_cents, currency)} a month{plans.annual_cents ? ` or ${money(plans.annual_cents, currency)} a year` : ''}
             {plans.trial_days ? `, with ${plans.trial_days} days free to start` : ''}. Your reading pays the creators you actually read. Have a membership code?{' '}
             <Link className="link" to="/account/codes">Redeem it</Link>.
           </EmptyState>
@@ -672,7 +672,7 @@ export function Membership() {
                   : sub.from_code
                   ? `From a code. It ends on ${date(sub.current_period_end)} and nothing is charged.`
                   : ending
-                    ? `You cancelled renewal. You keep full access until ${date(sub.current_period_end)}, then it ends.`
+                    ? `You canceled renewal. You keep full access until ${date(sub.current_period_end)}, then it ends.`
                     : `Renews on ${date(sub.renews_at)} for ${moneyExact(sub.price_cents, currency)}.`
               }
             />
@@ -714,7 +714,7 @@ export function Membership() {
             )}
           </Card>
           <p className="text-sm text-muted">
-            <Link className="link" to="/unlimited">Browse the membership catalogue</Link>
+            <Link className="link" to="/unlimited">Browse the membership catalog</Link>
             {sub.from_code ? <> · Have another code? <Link className="link" to="/account/codes">Redeem it</Link> to add more time.</> : null}
           </p>
         </div>

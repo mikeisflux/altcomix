@@ -4,7 +4,7 @@
 //   node web/scripts/brand-assets.mjs          (needs Playwright + Chromium)
 //
 // Output goes to web/public/brand/ and web/public/. Re-run after changing the
-// mark, colours or tagline below.
+// mark, colors or tagline below.
 import { readFileSync, mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
@@ -97,7 +97,7 @@ const shots = [
   ['brand/key.png', keycap(256), null, null, true],
   ['brand/logo-on-dark.png', lockup(160, PAPER), null, null, true],
   ['brand/logo-on-light.png', lockup(160, INK, INK, HOT, 'rgba(255,255,255,.14)'), null, null, true],
-  ['brand/logo-one-colour-light.png', lockup(160, INK, INK, PAPER, 'rgba(255,255,255,.14)'), null, null, true],
+  ['brand/logo-one-color-light.png', lockup(160, INK, INK, PAPER, 'rgba(255,255,255,.14)'), null, null, true],
   ['brand/og-image.png', og, 1200, 630, false],
   ['brand/og-series.png', ogSeries, 1200, 630, false],
   ['brand/og-mature-overlay.png', ogMature, 360, 540, true],

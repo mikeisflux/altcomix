@@ -87,7 +87,7 @@ test('preview computes the split and writes nothing', async () => {
   assert.equal((await one<{ n: number }>('select count(*)::int as n from sub_months where settled_at is not null'))!.n, 0);
 });
 
-test('settlement splits each member by what they read, pools non-readers, honours share overrides and splits', async () => {
+test('settlement splits each member by what they read, pools non-readers, honors share overrides and splits', async () => {
   const r = await settleMonth(MONTH, { ranBy: null });
   /*
    * By hand:

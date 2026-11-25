@@ -78,7 +78,7 @@ const timing = (key: 'backstopDelay' | 'backstopEvery' | 'settleEvery', fallback
 const FALLBACK: Record<'failed' | 'expired' | 'canceled', string> = {
   failed: 'The card was not accepted, so nothing was charged.',
   expired: 'The payment form timed out before it was paid, so nothing was charged.',
-  canceled: 'The payment was cancelled before it finished, so nothing was charged.',
+  canceled: 'The payment was canceled before it finished, so nothing was charged.',
 };
 
 /** Which surface this browser gets. The owner can switch the framed form off for everyone. */

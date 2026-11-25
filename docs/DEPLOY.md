@@ -111,7 +111,7 @@ appears to come from the proxy and a single block shuts everyone out.
 
    The account must already exist. The change is written to the audit log.
 
-Roles: an **admin** moderates and supports (users, brands, catalogue, orders
+Roles: an **admin** moderates and supports (users, brands, catalog, orders
 and refunds, codes, storefront, email log, error log). A **super admin** also
 has settings, security, payouts, settlement, ledger and wallet adjustments,
 gift cards and role changes.
@@ -121,7 +121,7 @@ gift cards and role changes.
 Everything here is stored encrypted in the database and never shown again
 after saving. A blank secret field keeps what is stored.
 
-1. **Security > Two-factor.** Enrol yourself, save the backup codes, then turn
+1. **Security > Two-factor.** Enroll yourself, save the backup codes, then turn
    on *Require 2FA for admins* in Settings > Security. Lost device: another
    super admin can reset it; if there is none, clear it in the database:
    `update users set totp_enabled = false, totp_secret = null where email = '...'`.

@@ -270,7 +270,7 @@ script-free, cookie-free HTML with `frame-ancestors *`, meant for an iframe on a
 ### First time public
 
 `PATCH /api/studio/series/:id` returns `{ series, launch_notified }`. When the patch takes the series out of `draft` for the first
-time (`series.launched_at` was null), followers of the series and of the brand get ONE notification and one email summarising the
+time (`series.launched_at` was null), followers of the series and of the brand get ONE notification and one email summarizing the
 releases that were already published; `launch_notified` is how many people were told (`0` if nothing was published yet), otherwise
 `null`. Releases published while the series is a draft send nothing; releases published afterwards notify one by one as before.
 
@@ -333,7 +333,7 @@ number of files (max 400 per request, 600 MB each), any field names, any mix of:
 - ZIP / CBZ → the images inside, in natural path order (`__MACOSX`, dotfiles and non-images ignored)
 - PDF → every page rendered at 200 DPI (long edge capped at 3000 px)
 
-Files are recognised by content, not extension. If any file is not an image,
+Files are recognized by content, not extension. If any file is not an image,
 ZIP or PDF the whole request is rejected with 400 and nothing is stored.
 
 Response 202:
@@ -350,7 +350,7 @@ For each page ingestion stores the original
 (`private/originals/<release>/<page>.<ext>`; PDF pages as PNG) and WebP variants
 `thumb` (320 w), `medium` (1100 w), `full` (2200 w) under
 `private/pages/<release>/<page>/`, and fills `width`, `height`, `bytes`,
-`filename`, `dpi`, `bg_color` (dominant edge colour). The release cover is
+`filename`, `dpi`, `bg_color` (dominant edge color). The release cover is
 refreshed when the job ends.
 
 ### Progress
@@ -449,8 +449,8 @@ A frame is a fraction-of-page shape (0..1, origin top-left):
 | POST | `/api/studio/pages/:id/frames/refine` | editor | `{ frame, x, y, mode: "add"|"remove" }` → `{ frame }`. `add`: the panel under the point is merged into the frame (the gutter between is bridged). `remove`: the panel under the point is cut out of the frame; if the frame is one panel, the patch of similar tone under the point is cut. 400 with a hint when there is nothing to add/remove. Nothing is saved. |
 | PUT | `/api/studio/pages/:id/texts` | editor | `{ texts: [{ x, y, w, h, text: { "en": "…", "fr": "…" } }] }` (≤300 regions, keys are language codes) → `{ texts }` |
 
-Detection is classical image processing on an 800 px greyscale copy: gutter
-colour from the page border, threshold, recursive XY-cut on empty rows /
+Detection is classical image processing on an 800 px grayscale copy: gutter
+color from the page border, threshold, recursive XY-cut on empty rows /
 columns, connected regions for layouts no straight cut can split, full-bleed
 pages become one whole-page frame, then reading order (rows, then columns in
 the series' reading direction). No generative AI; nothing leaves the server.
@@ -645,7 +645,7 @@ Draft: `{ subject (3-120 chars, one line), body (10-5000 chars, plain text; blan
 
 Announcement row: `{ id, subject, body, recipients, created_at, sent_by, series_id, series_title, queued, sent, opened, clicked, failed }`.
 `sent` / `opened` / `clicked` are counted from the `emails` rows (opens and clicks arrive through the provider webhooks);
-`queued` is still in the queue; `failed` covers failed, suppressed and cancelled.
+`queued` is still in the queue; `failed` covers failed, suppressed and canceled.
 
 ## 12. Takedowns (what the Studio and reader do)
 

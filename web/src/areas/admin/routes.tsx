@@ -1,6 +1,6 @@
 import type { RouteObject } from 'react-router';
 import { AdminLayout } from './AdminLayout';
-import { CommentsPage, ReportsPage, SeriesPage } from './Catalogue';
+import { CommentsPage, ReportsPage, SeriesPage } from './Catalog';
 import { Dashboard } from './Dashboard';
 import { EmailQueuePage, EmailTemplatesPage, SuppressionsPage } from './Email';
 import { InboxPage, MailboxesPage } from './Inbox';

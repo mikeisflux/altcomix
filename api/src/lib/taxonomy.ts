@@ -64,7 +64,7 @@ export const RELEASE_GROUPS = [
 export const RELEASE_KINDS = RELEASE_GROUPS.flatMap((g) => g.kinds.map((k) => k.id)) as string[];
 
 export const CONTRIBUTOR_ROLES = [
-  'Writer', 'Artist', 'Penciller', 'Inker', 'Colorist', 'Letterer', 'Cover Artist', 'Editor', 'Translator', 'Creator', 'Designer',
+  'Writer', 'Artist', 'Penciler', 'Inker', 'Colorist', 'Letterer', 'Cover Artist', 'Editor', 'Translator', 'Creator', 'Designer',
 ] as const;
 
 export const CROWDFUNDING_SERVICES = ['IndieCrowdfund', 'Kickstarter', 'Indiegogo', 'BackerKit', 'Zoop', 'Crowdfundr', 'Other'] as const;

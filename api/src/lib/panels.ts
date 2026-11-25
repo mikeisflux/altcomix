@@ -5,8 +5,8 @@ import { z } from 'zod';
  * Reading-frame (panel) detection by classical image processing. No models,
  * nothing leaves the server.
  *
- * The page is reduced to a small greyscale copy. The gutter colour is taken
- * from the page border, every pixel is classed as "gutter-coloured" or
+ * The page is reduced to a small grayscale copy. The gutter color is taken
+ * from the page border, every pixel is classed as "gutter-colored" or
  * "content", and the page is split with a recursive XY-cut along runs of empty
  * rows / columns. Leaves the XY-cut cannot split (L-shaped or staggered
  * layouts) fall back to connected components of everything that is not gutter.
@@ -36,7 +36,7 @@ export function isPoly(f: Frame): f is PolyFrame {
 }
 
 /** Clamp to the page and round to 4 decimals. */
-export function normaliseFrame(f: Frame): Frame {
+export function normalizeFrame(f: Frame): Frame {
   if (isPoly(f)) return { points: f.points.map(([x, y]) => [r4(x), r4(y)] as [number, number]) };
   const x = r4(f.x);
   const y = r4(f.y);
@@ -57,12 +57,12 @@ export function frameBounds(f: Frame): RectFrame {
 export type Analysis = {
   w: number;
   h: number;
-  grey: Uint8Array;
-  /** Gutter grey level. */
+  gray: Uint8Array;
+  /** Gutter gray level. */
   bg: number;
   /** Share of border pixels that match `bg` (low = art runs to the edge). */
   uniform: number;
-  /** 1 where the pixel differs from the gutter colour. */
+  /** 1 where the pixel differs from the gutter color. */
   content: Uint8Array;
   /** 1 where the pixel is gutter: background connected to the page edge. */
   gutter: Uint8Array;
@@ -71,23 +71,23 @@ export type Analysis = {
 const TOLERANCE = 30;
 type Box = { x0: number; y0: number; x1: number; y1: number }; // inclusive pixel bounds
 
-export async function loadGrey(input: Buffer | string, maxEdge = 800): Promise<{ grey: Uint8Array; w: number; h: number }> {
+export async function loadGray(input: Buffer | string, maxEdge = 800): Promise<{ gray: Uint8Array; w: number; h: number }> {
   const { data, info } = await sharp(input)
     .rotate()
     .flatten({ background: '#ffffff' })
-    .greyscale()
+    .grayscale()
     .resize({ width: maxEdge, height: maxEdge, fit: 'inside', withoutEnlargement: true, kernel: 'cubic' })
     .raw()
     .toBuffer({ resolveWithObject: true });
   const { width: w, height: h, channels } = info;
-  if (channels === 1) return { grey: new Uint8Array(data.buffer, data.byteOffset, w * h), w, h };
-  const grey = new Uint8Array(w * h);
-  for (let i = 0; i < w * h; i++) grey[i] = data[i * channels];
-  return { grey, w, h };
+  if (channels === 1) return { gray: new Uint8Array(data.buffer, data.byteOffset, w * h), w, h };
+  const gray = new Uint8Array(w * h);
+  for (let i = 0; i < w * h; i++) gray[i] = data[i * channels];
+  return { gray, w, h };
 }
 
-/** Most common grey level in a thin band around the page edge. */
-export function estimateBackground(grey: Uint8Array, w: number, h: number): { bg: number; uniform: number } {
+/** Most common gray level in a thin band around the page edge. */
+export function estimateBackground(gray: Uint8Array, w: number, h: number): { bg: number; uniform: number } {
   const band = Math.max(2, Math.round(Math.min(w, h) * 0.012));
   const hist = new Uint32Array(256);
   let n = 0;
@@ -98,7 +98,7 @@ export function estimateBackground(grey: Uint8Array, w: number, h: number): { bg
         x = w - band - 1; // skip the interior
         continue;
       }
-      hist[grey[y * w + x]]++;
+      hist[gray[y * w + x]]++;
       n++;
     }
   }
@@ -120,14 +120,14 @@ export function estimateBackground(grey: Uint8Array, w: number, h: number): { bg
     wn += hist[k];
   }
   const bg = wn ? Math.round(ws / wn) : 255;
-  // A real margin shows the gutter colour on all four sides, so score the worst side.
+  // A real margin shows the gutter color on all four sides, so score the worst side.
   const share = (x0: number, y0: number, x1: number, y1: number) => {
     let hit = 0;
     let all = 0;
     for (let y = y0; y < y1; y++) {
       for (let x = x0; x < x1; x++) {
         all++;
-        if (Math.abs(grey[y * w + x] - bg) <= TOLERANCE) hit++;
+        if (Math.abs(gray[y * w + x] - bg) <= TOLERANCE) hit++;
       }
     }
     return all ? hit / all : 0;
@@ -136,12 +136,12 @@ export function estimateBackground(grey: Uint8Array, w: number, h: number): { bg
   return { bg, uniform };
 }
 
-function buildMasks(grey: Uint8Array, w: number, h: number, bg: number): { content: Uint8Array; gutter: Uint8Array } {
+function buildMasks(gray: Uint8Array, w: number, h: number, bg: number): { content: Uint8Array; gutter: Uint8Array } {
   const n = w * h;
   const content = new Uint8Array(n);
-  for (let i = 0; i < n; i++) content[i] = Math.abs(grey[i] - bg) > TOLERANCE ? 1 : 0;
+  for (let i = 0; i < n; i++) content[i] = Math.abs(gray[i] - bg) > TOLERANCE ? 1 : 0;
 
-  // Background pixels whose 3x3 neighbourhood is all background. Flooding only
+  // Background pixels whose 3x3 neighborhood is all background. Flooding only
   // through these stops the gutter leaking into a panel through a 1-2px gap.
   const open = new Uint8Array(n);
   for (let y = 0; y < h; y++) {
@@ -215,15 +215,15 @@ function buildMasks(grey: Uint8Array, w: number, h: number, bg: number): { conte
   return { content, gutter };
 }
 
-export function analyseGrey(grey: Uint8Array, w: number, h: number, forceBg?: number): Analysis {
-  const est = estimateBackground(grey, w, h);
+export function analyzeGray(gray: Uint8Array, w: number, h: number, forceBg?: number): Analysis {
+  const est = estimateBackground(gray, w, h);
   const bg = forceBg ?? est.bg;
-  return { w, h, grey, bg, uniform: est.uniform, ...buildMasks(grey, w, h, bg) };
+  return { w, h, gray, bg, uniform: est.uniform, ...buildMasks(gray, w, h, bg) };
 }
 
-export async function analysePage(input: Buffer | string): Promise<Analysis> {
-  const { grey, w, h } = await loadGrey(input);
-  return analyseGrey(grey, w, h);
+export async function analyzePage(input: Buffer | string): Promise<Analysis> {
+  const { gray, w, h } = await loadGray(input);
+  return analyzeGray(gray, w, h);
 }
 
 // ---------------------------------------------------------------- XY-cut
@@ -393,14 +393,14 @@ function panelsFor(a: Analysis, minSide: number): Box[] {
 }
 
 const toRect = (b: Box, w: number, h: number): RectFrame =>
-  normaliseFrame({ x: b.x0 / w, y: b.y0 / h, w: (b.x1 - b.x0 + 1) / w, h: (b.y1 - b.y0 + 1) / h }) as RectFrame;
+  normalizeFrame({ x: b.x0 / w, y: b.y0 / h, w: (b.x1 - b.x0 + 1) / w, h: (b.y1 - b.y0 + 1) / h }) as RectFrame;
 
 const WHOLE_PAGE: RectFrame = { x: 0, y: 0, w: 1, h: 1 };
 
-export function detectFromGrey(grey: Uint8Array, w: number, h: number, opts: DetectOptions = {}): RectFrame[] {
+export function detectFromGray(gray: Uint8Array, w: number, h: number, opts: DetectOptions = {}): RectFrame[] {
   const minSide = opts.minSide ?? 0.05;
   const dir = opts.dir ?? 'ltr';
-  const base = analyseGrey(grey, w, h);
+  const base = analyzeGray(gray, w, h);
   let boxes: Box[] = [];
   if (base.uniform >= 0.55) {
     boxes = panelsFor(base, minSide);
@@ -408,7 +408,7 @@ export function detectFromGrey(grey: Uint8Array, w: number, h: number, opts: Det
     // Art runs off the edge. It may still be several bleed panels divided by
     // white or black gutters; accept that only when it clearly is.
     for (const bg of [255, 0]) {
-      const alt = analyseGrey(grey, w, h, bg);
+      const alt = analyzeGray(gray, w, h, bg);
       const found = panelsFor(alt, minSide);
       const covered = found.reduce((s, b) => s + boxArea(b), 0) / (w * h);
       if (found.length >= 2 && covered >= 0.6) {
@@ -425,8 +425,8 @@ export function detectFromGrey(grey: Uint8Array, w: number, h: number, opts: Det
 
 /** Detect the reading frames of a page image. */
 export async function detectFrames(input: Buffer | string, opts: DetectOptions = {}): Promise<RectFrame[]> {
-  const { grey, w, h } = await loadGrey(input);
-  return detectFromGrey(grey, w, h, opts);
+  const { gray, w, h } = await loadGray(input);
+  return detectFromGray(gray, w, h, opts);
 }
 
 // ---------------------------------------------------------------- reading order
@@ -551,8 +551,8 @@ function panelAt(a: Analysis, x: number, y: number): { mask: Mask; area: number 
 /** Pixels of a similar tone connected to a point. */
 function toneAt(a: Analysis, x: number, y: number, tolerance = 22): { mask: Mask; area: number } {
   const i = toPixel(a, x, y);
-  const g = a.grey[i];
-  return flood(a.w, a.h, i, (j) => Math.abs(a.grey[j] - g) <= tolerance);
+  const g = a.gray[i];
+  return flood(a.w, a.h, i, (j) => Math.abs(a.gray[j] - g) <= tolerance);
 }
 
 function largestComponent(mask: Mask, w: number, h: number): { mask: Mask; area: number } {
@@ -642,16 +642,16 @@ export function rasterise(frame: Frame, w: number, h: number): Mask {
   return mask;
 }
 
-// Clockwise ring of the 8 neighbours, starting west.
+// Clockwise ring of the 8 neighbors, starting west.
 const RING: [number, number][] = [[-1, 0], [-1, -1], [0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1]];
 
-/** Outline of the component whose top-left pixel is (sx, sy): Moore-neighbour tracing. */
+/** Outline of the component whose top-left pixel is (sx, sy): Moore-neighbor tracing. */
 function traceContour(mask: Mask, w: number, h: number, sx: number, sy: number): [number, number][] {
   const at = (x: number, y: number) => x >= 0 && y >= 0 && x < w && y < h && mask[y * w + x] === 1;
   const pts: [number, number][] = [[sx, sy]];
   let cx = sx;
   let cy = sy;
-  let back = 0; // direction of the last background neighbour examined
+  let back = 0; // direction of the last background neighbor examined
   let second: [number, number] | null = null;
   for (let guard = 0; guard < 4 * w * h; guard++) {
     let found = -1;
@@ -750,12 +750,12 @@ function maskToFrame(mask: Mask, w: number, h: number): Frame | null {
   if (!area) return null;
   const bw = x1 - x0 + 1;
   const bh = y1 - y0 + 1;
-  if (area >= 0.93 * bw * bh) return normaliseFrame({ x: x0 / w, y: y0 / h, w: bw / w, h: bh / h });
+  if (area >= 0.93 * bw * bh) return normalizeFrame({ x: x0 / w, y: y0 / h, w: bw / w, h: bh / h });
   const outline = simplify(traceContour(mask, w, h, sx, sy), Math.max(1.5, Math.max(w, h) * 0.004));
-  if (outline.length < 3) return normaliseFrame({ x: x0 / w, y: y0 / h, w: bw / w, h: bh / h });
-  // Pixel centres, pushed out to the pixel's outer edge where it lies on the bounding box.
+  if (outline.length < 3) return normalizeFrame({ x: x0 / w, y: y0 / h, w: bw / w, h: bh / h });
+  // Pixel centers, pushed out to the pixel's outer edge where it lies on the bounding box.
   const edge = (v: number, lo: number, hi: number, size: number) => (v === lo ? v : v === hi ? v + 1 : v + 0.5) / size;
-  return normaliseFrame({ points: outline.map(([x, y]) => [edge(x, x0, x1, w), edge(y, y0, y1, h)] as [number, number]) });
+  return normalizeFrame({ points: outline.map(([x, y]) => [edge(x, x0, x1, w), edge(y, y0, y1, h)] as [number, number]) });
 }
 
 /** Smart frame: the panel containing a point, snapped to its gutters. Null when the point is in a gutter. */
@@ -763,7 +763,7 @@ export function smartFrame(a: Analysis, x: number, y: number): Frame | null {
   if (a.uniform < 0.55) {
     // Full-bleed page: only split it if white or black gutters really divide it.
     for (const bg of [255, 0]) {
-      const alt = analyseGrey(a.grey, a.w, a.h, bg);
+      const alt = analyzeGray(a.gray, a.w, a.h, bg);
       const p = panelAt(alt, x, y);
       if (p && p.area < 0.85 * a.w * a.h && p.area > 0.002 * a.w * a.h) return maskToFrame(p.mask, a.w, a.h);
     }

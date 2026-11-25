@@ -267,7 +267,7 @@ test('asking how a checkout went is safe to repeat while it is open, and says ho
     Object.assign(sessions.get(s.session_id!)!, { status: how });
     const r = await pay.confirmSession(s.session_id!, { userId: other.id });
     assert.equal(r.status, how);
-    assert.match(r.message!, how === 'expired' ? /timed out before it was paid, so nothing was charged/ : /cancelled before it was paid, so nothing was charged/);
+    assert.match(r.message!, how === 'expired' ? /timed out before it was paid, so nothing was charged/ : /canceled before it was paid, so nothing was charged/);
     assert.equal((await order(oid))!.meta.failure_state, how);
   }
 

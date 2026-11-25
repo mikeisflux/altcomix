@@ -33,8 +33,8 @@ const EASE = 'cubic-bezier(.22,.8,.2,1)';
 
 /**
  * Guided view: one frame at a time, scaled to fill whatever screen this is.
- * The page image is positioned so the current frame is centred and as large
- * as possible; everything outside the frame is clipped away so neighbouring
+ * The page image is positioned so the current frame is centered and as large
+ * as possible; everything outside the frame is clipped away so neighboring
  * panels do not spoil what comes next.
  *
  * The <img> is keyed by page: moving between frames of one page glides, while
@@ -42,10 +42,12 @@ const EASE = 'cubic-bezier(.22,.8,.2,1)';
  * its file has loaded), so the previous page is never seen sliding to where
  * the new frame is.
  */
-export function GuidedView({ page, frameIndex, w, h }: { page: ReaderPage; frameIndex: number | null; w: number; h: number }) {
+export function GuidedView({ page, frameIndex, w, h, top = 0, bottom = 0 }: { page: ReaderPage; frameIndex: number | null; w: number; h: number; /** Space kept clear for the controls while they are showing. */ top?: number; bottom?: number }) {
   const frame = frameIndex === null ? WHOLE_PAGE : (page.frames[frameIndex] ?? WHOLE_PAGE);
   const pad = guidedPad(w);
-  const fit = fitFrame(frame, page.width / page.height, w, h, pad);
+  // The frame is fitted into the area between the control bars, so their fade never covers it.
+  const inner = fitFrame(frame, page.width / page.height, w, Math.max(1, h - top - bottom), pad);
+  const fit = { ...inner, top: inner.top + top };
   const src = guidedSrc(page, w, h, pad);
   const [loaded, setLoaded] = useState<string | null>(null);
   const move = `380ms ${EASE}`;
@@ -80,7 +82,7 @@ const NO_ZOOM: Zoom = { s: 1, x: 0, y: 0 };
 const MAX_ZOOM = 5;
 const DOUBLE_TAP_ZOOM = 2.5;
 
-/** One page, or two facing pages meeting at the spine. `zoom` (single page only) scales and pans around the centre of the stage. */
+/** One page, or two facing pages meeting at the spine. `zoom` (single page only) scales and pans around the center of the stage. */
 function PagedView({ pages, rtl, zoom, animate, children }: { pages: ReaderPage[]; rtl: boolean; zoom: Zoom; animate: boolean; children: (p: ReaderPage) => ReactNode }) {
   const pair = pages.length === 2;
   return (
@@ -232,6 +234,21 @@ function ReaderInner({ manifest, reload }: { manifest: Manifest; reload: () => v
   // Scroll mode never leaves the page list: the end card sits under the last page, and reaching it finishes the release.
   const [finished, setFinished] = useState(false);
   const [ui, setUi] = useState(true);
+  // Heights of the control bars (including their fade), so guided view can keep frames clear of them.
+  const topBar = useRef<HTMLDivElement>(null);
+  const bottomBar = useRef<HTMLDivElement>(null);
+  const [bars, setBars] = useState({ top: 0, bottom: 0 });
+  useLayoutEffect(() => {
+    const measure = () => setBars((b) => {
+      const next = { top: topBar.current?.offsetHeight ?? 0, bottom: bottomBar.current?.offsetHeight ?? 0 };
+      return next.top === b.top && next.bottom === b.bottom ? b : next;
+    });
+    measure();
+    const ro = new ResizeObserver(measure);
+    if (topBar.current) ro.observe(topBar.current);
+    if (bottomBar.current) ro.observe(bottomBar.current);
+    return () => ro.disconnect();
+  });
   const [fullscreen, setFullscreen] = useState(false);
   const [jump, setJump] = useState({ page: 0, n: 0 });
   const [zoom, setZoomState] = useState<Zoom>(NO_ZOOM);
@@ -388,7 +405,7 @@ function ReaderInner({ manifest, reload }: { manifest: Manifest; reload: () => v
       // Arrow keys follow the page: in a right-to-left book the next page is to the left.
       const fwd = rtl ? 'ArrowLeft' : 'ArrowRight';
       const back = rtl ? 'ArrowRight' : 'ArrowLeft';
-      const centre = () => { const r = stage.current?.getBoundingClientRect(); return r ? [r.left + r.width / 2, r.top + r.height / 2] as const : null; };
+      const center = () => { const r = stage.current?.getBoundingClientRect(); return r ? [r.left + r.width / 2, r.top + r.height / 2] as const : null; };
       if (mode !== 'scroll' && (e.key === fwd || e.key === ' ' || e.key === 'PageDown' || e.key === 'ArrowDown')) {
         e.preventDefault();
         move(1);
@@ -400,8 +417,8 @@ function ReaderInner({ manifest, reload }: { manifest: Manifest; reload: () => v
       else if (e.key === 'f') toggleFullscreen();
       else if (e.key === 'g' && modes.includes('guided')) setMode(mode === 'guided' ? 'page' : 'guided');
       else if (e.key === 'Escape') { if (zoomRef.current.s > 1) setZoom(NO_ZOOM, true); else setUi(true); }
-      else if (zoomable && (e.key === '+' || e.key === '=')) { const c = centre(); if (c) zoomAt(zoomRef.current.s * 1.5, c[0], c[1], true); }
-      else if (zoomable && e.key === '-') { const c = centre(); if (c) zoomAt(zoomRef.current.s / 1.5, c[0], c[1], true); }
+      else if (zoomable && (e.key === '+' || e.key === '=')) { const c = center(); if (c) zoomAt(zoomRef.current.s * 1.5, c[0], c[1], true); }
+      else if (zoomable && e.key === '-') { const c = center(); if (c) zoomAt(zoomRef.current.s / 1.5, c[0], c[1], true); }
       else if (zoomable && e.key === '0') setZoom(NO_ZOOM, true);
     };
     window.addEventListener('keydown', onKey);
@@ -465,10 +482,10 @@ function ReaderInner({ manifest, reload }: { manifest: Manifest; reload: () => v
       if (!rect) return;
       const [a, b] = [...pointers.current.values()];
       const s = clamp((g.z0.s * Math.hypot(a.x - b.x, a.y - b.y)) / g.d0, 1, MAX_ZOOM);
-      const centre = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+      const center = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
       // The point of the page that was between the fingers stays between the fingers.
-      const c = { x: (g.mid0.x - centre.x - g.z0.x) / g.z0.s, y: (g.mid0.y - centre.y - g.z0.y) / g.z0.s };
-      const mid = { x: (a.x + b.x) / 2 - centre.x, y: (a.y + b.y) / 2 - centre.y };
+      const c = { x: (g.mid0.x - center.x - g.z0.x) / g.z0.s, y: (g.mid0.y - center.y - g.z0.y) / g.z0.s };
+      const mid = { x: (a.x + b.x) / 2 - center.x, y: (a.y + b.y) / 2 - center.y };
       setZoom({ s, x: mid.x - c.x * s, y: mid.y - c.y * s });
     } else if (g.kind === 'pan' && g.id === e.pointerId) {
       const dx = e.clientX - g.from.x;
@@ -533,6 +550,11 @@ function ReaderInner({ manifest, reload }: { manifest: Manifest; reload: () => v
     goToPage(0);
   };
 
+  // While the controls show, guided frames keep clear of them (never giving up more than 45% of the height).
+  const wantTop = ui ? bars.top : 0;
+  const wantBottom = ui && !ended ? bars.bottom : 0;
+  const squeeze = Math.min(1, (size.h * 0.45) / Math.max(1, wantTop + wantBottom));
+  const clear = { top: Math.round(wantTop * squeeze), bottom: Math.round(wantBottom * squeeze) };
   return (
     <div className="fixed inset-0 flex flex-col bg-black text-paper" dir="ltr">
       <div
@@ -565,7 +587,7 @@ function ReaderInner({ manifest, reload }: { manifest: Manifest; reload: () => v
             end={<EndCard manifest={manifest} onRestart={restart} inline />}
           />
         ) : !current ? null : mode === 'guided' && !current.locked ? (
-          size.w > 0 && <GuidedView page={current} frameIndex={step?.frame ?? null} w={size.w} h={size.h} />
+          size.w > 0 && <GuidedView page={current} frameIndex={step?.frame ?? null} w={size.w} h={size.h} top={clear.top} bottom={clear.bottom} />
         ) : (
           <PagedView pages={screenPages} rtl={rtl} zoom={zoomable ? zoom : NO_ZOOM} animate={zoomAnimated}>{paywall}</PagedView>
         )}
@@ -586,7 +608,7 @@ function ReaderInner({ manifest, reload }: { manifest: Manifest; reload: () => v
       </div>
 
       {/* Top bar */}
-      <div className={cx('absolute inset-x-0 top-0 z-10 flex items-center gap-2 bg-gradient-to-b from-black via-black/80 to-transparent px-2 pb-10 pt-2 transition-opacity sm:px-4', ui ? 'opacity-100' : 'pointer-events-none opacity-0')}>
+      <div ref={topBar} className={cx('absolute inset-x-0 top-0 z-10 flex items-center gap-2 bg-gradient-to-b from-black via-black/80 to-transparent px-2 pb-10 pt-2 transition-opacity sm:px-4', ui ? 'opacity-100' : 'pointer-events-none opacity-0')}>
         <IconButton label={series.taken_down ? 'Back to your library' : 'Back to series'} onClick={() => nav(home)}><ArrowLeft className="size-5" /></IconButton>
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-semibold">{manifest.release.title}</div>
@@ -625,7 +647,7 @@ function ReaderInner({ manifest, reload }: { manifest: Manifest; reload: () => v
       )}
 
       {/* Bottom bar */}
-      <div className={cx('absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black via-black/80 to-transparent px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-10 transition-opacity sm:px-5', ui && !ended ? 'opacity-100' : 'pointer-events-none opacity-0')}>
+      <div ref={bottomBar} className={cx('absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black via-black/80 to-transparent px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-10 transition-opacity sm:px-5', ui && !ended ? 'opacity-100' : 'pointer-events-none opacity-0')}>
         <div className="mx-auto flex max-w-3xl items-center gap-3">
           {mode !== 'scroll' && <IconButton label={rtl ? 'Next' : 'Previous'} onClick={() => move(rtl ? 1 : -1)}><ChevronLeft className="size-5" /></IconButton>}
           {/* In a right-to-left book the scrubber fills from the right, like the pages. */}

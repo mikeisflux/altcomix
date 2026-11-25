@@ -18,7 +18,7 @@ import type { SessionUser } from './http.ts';
  *   - the page falls inside the release's free page count
  * Otherwise the reader needs one of: brand membership (owner), ownership of
  * the release (purchase / code), an active membership when the series is in
- * the membership catalogue, or a page credit spent on that page.
+ * the membership catalog, or a page credit spent on that page.
  */
 
 export type Via = 'free' | 'owner' | 'purchase' | 'code' | 'subscription' | 'credit';
@@ -41,17 +41,19 @@ export function releaseFreeByPreview(fp: FreePreview, index: number, total: numb
     case 'custom_first_last':
       return index < n || index >= total - m;
     case 'automatic':
-      return index === 0;
+      // A series with a single release must keep something to sell: it gets a page preview instead.
+      return index === 0 && total > 1;
     default:
       return false;
   }
 }
 
 /** Free page count for a release that is not wholly free. */
-export function previewPages(fp: FreePreview, releaseFreePages: number | null): number {
+export function previewPages(fp: FreePreview, releaseFreePages: number | null, pageCount = Infinity): number {
   if (releaseFreePages !== null && releaseFreePages !== undefined) return releaseFreePages;
   if (fp.mode === 'first_pages') return fp.n ?? 10;
-  if (fp.mode === 'automatic') return AUTOMATIC_PREVIEW_PAGES;
+  // Automatic never gives away most of a short book: at most a quarter of it, and at least one page.
+  if (fp.mode === 'automatic') return Math.min(AUTOMATIC_PREVIEW_PAGES, Math.max(1, Math.floor(pageCount / 4)));
   return 0;
 }
 
@@ -151,7 +153,7 @@ export async function releaseAccess(ctx: Ctx): Promise<ReleaseAccess> {
   }
 
   // 4. Per page.
-  const freeCount = model === 'premium' && !releaseFree ? previewPages(series.free_preview ?? { mode: 'automatic' }, release.free_pages) : 0;
+  const freeCount = model === 'premium' && !releaseFree ? previewPages(series.free_preview ?? { mode: 'automatic' }, release.free_pages, pages.length) : 0;
   const out: (Via | null)[] = pages.map((p, i) => {
     if (model === 'blocked') return unlock === 'owner' ? 'owner' : null;
     if (releaseFree || p.is_free === true || (p.is_free !== false && i < freeCount)) return 'free';

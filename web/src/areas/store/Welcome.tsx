@@ -26,7 +26,7 @@ function Dots({ className }: { className?: string }) {
 }
 
 const PROMISES: [string, string][] = [
-  ['Adult content is allowed', 'Sex, nudity and mature themes are welcome when the work is labelled for adults. Explicit is not a violation.'],
+  ['Adult content is allowed', 'Sex, nudity and mature themes are welcome when the work is labeled for adults. Explicit is not a violation.'],
   ['Rules do not change overnight', 'Policy changes are announced in advance, and work published under the old rules is not pulled without a conversation first.'],
   ['A reason and an appeal, every time', 'If a title is ever taken down you are told which rule, by a person, and you can appeal to a person.'],
   ['Your work stays yours', 'Non-exclusive, no lock-in. Download your original files or remove a series whenever you like.'],
@@ -51,7 +51,7 @@ export function Welcome() {
       {/* Hero */}
       <section className="relative mx-auto flex max-w-6xl flex-wrap items-center gap-12 px-5 pb-20 pt-12 sm:px-8 sm:pt-16">
         <div className="min-w-0 flex-[999_1_480px]">
-          <span className="inline-flex rounded-full bg-sun px-3 py-1.5 text-[13px] font-semibold text-sun-ink">Adult work welcome. Clearly labelled, never hidden away.</span>
+          <span className="inline-flex rounded-full bg-sun px-3 py-1.5 text-[13px] font-semibold text-sun-ink">Adult work welcome. Clearly labeled, never hidden away.</span>
           <h1 className="mt-5 text-[clamp(3.2rem,9vw,7.5rem)] font-extrabold leading-[0.9] tracking-[-0.05em]">
             Your comic.<br /><span className="text-accent">Your rules.</span>
           </h1>
@@ -89,7 +89,7 @@ export function Welcome() {
             ['Adult-friendly', 'Explicit work for adults is allowed here and has a proper place in the store, behind an age check.'],
             ['Creator-owned', 'You keep the copyright. Publishing here is non-exclusive, and you can take your work and your files with you.'],
             ['Paid by reading', "A member's fee goes to the creators that member read. Sell issues directly too, and keep most of every sale."],
-            ['Made by people', 'No AI-generated comics, and your pages are not fed to a model.'],
+            ['Any screen', 'Readers move frame by frame, so your pages read as well on a phone as on a desktop.'],
           ].map(([t, d]) => (
             <div key={t}>
               <div className="font-display text-2xl font-extrabold tracking-tight">{t}</div>

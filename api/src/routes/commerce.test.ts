@@ -184,7 +184,7 @@ test('buying a release in the sandbox unlocks it; earnings are split and add up 
   assert.deepEqual(orders.items.map((x: any) => [x.status, x.total_cents, x.items[0].kind]), [['paid', 399, 'download'], ['paid', 199, 'release']]);
 });
 
-test('membership unlocks the catalogue; reads are recorded as subscription reads; cancel and resume', async () => {
+test('membership unlocks the catalog; reads are recorded as subscription reads; cancel and resume', async () => {
   const { user, c } = await signedIn();
   const plans = (await c.get('/api/membership')).json;
   assert.deepEqual([plans.member, plans.subscription, plans.plans.monthly_cents], [false, null, 599]);
@@ -464,7 +464,7 @@ test('hosted checkout over HTTP: the browser names its surface, gets the session
   }
 });
 
-test('catalogue: search with prefix fallback, filters, visibility rules, series page and brand page', async () => {
+test('catalog: search with prefix fallback, filters, visibility rules, series page and brand page', async () => {
   const Z = `Zq${Date.now().toString(36)}x`; // a word no earlier run has used (the test database is kept between runs)
   const hidden = await f.series(brand.id, { title: `${Z} Nights Uncut`, mature: true, access_model: 'free' });
   await f.release(hidden.id, {}, 1);
@@ -515,7 +515,7 @@ test('catalogue: search with prefix fallback, filters, visibility rules, series 
   assert.equal(page.brand.slug, brand.slug);
   await exec('delete from discounts where publisher_id = $1', [brand.id]);
 
-  // favourite genre tunes the store
+  // favorite genre tunes the store
   const fan = await signedIn({ prefs: { favorite_genre: 'scifi_fantasy' } });
   const tuned = (await fan.c.get('/api/home')).json;
   assert.equal(tuned.favorite_genre.id, 'scifi_fantasy');
@@ -530,7 +530,7 @@ test('catalogue: search with prefix fallback, filters, visibility rules, series 
   assert.equal((await anon.get(`/api/brands/${suspendedBrand.slug}`)).status, 404);
 });
 
-test('library: follow / favourite keep the counters exact; brand follow notifies the owner', async () => {
+test('library: follow / favorite keep the counters exact; brand follow notifies the owner', async () => {
   const { user, c } = await signedIn();
   const base = (await one('select follower_count, favorite_count from series where id = $1', [premium.id]))!;
   assert.equal((await c.post(`/api/series/${premium.slug}/follow`)).json.follower_count, base.follower_count + 1);

@@ -12,7 +12,7 @@ import { COUNTRIES, Q, STATUS_TONE, Section, bps, can, cap, changed, countryName
 
 const AUTOMATIC_PAGES = 5;
 const MODES: { mode: FreePreview['mode']; label: string; help: string }[] = [
-  { mode: 'automatic', label: 'Automatic', help: `The first release is free in full. Every other release shows its first ${AUTOMATIC_PAGES} pages.` },
+  { mode: 'automatic', label: 'Automatic', help: `With two or more releases, the first is free in full and the others show their first pages (up to ${AUTOMATIC_PAGES}, never more than a quarter). A series with one release shows only those first pages.` },
   { mode: 'first_releases', label: 'First 3 releases', help: 'The first three releases are free in full. Nothing else is previewed.' },
   { mode: 'first_last_releases', label: 'First and last 3 releases', help: 'The first three and the newest three releases are free in full, so new readers can start and followers can keep up.' },
   { mode: 'first_pages', label: 'First pages of each release', help: 'Every release shows its first pages for free.' },
@@ -31,7 +31,7 @@ function freeByPreview(fp: FreePreview, index: number, total: number) {
     case 'first_last_releases': return index < 3 || index >= total - 3;
     case 'custom_first': return index < n;
     case 'custom_first_last': return index < n || index >= total - m;
-    case 'automatic': return index === 0;
+    case 'automatic': return index === 0 && total > 1;
     default: return false;
   }
 }
@@ -46,7 +46,7 @@ function PreviewSummary({ d, list, language, membership }: { d: Pay; list: Relea
   const lines = published.map((r, i) => {
     const expired = d.paywall_expires_days && r.published_at && Date.parse(r.published_at) + d.paywall_expires_days * 86_400_000 <= Date.now();
     const whole = r.force_free || (r.free_at && Date.parse(r.free_at) <= Date.now()) || expired || freeByPreview(fp, i, published.length);
-    const p = r.free_pages ?? pages;
+    const p = r.free_pages ?? (fp.mode === 'automatic' ? Math.min(AUTOMATIC_PAGES, Math.max(1, Math.floor(r.page_count / 4))) : pages);
     return { r, text: whole ? 'free in full' : p > 0 ? `first ${Math.min(p, r.page_count)} of ${r.page_count} pages free` : 'locked, cover only' , whole };
   });
   return (

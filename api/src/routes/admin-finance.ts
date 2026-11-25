@@ -264,7 +264,7 @@ export default async function adminFinanceRoutes(app: FastifyInstance) {
       const summary = await one(
         `select count(distinct user_id) filter (where status in ('active','past_due') and current_period_end > now())::int as active_members,
                 count(*) filter (where status = 'past_due')::int as past_due,
-                count(*) filter (where status = 'active' and cancel_at_period_end and provider <> 'grant' and current_period_end > now())::int as cancelling,
+                count(*) filter (where status = 'active' and cancel_at_period_end and provider <> 'grant' and current_period_end > now())::int as canceling,
                 count(*) filter (where provider = 'grant' and status = 'active' and current_period_end > now())::int as complimentary,
                 coalesce(round(sum(case plan when 'annual' then price_cents / 12.0 else price_cents end)
                   filter (where status = 'active' and current_period_end > now() and not cancel_at_period_end)),0)::float8 as mrr_cents

@@ -239,7 +239,7 @@ export default async function (app: FastifyInstance) {
         await setSeriesCover(series!.id, `upload-${Date.now().toString(36)}`, input.coverPath);
         series = await one('select * from series where id = $1', [series!.id]);
       }
-      // Created already public: there is nothing published yet to summarise, so this only stamps the launch.
+      // Created already public: there is nothing published yet to summarize, so this only stamps the launch.
       await announceSeriesLaunch(series!.id);
       audit(req, 'series.create', { kind: 'series', id: series!.id });
       reply.code(201);
@@ -596,7 +596,7 @@ export default async function (app: FastifyInstance) {
     const s = await requireSeriesMember(req, idParam(req), 'analyst');
     const query = parse(
       z.object({
-        color: z.string().regex(/^#?[0-9a-fA-F]{6}$/, 'Use a colour like 1a1c20').optional(),
+        color: z.string().regex(/^#?[0-9a-fA-F]{6}$/, 'Use a color like 1a1c20').optional(),
         size: z.enum(['small', 'medium', 'large']).optional(),
         label: z.string().trim().max(40).optional(),
         theme: z.enum(['light', 'dark']).optional(),

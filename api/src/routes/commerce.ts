@@ -408,7 +408,7 @@ export default async function commerceRoutes(app: FastifyInstance) {
     const n = await exec(`update subscriptions set cancel_at_period_end = true, canceled_at = now() where user_id = $1 and status in ('active','past_due') and not cancel_at_period_end`, [u.id]);
     if (!n && !(await one(`select 1 from subscriptions where user_id = $1 and status in ('active','past_due')`, [u.id]))) throw notFound('You do not have an active membership');
     // A membership already past due has no paid time left: end it and stop retrying the card.
-    await exec(`update subscription_charges set status = 'failed', last_error = 'Cancelled by the member' where user_id = $1 and status = 'pending'`, [u.id]);
+    await exec(`update subscription_charges set status = 'failed', last_error = 'Canceled by the member' where user_id = $1 and status = 'pending'`, [u.id]);
     await exec(`update subscriptions set status = 'canceled' where user_id = $1 and status = 'past_due'`, [u.id]);
     return { ok: true, ...(await membershipView(u)) };
   });

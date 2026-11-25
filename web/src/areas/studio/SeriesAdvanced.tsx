@@ -236,7 +236,7 @@ function Embed() {
     <Section id="embed" title="Embed on your website" description="A Read now button or a cover card for your own site or blog. Choose how it looks, then paste the code where you want it to appear. Both open your series page in a new tab.">
       <div className="flex flex-wrap items-end gap-4">
         <Group label="Widget"><Segmented value={kind} onChange={setKind} options={[{ value: 'button', label: 'Read now button' }, { value: 'card', label: 'Cover card' }]} /></Group>
-        <Field label="Button colour"><span className="flex h-10 items-center gap-2"><input type="color" value={color} onChange={(ev) => setColor(ev.target.value)} className="size-9 cursor-pointer rounded border border-line" /><span className="font-mono text-xs uppercase text-muted">{color}</span></span></Field>
+        <Field label="Button color"><span className="flex h-10 items-center gap-2"><input type="color" value={color} onChange={(ev) => setColor(ev.target.value)} className="size-9 cursor-pointer rounded border border-line" /><span className="font-mono text-xs uppercase text-muted">{color}</span></span></Field>
         {kind === 'button' ? (
           <>
             <Group label="Size"><Segmented value={size} onChange={setSize} options={[{ value: 'small', label: 'Small' }, { value: 'medium', label: 'Medium' }, { value: 'large', label: 'Large' }]} /></Group>

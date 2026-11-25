@@ -170,7 +170,7 @@ function AccountMenu() {
               <Sparkles className="size-5 text-accent-hover" />
               <span className="flex-1">
                 <span className="block text-sm font-semibold">Get {settings.membership.name}</span>
-                <span className="block text-xs text-muted">Read everything in the membership catalogue</span>
+                <span className="block text-xs text-muted">Read everything in the membership catalog</span>
               </span>
               <ChevronRight className="size-4 text-muted" />
             </Link>

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import sharp from 'sharp';
-import { analysePage, detectFrames, frameBounds, isPoly, orderFrames, refineFrame, smartFrame } from './panels.ts';
+import { analyzePage, detectFrames, frameBounds, isPoly, orderFrames, refineFrame, smartFrame } from './panels.ts';
 import type { Frame, RectFrame } from './panels.ts';
 
 /** A synthetic comic page: panels are [x, y, w, h] in page fractions. */
@@ -96,7 +96,7 @@ test('pinwheel layout that no straight cut can split falls back to connected reg
     [0.05, 0.05, 0.55, 0.25], // top, wide
     [0.65, 0.05, 0.3, 0.55], // right, tall
     [0.05, 0.35, 0.25, 0.6], // left, tall
-    [0.35, 0.35, 0.25, 0.25], // centre
+    [0.35, 0.35, 0.25, 0.25], // center
     [0.35, 0.65, 0.6, 0.3], // bottom, wide
   ];
   const frames = await detectFrames(await page(panels));
@@ -104,7 +104,7 @@ test('pinwheel layout that no straight cut can split falls back to connected reg
   for (const p of panels) {
     assert.ok(frames.some((f) => [f.x - p[0], f.y - p[1], f.w - p[2], f.h - p[3]].every((d) => Math.abs(d) <= TOL)), `missing panel ${p.join(', ')}`);
   }
-  // Rows by top edge: top, right | left, centre | bottom.
+  // Rows by top edge: top, right | left, center | bottom.
   assertPanels(frames, [panels[0], panels[1], panels[2], panels[3], panels[4]]);
   assertPanels(await detectFrames(await page(panels), { dir: 'rtl' }), [panels[1], panels[0], panels[3], panels[2], panels[4]]);
 });
@@ -144,11 +144,11 @@ test('bleed panels divided only by white gutters are still split', async () => {
 });
 
 test('smart frame snaps to the panel under the click, and reports gutters', async () => {
-  const a = await analysePage(await page(GRID_2X2));
+  const a = await analyzePage(await page(GRID_2X2));
   const hit = smartFrame(a, 0.75, 0.75);
   assert.ok(hit && !isPoly(hit));
   assertRect(hit, GRID_2X2[3], 'smart frame');
-  assert.equal(smartFrame(a, 0.5, 0.5), null, 'the centre of the page is a gutter');
+  assert.equal(smartFrame(a, 0.5, 0.5), null, 'the center of the page is a gutter');
   // A click a hair outside the panel edge is forgiven.
   const near = smartFrame(a, 0.05 - 0.003, 0.2);
   assert.ok(near);
@@ -159,7 +159,7 @@ test('smart frame traces a non-rectangular panel as a polygon', async () => {
   const w = 1000, h = 1000;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect width="100%" height="100%" fill="#fff"/>
     <polygon points="50,50 950,50 950,400 50,600" fill="#2980b9"/><polygon points="50,650 950,450 950,950 50,950" fill="#c0392b"/></svg>`;
-  const a = await analysePage(await sharp(Buffer.from(svg)).png().toBuffer());
+  const a = await analyzePage(await sharp(Buffer.from(svg)).png().toBuffer());
   const top = smartFrame(a, 0.3, 0.2);
   assert.ok(top && isPoly(top), 'slanted panel should come back as a polygon');
   const b = frameBounds(top);
@@ -171,8 +171,8 @@ test('smart frame traces a non-rectangular panel as a polygon', async () => {
   assert.ok(lowRight && lowLeft, `expected corners near (0.95, 0.4) and (0.05, 0.6): ${JSON.stringify(top.points)}`);
 });
 
-test('refine: add merges the neighbouring panel across the gutter, remove cuts it back', async () => {
-  const a = await analysePage(await page(GRID_2X2));
+test('refine: add merges the neighboring panel across the gutter, remove cuts it back', async () => {
+  const a = await analyzePage(await page(GRID_2X2));
   const start: RectFrame = { x: 0.05, y: 0.04, w: 0.435, h: 0.445 };
   const grown = refineFrame(a, start, 0.75, 0.25, 'add');
   assertRect(grown, [0.05, 0.04, 0.9, 0.445], 'after add');

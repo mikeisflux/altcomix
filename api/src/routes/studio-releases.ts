@@ -15,7 +15,7 @@ const KIND_INFO = new Map<string, { label: string; group: string }>(
 );
 
 /** Accepts ISBN-10 or ISBN-13 with or without dashes; returns the bare digits, or null when the check digit is wrong. */
-export function normaliseIsbn(input: string): string | null {
+export function normalizeIsbn(input: string): string | null {
   const s = input.replace(/[\s-]/g, '').toUpperCase();
   if (/^\d{9}[\dX]$/.test(s)) {
     let sum = 0;
@@ -54,7 +54,7 @@ const releaseFields = z.object({
     .max(20)
     .transform((v, ctx) => {
       if (v === '') return null;
-      const isbn = normaliseIsbn(v);
+      const isbn = normalizeIsbn(v);
       if (!isbn) {
         ctx.addIssue({ code: 'custom', message: 'That is not a valid ISBN-10 or ISBN-13 (check the digits)' });
         return z.NEVER;

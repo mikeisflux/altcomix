@@ -1,4 +1,4 @@
--- Features catalogued from the reference screenshots (docs/FEATURES.md):
+-- Features catalogd from the reference screenshots (docs/FEATURES.md):
 -- translated editions, country rules, bundles, discounts, gift cards, page
 -- credits, revenue splits, conventions, forums, messaging, notifications,
 -- news, CMS pages, announcements, feedback.

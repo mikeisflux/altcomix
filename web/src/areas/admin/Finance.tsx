@@ -268,13 +268,13 @@ export function MembershipsPage() {
           <Stat label="Active members" value={number(s.active_members)} />
           <Stat label="Monthly recurring" value={$(s.mrr_cents)} hint="Annual plans counted as a twelfth" />
           <Stat label="Payment overdue" value={number(s.past_due)} />
-          <Stat label="Ending soon" value={number(s.cancelling)} hint="Cancelled, still in their paid period" />
+          <Stat label="Ending soon" value={number(s.canceling)} hint="Canceled, still in their paid period" />
           <Stat label="Complimentary" value={number(s.complimentary)} />
         </div>
       )}
       <FilterBar>
         <SearchInput value={f.q} onChange={(q) => setF({ q })} placeholder="Search by email or username" />
-        <FilterSelect label="Status" value={f.status} onChange={(status) => setF({ status })} options={[['current', 'Current members'], ['', 'Any status'], ['active', 'Active'], ['past_due', 'Payment overdue'], ['canceled', 'Cancelled'], ['expired', 'Expired'], ['pending', 'Pending']]} />
+        <FilterSelect label="Status" value={f.status} onChange={(status) => setF({ status })} options={[['current', 'Current members'], ['', 'Any status'], ['active', 'Active'], ['past_due', 'Payment overdue'], ['canceled', 'Canceled'], ['expired', 'Expired'], ['pending', 'Pending']]} />
         <FilterSelect label="Plan" value={f.plan} onChange={(plan) => setF({ plan })} options={[['', 'Any plan'], ['monthly', 'Monthly'], ['annual', 'Annual']]} />
         <FilterSelect label="Source" value={f.provider} onChange={(provider) => setF({ provider })} options={[['', 'Paid and complimentary'], ['grant', 'Complimentary'], ['divinity', 'Divinity payments'], ['sandbox', 'Sandbox']]} />
       </FilterBar>

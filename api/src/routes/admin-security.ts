@@ -167,7 +167,7 @@ export default async function adminSecurityRoutes(app: FastifyInstance) {
     /** Start (or restart) enrolment. Nothing is enforced until /confirm succeeds. */
     s.post('/api/admin/security/2fa/begin', async (req) => {
       const u = requireAdmin(req);
-      if (u.totp_enabled) throw conflict('Two-factor authentication is already on. Turn it off first to enrol a new device.');
+      if (u.totp_enabled) throw conflict('Two-factor authentication is already on. Turn it off first to enroll a new device.');
       if (!rateLimit('2fa-begin', u.id, 10, 3600)) throw new HttpError(429, 'Too many attempts. Try again later.');
       const site = await getSetting('site');
       const secret = generateSecret();

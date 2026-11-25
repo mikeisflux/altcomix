@@ -91,7 +91,7 @@ after(async () => {
   await pool.end();
 });
 
-test('quote: same numbers as the checkout that follows; sale, code and credit itemised; a bad code fails before any payment', async () => {
+test('quote: same numbers as the checkout that follows; sale, code and credit itemized; a bad code fails before any payment', async () => {
   const { user, c } = await signedIn();
   await exec(`insert into promo_codes (publisher_id, code, kind, percent_off) values ($1,$2,'discount',25)`, [brand.id, `Q25-${user.username}`]);
   await exec(`insert into wallets (user_id, credit_cents) values ($1, 150)`, [user.id]);
@@ -210,7 +210,7 @@ test('a tip accepts a brand id, a brand slug, or a series slug / id; anything el
 test('an unconfirmed email gets a clear 403 (email_unverified) from paying and posting; reading, following and redeeming stay open', async () => {
   const { user, c } = await signedIn({ verified: false });
   const ok = await signedIn();
-  const thread = (await ok.c.post('/api/forums/threads', { series_id: series.id, title: 'Favourite robot?', body: 'Mine is the tall one.' })).json.thread;
+  const thread = (await ok.c.post('/api/forums/threads', { series_id: series.id, title: 'Favorite robot?', body: 'Mine is the tall one.' })).json.thread;
   const mine = (await ok.c.get(`/api/forums/threads/${thread.id}`)).json.posts[0];
 
   const refused: [string, string, unknown][] = [
@@ -250,7 +250,7 @@ test('an unconfirmed email gets a clear 403 (email_unverified) from paying and p
   assert.equal((await c.post('/api/comments', { series_id: series.id, body: 'First!' })).status, 200);
 });
 
-test('membership start honours a same-site next path and hands it to the hosted flow', async () => {
+test('membership start honors a same-site next path and hands it to the hosted flow', async () => {
   const { c } = await signedIn();
   const off = await signedIn();
   assert.equal((await off.c.post('/api/membership/start', { plan: 'monthly', next: 'https://evil.example/x' })).json.next, null, 'off-site paths are dropped');

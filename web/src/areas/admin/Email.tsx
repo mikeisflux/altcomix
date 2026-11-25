@@ -138,7 +138,7 @@ export function EmailQueuePage() {
       <FilterBar>
         <SearchInput value={f.to} onChange={(to) => setF({ to })} placeholder="Recipient email" />
         <SearchInput value={f.q} onChange={(q) => setF({ q })} placeholder="Subject" />
-        <FilterSelect label="Status" value={f.status} onChange={(status) => setF({ status })} options={[['', 'Any status'], ['queued', 'Waiting'], ['sending', 'Sending'], ['sent', 'Sent'], ['failed', 'Failed'], ['suppressed', 'Held back'], ['cancelled', 'Cancelled']]} />
+        <FilterSelect label="Status" value={f.status} onChange={(status) => setF({ status })} options={[['', 'Any status'], ['queued', 'Waiting'], ['sending', 'Sending'], ['sent', 'Sent'], ['failed', 'Failed'], ['suppressed', 'Held back'], ['cancelled', 'Canceled']]} />
         <FilterSelect label="Template" value={f.template} onChange={(template) => setF({ template })} options={[['', 'Any template'], ...(templates.data?.items ?? []).map((t): [string, string] => [t.key, templateName(t.key)])]} />
       </FilterBar>
       <DataList
@@ -183,7 +183,7 @@ function TemplateEditor({ tpl, syntax, onClose }: { tpl: R; syntax: string; onCl
       title={<span className="capitalize">{templateName(tpl.key)}</span>}
       footer={
         <>
-          {isSuper && tpl.customised && <Button variant="danger" loading={busy === 'reset'} onClick={reset}>Reset to default</Button>}
+          {isSuper && tpl.customized && <Button variant="danger" loading={busy === 'reset'} onClick={reset}>Reset to default</Button>}
           <Button variant="ghost" onClick={onClose}>{isSuper ? 'Cancel' : 'Close'}</Button>
           {isSuper && <Button variant="primary" loading={busy === 'tpl'} disabled={!dirty} onClick={save}>Save template</Button>}
         </>
@@ -243,7 +243,7 @@ export function EmailTemplatesPage() {
               { key: 'subject', header: 'Subject', cell: (t: R) => <span className="block max-w-[320px] truncate text-muted">{t.subject}</span> },
               ...(wide ? [{ key: 'cat', header: 'Kind', cell: (t: R) => <span className="capitalize">{t.category}</span> }] : []),
               ...(wide ? [{ key: 'vars', header: 'Values', cell: (t: R) => <span className="block max-w-[220px] truncate font-mono text-xs text-muted">{t.vars.join(', ')}</span> }] : []),
-              { key: 'state', header: 'Wording', cell: (t: R) => (t.customised ? <span title={t.updated_at ? `Edited ${date(t.updated_at)}${t.updated_by_username ? ` by @${t.updated_by_username}` : ''}` : ''}><Badge tone="accent">Edited</Badge></span> : <span className="text-muted">Built-in</span>) },
+              { key: 'state', header: 'Wording', cell: (t: R) => (t.customized ? <span title={t.updated_at ? `Edited ${date(t.updated_at)}${t.updated_by_username ? ` by @${t.updated_by_username}` : ''}` : ''}><Badge tone="accent">Edited</Badge></span> : <span className="text-muted">Built-in</span>) },
             ]}
           />
         )}

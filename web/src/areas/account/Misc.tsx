@@ -12,7 +12,7 @@ import { Avatar, Badge, Button, Card, EmptyState, ErrorState, Field, Input, Link
 import { CoverGrid, ListSkeleton, PlainText, SeriesTile, safePath, useTitle } from './shared';
 import type { SeriesCard } from './shared';
 
-// ---------------------------------------------------------------- favourite genre
+// ---------------------------------------------------------------- favorite genre
 
 const GENRE_ART: Record<string, { icon: ReactNode; blurb: string }> = {
   superhero_action: { icon: <Zap />, blurb: 'Capes, powers and big fights' },

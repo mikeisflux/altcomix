@@ -6,7 +6,7 @@ import { GuidedView } from '@/areas/reader/Reader';
 import type { ReaderPage } from '@/areas/reader/model';
 import { api, errorMessage } from '@/lib/api';
 import type { Frame } from '@/lib/frames';
-import { clamp, normaliseRect } from '@/lib/frames';
+import { clamp, normalizeRect } from '@/lib/frames';
 import { useSession } from '@/lib/session';
 import { Button, ErrorState, IconButton, Modal, PageLoader, Segmented, Select, Tabs, Textarea, cx, toast, useConfirm } from '@/ui';
 import { FrameEditor } from './FrameEditor';
@@ -190,7 +190,7 @@ function TextEditor({ imageUrl, width, height, texts, onChange, languages, langu
   };
   const finish = () => {
     if (draw) {
-      const r = normaliseRect({ x: draw.x0, y: draw.y0, w: draw.x1 - draw.x0, h: draw.y1 - draw.y0 }, 0.005);
+      const r = normalizeRect({ x: draw.x0, y: draw.y0, w: draw.x1 - draw.x0, h: draw.y1 - draw.y0 }, 0.005);
       if (r.w * pw > 8 && r.h * ph > 8) { onChange([...texts, { ...r, text: {} }]); setSel(texts.length); }
     }
     setDraw(null);

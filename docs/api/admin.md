@@ -58,7 +58,7 @@ not cumulative). Definitions: `gross` = store orders + membership charges;
 `creator_cents` = ledger rows of kind sale / subscription / tip / refund;
 `platform_cents = gross - fee - creator - refunded`. Membership money reaches
 `creator_cents` when the month is settled, so platform revenue for the current
-month is overstated until then. `mrr_cents` counts active, non-cancelling
+month is overstated until then. `mrr_cents` counts active, non-canceling
 memberships (annual price / 12).
 
 ### GET /api/admin/badges — admin
@@ -179,7 +179,7 @@ still inside the payout hold.
 
 ---
 
-## 4. Catalogue moderation
+## 4. Catalog moderation
 
 ### GET /api/admin/series — admin
 Filters: `q` (title, slug, brand name), `visibility` (`draft|public|unlisted`),
@@ -281,7 +281,7 @@ Audit: `order.refund`.
 **GET /api/admin/memberships** — admin. Filters: `status` (`current` = active
 or past due and not expired; or `pending|active|past_due|canceled|expired`),
 `plan` (`monthly|annual`), `provider` (`grant` = complimentary), `q` (email/username).
-Returns list + `summary: { active_members, past_due, cancelling, complimentary, mrr_cents }`.
+Returns list + `summary: { active_members, past_due, canceling, complimentary, mrr_cents }`.
 Item: `{ id, plan, status, provider, provider_ref, price_cents, current_period_start, current_period_end, cancel_at_period_end, canceled_at, created_at, user_id, email, username }`.
 
 **GET /api/admin/memberships/:id** — admin.
@@ -501,7 +501,7 @@ A network failure reads "Could not reach ...", never a pass. Audit: `settings.te
 
 ---
 
-## 8. Email centre
+## 8. Email center
 
 Email statuses: `queued`, `sending`, `sent`, `failed`, `suppressed`, `cancelled`.
 
@@ -530,8 +530,8 @@ Item: `{ id, to_email, user_id, template, category, subject, status, attempts, p
 ### Templates
 
 **GET /api/admin/email-templates** — admin →
-`{ items: [{ key, category, vars: ["name","url","site"], customised, subject, html, default_subject, default_html, updated_at, updated_by_username }], syntax }`.
-`subject`/`html` are what is sent now (the override if `customised`). `html`
+`{ items: [{ key, category, vars: ["name","url","site"], customized, subject, html, default_subject, default_html, updated_at, updated_by_username }], syntax }`.
+`subject`/`html` are what is sent now (the override if `customized`). `html`
 is the inner body; the site wrapper is added when sending. Placeholders:
 `{{name}}` for a value, `{{button:Label|url}}` for a button linking to the `url` value.
 
@@ -663,7 +663,7 @@ Mailbox: `{ id, address, name, is_default, active, auto_reply, created_at, updat
 `GET /api/admin/inbox/:id`:
 
 - `email` and each received item of `thread`: `{ type: "received", id, mailbox_id, from_email, from_name, reply_to, to_email, to_header, cc, subject, text_body, html_body, at, read_at, archived_at, replied_at, spam, spam_flagged, spam_score, spf, dkim, notes: [], attachments: [{ id, filename, content_type, size_bytes }] }`.
-  `html_body` is the sanitised HTML (empty if the message had none); `text_body` is always filled.
+  `html_body` is the sanitized HTML (empty if the message had none); `text_body` is always filled.
 - sent items of `thread`: `{ type: "sent", id, kind: "reply" | "new" | "auto_reply", from_email, to_email, subject, text_body, at, inbound_id, status, error, sent_by_name }`
   where `status` / `error` come from the outbound queue row (`queued`, `sent`, `failed`, `suppressed` ...).
 - `thread` is oldest first. `blocked` is `{ id, kind, value }` when the sender is on the blocked list, else `null`.

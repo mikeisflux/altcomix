@@ -4,7 +4,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { bounds, clamp, isPoly, normaliseRect, pointInFrame } from '@/lib/frames';
+import { bounds, clamp, isPoly, normalizeRect, pointInFrame } from '@/lib/frames';
 import type { Frame, RectFrame } from '@/lib/frames';
 import { Button, IconButton, Spinner, cx, toast } from '@/ui';
 import { errorMessage } from '@/lib/api';
@@ -291,7 +291,7 @@ export function FrameEditor(props: Props) {
 
   const onPointerUp = () => {
     if (drag?.kind === 'draw') {
-      const r = normaliseRect({ x: drag.x0, y: drag.y0, w: drag.x1 - drag.x0, h: drag.y1 - drag.y0 });
+      const r = normalizeRect({ x: drag.x0, y: drag.y0, w: drag.x1 - drag.x0, h: drag.y1 - drag.y0 });
       if (r.w * pageW > 8 && r.h * pageH > 8) commit([...frames, r], frames.length);
     }
     if (liveFrames.current) {
@@ -384,7 +384,7 @@ export function FrameEditor(props: Props) {
         <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-2.5">
           <label className="flex items-center gap-2 text-xs text-muted">
             Background
-            <input type="color" value={background} onChange={(e) => onBackgroundChange(e.target.value)} aria-label="Page background colour" className="size-6 cursor-pointer rounded border border-line" />
+            <input type="color" value={background} onChange={(e) => onBackgroundChange(e.target.value)} aria-label="Page background color" className="size-6 cursor-pointer rounded border border-line" />
             <span className="font-mono text-[11px] uppercase text-faint">{background}</span>
           </label>
         </div>
@@ -392,7 +392,7 @@ export function FrameEditor(props: Props) {
           <Button variant="sun" size="sm" block loading={busy === 'detect'} disabled={readOnly} onClick={detect} icon={<Wand2 className="size-4" />}>
             {frames.length ? 'Detect again' : 'Detect frames'}
           </Button>
-          <p className="mt-2 text-[11px] leading-snug text-faint">Finds panel borders by analysing the page image. No generative AI; nothing leaves the server.{rtl ? ' Frames are ordered right to left for this series.' : ''}</p>
+          <p className="mt-2 text-[11px] leading-snug text-faint">Finds panel borders by analyzing the page image. Nothing leaves the server.{rtl ? ' Frames are ordered right to left for this series.' : ''}</p>
         </div>
         <ol className="min-h-0 flex-1 space-y-1 overflow-auto p-2" aria-label="Frames in reading order">
           {frames.length === 0 && <li className="px-2 py-3 text-xs text-muted">No frames yet. Detect them, or press <kbd className="rounded bg-raised px-1">F</kbd> and drag a box.</li>}

@@ -21,7 +21,7 @@ function color(input: unknown, fallback: string): string {
   return /^([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(v) ? `#${v}` : fallback;
 }
 
-/** Black or white text, whichever reads better on the chosen colour. */
+/** Black or white text, whichever reads better on the chosen color. */
 function textOn(hex: string): string {
   const h = hex.length === 4 ? hex.slice(1).split('').map((c) => c + c).join('') : hex.slice(1);
   const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));

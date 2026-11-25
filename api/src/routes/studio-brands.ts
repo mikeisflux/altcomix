@@ -305,7 +305,7 @@ export default async function (app: FastifyInstance) {
     configured: Boolean(p?.method && p?.destination),
     method: p?.method ?? null,
     legal_name: p?.legal_name ?? null,
-    // The full destination is never sent back; this is enough to recognise it.
+    // The full destination is never sent back; this is enough to recognize it.
     destination_hint: p?.destination ? maskDestination(String(p.destination)) : null,
     updated_at: p?.updated_at ?? null,
   });

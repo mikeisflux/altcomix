@@ -95,7 +95,7 @@ export function ConfirmEmailPrompt({ message, onConfirmed }: { message?: string 
   );
 }
 
-const REASONS = ['Stolen or pirated work', 'Made with generative AI', 'Missing mature-content label', 'Hateful or harassing', 'Spam or scam', 'Illegal content', 'Something else'];
+const REASONS = ['Stolen or pirated work', 'Missing mature-content label', 'Hateful or harassing', 'Spam or scam', 'Illegal content', 'Something else'];
 
 export type ReportTarget = { kind: 'series' | 'release' | 'publisher' | 'user' | 'comment' | 'forum_post' | 'forum_thread'; id: string; name: string };
 

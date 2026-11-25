@@ -22,18 +22,14 @@ NSFWComix is a place to read and publish comics, graphic novels, manga and webco
 ## How it works for readers
 
 - Read free previews of every premium series before you spend anything.
-- Buy single releases to own them, or join the membership to read everything in the membership catalogue.
+- Buy single releases to own them, or join the membership to read everything in the membership catalog.
 - Follow series and creators to hear when something new is out.
 
 ## How it works for creators
 
 - Publish under your own brand page, alone or with a team.
-- Choose what is free, what is paid and what is in the membership catalogue.
+- Choose what is free, what is paid and what is in the membership catalog.
 - See what you earned and where it came from, and request a payout when you are ready.
-
-## No generative AI
-
-NSFWComix does not accept AI-generated comics. Everything here is made by people.
 
 ## Get in touch
 
@@ -58,7 +54,7 @@ Every series, release, comment and profile has a **Report** option. That is the 
 
 If you believe something on NSFWComix infringes your copyright, send us: the work you own, where it appears on NSFWComix, your contact details, and a statement that you are the rights holder or act for them.
 
-*[Owner: add the support email address, a postal address if you are required to publish one, and the address that receives copyright notices.]*
+[copyright@nsfwcomix.com](mailto:copyright@nsfwcomix.com)
 $md$),
 ('content-policy', 'Content policy', $md$
 **Draft.** This page is a first draft written during setup, not legal advice. Review it, and have it checked if you can, before launch.
@@ -70,7 +66,6 @@ Comics, graphic novels, manga and webcomics that you made or have the right to p
 ## What is not allowed
 
 - **Work you do not have the rights to.** Scans of other people's books, unlicensed translations, and fan work that the rights holder has objected to.
-- **AI-generated comics.** Art or writing produced by generative AI is not accepted. Tools that assist a human artist (lettering, flatting helpers, colour correction) are fine.
 - **Sexual content involving minors**, or characters presented as minors, in any form. This is removed and reported where the law requires.
 - **Content that promotes hatred or violence** against people because of who they are.
 - **Harassment** of real people, including publishing private information about them.
@@ -78,11 +73,11 @@ Comics, graphic novels, manga and webcomics that you made or have the right to p
 
 ## Mature content
 
-Stories for adults are welcome when they are labelled. Mark a series or release as **mature** if it contains explicit sexual content, graphic violence or similar material, and use the content advisories. Mature work is hidden from readers who have not opted in. Moderators may add the mature label when it is missing.
+Stories for adults are welcome when they are labeled. Mark a series or release as **mature** if it contains explicit sexual content, graphic violence or similar material, and use the content advisories. Mature work is hidden from readers who have not opted in. Moderators may add the mature label when it is missing.
 
 ## Comments and community
 
-Be civil. Criticise the work, not the person. Spam, slurs and harassment are removed.
+Be civil. Criticize the work, not the person. Spam, slurs and harassment are removed.
 
 ## Reporting and enforcement
 
@@ -216,8 +211,8 @@ You are responsible for your account and for keeping your password safe. Give ac
 
 ## 3. Reading and buying
 
-- When you buy a release you get a personal, non-transferable licence to read it on NSFWComix for as long as the service offers it. Where a download is included, the file is for your personal use.
-- Membership gives access to the membership catalogue while your membership is active. The catalogue can change.
+- When you buy a release you get a personal, non-transferable license to read it on NSFWComix for as long as the service offers it. Where a download is included, the file is for your personal use.
+- Membership gives access to the membership catalog while your membership is active. The catalog can change.
 - Prices are shown before you pay. *[Owner: state how taxes are handled.]*
 
 ## 4. Refunds
@@ -265,17 +260,16 @@ Anyone who publishes on NSFWComix through a brand page, whether a solo creator o
 
 ## 2. Your work stays yours
 
-You keep all rights to what you publish. You give NSFWComix a non-exclusive licence to host, display, and deliver your work to readers on the service, and to show covers and short previews to promote it on NSFWComix. The licence ends when you remove the work, except that readers who bought a release keep access to it.
+You keep all rights to what you publish. You give NSFWComix a non-exclusive license to host, display, and deliver your work to readers on the service, and to show covers and short previews to promote it on NSFWComix. The license ends when you remove the work, except that readers who bought a release keep access to it.
 
 ## 3. What you promise
 
 - You own the work or have the rights needed to publish and sell it here, including for every contributor.
-- It was not made with generative AI.
-- It follows the [content policy](/p/content-policy), and mature work is labelled.
+- It follows the [content policy](/p/content-policy), and mature work is labeled.
 
 ## 4. Pricing and access
 
-You decide what is free, what is sold and at what price, and whether a series is in the membership catalogue. You can change this at any time; changes do not affect purchases already made.
+You decide what is free, what is sold and at what price, and whether a series is in the membership catalog. You can change this at any time; changes do not affect purchases already made.
 
 ## 5. Earnings
 
@@ -313,10 +307,10 @@ $md$),
 Yes. Free series can be read in full, and every premium series has a free preview.
 
 **What does membership include?**
-Every series that its creator has placed in the membership catalogue, for as long as your membership is active.
+Every series that its creator has placed in the membership catalog, for as long as your membership is active.
 
 **What is the difference between buying and membership?**
-A release you buy stays in your library. Membership gives access to the catalogue only while you are a member.
+A release you buy stays in your library. Membership gives access to the catalog only while you are a member.
 
 **What are page credits?**
 Credits unlock single pages of premium comics without buying the whole release.
@@ -342,9 +336,6 @@ Ask through the [contact page](/p/contact).
 
 **Who can publish?**
 Anyone who makes comics and owns the rights to them. Press **Publish** to open Studio.
-
-**Do you accept AI-generated comics?**
-No.
 
 **How do I get paid?**
 Earnings from sales, tips and membership reading appear in Studio. Request a payout once your available balance reaches the minimum shown there.

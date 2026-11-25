@@ -12,7 +12,7 @@ NSFWComix exists because creators keep getting told, with a day's notice, that w
 
 ## 1. Adult work is allowed
 
-Sex, nudity and mature themes are welcome here when the work is labelled for adults. Explicit is not a violation. Adult titles have a proper place in the store and in search for readers who have confirmed they are 18 or older; they are not buried or quietly de-listed.
+Sex, nudity and mature themes are welcome here when the work is labeled for adults. Explicit is not a violation. Adult titles have a proper place in the store and in search for readers who have confirmed they are 18 or older; they are not buried or quietly de-listed.
 
 ## 2. Rules do not change overnight
 
@@ -29,10 +29,6 @@ You keep the copyright. Publishing here is non-exclusive: sell the same book any
 ## 5. Readers keep what they bought
 
 If a title leaves the store, readers who already bought it keep access to their copy. The only exception is content that cannot legally stay available.
-
-## 6. Made by people
-
-AI-generated comics are not accepted, and your pages are not used to train a model.
 
 ## The edges
 
@@ -58,15 +54,14 @@ Adult titles are shown only to readers who have confirmed they are 18 or older. 
 
 ## Hard limits
 
-These apply to everything, however it is labelled, and they do not have exceptions.
+These apply to everything, however it is labeled, and they do not have exceptions.
 
 - **No sexual content involving minors.** That includes characters who are, or are presented as, under 18, whatever age the story claims. Removed immediately and reported where the law requires.
 - **No sexual depictions of real, identifiable people** without their consent, and no content that harasses or exposes private information about a real person.
 - **Nothing you do not have the right to publish.** No scans of other people's books and no unlicensed translations. Parody and fan work can be legitimate, but if a rights holder sends a valid complaint we have to act on it; see the copyright process in the [terms](/p/terms).
 - **No content that is illegal** to distribute where we operate, and no content promoting violence against people because of who they are.
-- **No AI-generated comics.** Art or writing produced by generative AI is not accepted. Tools that assist a human artist (lettering, flatting helpers, colour correction) are fine.
 
-## Labelling
+## Labeling
 
 - Mark a series or a single release **Not safe for work** if you would think twice before showing it to a parent or a boss.
 - Use the advisories (nudity, sexual content, graphic violence and so on) so readers can choose.
@@ -76,11 +71,11 @@ Moderators may add a missing label. That is a label, not a penalty.
 
 ## Comments and community
 
-Be civil. Criticise the work, not the person. Spam, slurs and harassment are removed.
+Be civil. Criticize the work, not the person. Spam, slurs and harassment are removed.
 
 ## Reporting and enforcement
 
-Use the **Report** option on any series, release, comment or profile. Reports are read by a person. A report that a title is "too explicit" is not, on its own, a reason to remove a correctly labelled adult title.
+Use the **Report** option on any series, release, comment or profile. Reports are read by a person. A report that a title is "too explicit" is not, on its own, a reason to remove a correctly labeled adult title.
 
 When we act on a title, the brand owner is told what was done and which rule applies.
 

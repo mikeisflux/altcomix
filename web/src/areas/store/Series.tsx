@@ -315,7 +315,7 @@ export function SeriesPage() {
     mutationFn: (on: boolean) => api<{ favorite: boolean; favorite_count: number }>(`/api/series/${slug}/favorite`, { method: on ? 'POST' : 'DELETE' }),
     onSuccess: (r) => {
       patch((d) => ({ ...d, viewer: { ...d.viewer, favorite: r.favorite }, counts: { ...d.counts, favorites: r.favorite_count } }));
-      toast.success(r.favorite ? 'Added to your favourites' : 'Removed from your favourites');
+      toast.success(r.favorite ? 'Added to your favorites' : 'Removed from your favorites');
       void qc.invalidateQueries({ queryKey: ['library'] });
     },
     onError: (e) => toast.error(errorMessage(e)),
@@ -396,7 +396,7 @@ export function SeriesPage() {
               <Button
                 size="lg"
                 aria-pressed={viewer.favorite}
-                aria-label={viewer.favorite ? `Remove from favourites, ${counts.favorites} favourites` : `Add to favourites, ${counts.favorites} favourites`}
+                aria-label={viewer.favorite ? `Remove from favorites, ${counts.favorites} favorites` : `Add to favorites, ${counts.favorites} favorites`}
                 loading={favorite.isPending}
                 icon={<Heart className={cx('size-4', viewer.favorite && 'fill-accent text-accent')} />}
                 onClick={needUser(() => favorite.mutate(!viewer.favorite))}

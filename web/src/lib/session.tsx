@@ -87,7 +87,7 @@ export function SessionProvider({ children, fallback, failure }: { children: Rea
   const setAdult = useCallback(
     async (on: boolean) => {
       await api('/api/age-confirm', { json: { adult: on } });
-      // Everything listed may change, so drop cached catalogue data too.
+      // Everything listed may change, so drop cached catalog data too.
       await qc.invalidateQueries();
     },
     [qc],

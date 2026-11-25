@@ -323,7 +323,7 @@ export default async function adminSettingsRoutes(app: FastifyInstance) {
       return { ...r, webhook_url: `${config.appUrl}/api/webhooks/divinity` };
     });
 
-    /** Checks the key formats, then asks Google whether it recognises the secret. */
+    /** Checks the key formats, then asks Google whether it recognizes the secret. */
     s.post('/api/admin/settings/test/recaptcha', async (req) => {
       requireSuperAdmin(req);
       const form = parse(formBody, req.body ?? {});
@@ -343,8 +343,8 @@ export default async function adminSettingsRoutes(app: FastifyInstance) {
         });
         const codes = ((await res.json()) as { 'error-codes'?: string[] })['error-codes'] ?? [];
         return codes.includes('invalid-input-secret')
-          ? { ok: false, message: 'Google does not recognise this secret key' }
-          : { ok: true, message: 'Both keys have the right format and Google recognises the secret key' };
+          ? { ok: false, message: 'Google does not recognize this secret key' }
+          : { ok: true, message: 'Both keys have the right format and Google recognizes the secret key' };
       });
       // If Google cannot be reached the format check is all we know: say exactly that.
       const result: TestResult = live.message.startsWith('Could not reach')

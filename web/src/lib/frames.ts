@@ -61,7 +61,7 @@ export function clamp(n: number, lo: number, hi: number): number {
 }
 
 /** Keep a rectangle inside the page and above a minimum size. */
-export function normaliseRect(r: RectFrame, min = 0.01): RectFrame {
+export function normalizeRect(r: RectFrame, min = 0.01): RectFrame {
   let { x, y, w, h } = r;
   if (w < 0) { x += w; w = -w; }
   if (h < 0) { y += h; h = -h; }

@@ -493,7 +493,7 @@ function SecurityTab({ value, secrets }: TabProps) {
           checked={f.admin_2fa_required}
           onChange={(v) => s.set({ admin_2fa_required: v })}
           label="Require two-factor sign-in for admins"
-          description={!user?.totp_enabled && f.admin_2fa_required && !s.saved.admin_2fa_required ? 'You have not set it up yourself yet: after saving you will be taken to set it up before you can do anything else here.' : 'Staff without it can only reach the two-factor setup screen until they enrol.'}
+          description={!user?.totp_enabled && f.admin_2fa_required && !s.saved.admin_2fa_required ? 'You have not set it up yourself yet: after saving you will be taken to set it up before you can do anything else here.' : 'Staff without it can only reach the two-factor setup screen until they enroll.'}
         />
       </FormSection>
       <FormSection title="Bot protection" description={<>Blocks scrapers and attack traffic. Blocked addresses are listed under <Link className="link" to="/admin/security">Security</Link>.</>}>

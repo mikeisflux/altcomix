@@ -28,7 +28,7 @@ const MAX_TEXT_CHARS = 500_000;
 /** SpamAssassin's usual threshold; SendGrid and Mailgun both report its score. */
 const SPAM_SCORE = 5;
 
-// ---------------------------------------------------------------- HTML sanitiser
+// ---------------------------------------------------------------- HTML sanitizer
 
 const VOID_TAGS = new Set(['br', 'hr', 'img', 'col', 'wbr']);
 const ALLOWED_TAGS = new Set([

@@ -34,7 +34,7 @@ async function describeTargets(reports: Row[]): Promise<void> {
   for (const r of reports) r.target = maps[r.target_kind]?.get(r.target_id) ?? null;
 }
 
-export default async function adminCatalogueRoutes(app: FastifyInstance) {
+export default async function adminCatalogRoutes(app: FastifyInstance) {
   await adminScope(app, (s) => {
     // ------------------------------------------------------------ series
     s.get('/api/admin/series', async (req) => {

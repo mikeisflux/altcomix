@@ -71,7 +71,7 @@ export function AdminLayout() {
   const groups = [
     { title: 'Overview', items: [item('/admin', 'Dashboard', <Gauge />, undefined, true)] },
     {
-      title: 'Catalogue',
+      title: 'Catalog',
       items: [
         item('/admin/series', 'Series', <BookOpen />),
         item('/admin/reports', 'Reports', <Flag />, <Count n={b?.reports} label="open reports" />),
