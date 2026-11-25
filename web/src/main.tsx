@@ -21,7 +21,12 @@ const queryClient = new QueryClient({
 
 // Report uncaught client errors to the self-hosted error log.
 let reported = 0;
+// Errors thrown by code that is not ours: scripts an app's built-in browser injects into the
+// page (Facebook and Instagram use iabjs://, others webkit-masked-url://), browser extensions,
+// and cross-origin scripts the browser will not describe ("Script error."). Nothing here can fix them.
+const NOT_OURS = /(iabjs|chrome-extension|moz-extension|safari-extension|safari-web-extension|webkit-masked-url):\/\//i;
 function report(message: string, stack?: string) {
+  if (NOT_OURS.test(stack ?? '') || NOT_OURS.test(message) || /Java object is gone|^Script error\.?$/i.test(message)) return;
   if (reported++ > 5) return;
   api('/api/track/error', { json: { message: message.slice(0, 500), stack: stack?.slice(0, 4000), url: location.href } }).catch(() => {});
 }
