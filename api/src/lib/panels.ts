@@ -25,7 +25,9 @@ export const frameSchema = z.union([
   z
     .object({ x: unit, y: unit, w: z.number().min(0.005).max(1.0005), h: z.number().min(0.005).max(1.0005) })
     .refine((f) => f.x + f.w <= 1.001 && f.y + f.h <= 1.001, 'Frame extends past the edge of the page'),
-  z.object({ points: z.array(z.tuple([unit, unit])).min(3, 'A frame needs at least 3 points').max(400) }),
+  // No cap on the number of points: a traced outline can be as detailed as its maker wants.
+  // (The request size limit is the only ceiling, at tens of thousands of points.)
+  z.object({ points: z.array(z.tuple([unit, unit])).min(3, 'A frame needs at least 3 points') }),
 ]);
 export const framesSchema = z.array(frameSchema).max(200, 'A page can have at most 200 frames');
 

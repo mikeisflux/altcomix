@@ -373,10 +373,13 @@ export function FrameEditor(props: Props) {
       const q = snapToPage(p);
       if (!q || readOnly) return;
       const dist = (a: [number, number]) => Math.hypot((q[0] - a[0]) * pageW, (q[1] - a[1]) * pageH);
-      // Clicking the first point closes the shape.
-      if (draft.length >= 3 && dist(draft[0]) < grabRadius(e.pointerType)) return finishPolygon();
-      // A second click on the spot just placed is a double-click: it closes the shape rather than stacking a point.
-      if (draft.length && dist(draft[draft.length - 1]) < 5) return void (draft.length >= 3 && finishPolygon());
+      // Clicking the first point (the larger dot) closes the shape. The target is kept small so an
+      // outline that passes close to where it began is not closed by accident.
+      if (draft.length >= 3 && dist(draft[0]) < (e.pointerType === 'mouse' ? 9 : 18)) return finishPolygon();
+      // A double-click on the spot just placed closes the shape instead of stacking a second point there.
+      // It has to be the very same spot (within 2 pixels): quick clicks a few pixels apart, as when
+      // tracing an outline, are ordinary points, and there is no limit on how many a shape can have.
+      if (e.detail >= 2 && draft.length && dist(draft[draft.length - 1]) < 2) return void (draft.length >= 3 && finishPolygon());
       return setDraft([...draft, q]);
     }
 
