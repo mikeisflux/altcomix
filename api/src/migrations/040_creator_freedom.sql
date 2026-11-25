@@ -16,7 +16,7 @@ Sex, nudity and mature themes are welcome here when the work is labeled for adul
 
 ## 2. Rules do not change overnight
 
-If the content policy changes, we announce it at least **[NOTICE PERIOD, e.g. 30 days]** before it takes effect. Work published under the old rules is not removed for breaking new ones without talking to you first.
+If the content policy changes, we announce it at least **30 days** before it takes effect. Work published under the old rules is not removed for breaking new ones without talking to you first.
 
 ## 3. A reason and an appeal, from a person
 
