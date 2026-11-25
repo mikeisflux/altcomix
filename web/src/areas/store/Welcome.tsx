@@ -4,6 +4,7 @@ import { Link } from 'react-router';
 import { moneyExact } from '@/lib/format';
 import { useSession } from '@/lib/session';
 import { LinkButton, cx } from '@/ui';
+import { useMarkWelcomed } from './firstVisit';
 import { useTitle } from './shared';
 
 /**
@@ -41,6 +42,7 @@ const EDGES: [string, string][] = [
 ];
 
 export function Welcome() {
+  useMarkWelcomed();
   useTitle('Your comic. Your rules.');
   const { settings, user } = useSession();
   const pct = (bps: number) => (bps % 100 ? (bps / 100).toFixed(1) : String(bps / 100));

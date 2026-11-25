@@ -4,6 +4,7 @@ import { Browse } from './Browse';
 import { CheckoutReturn } from './Checkout';
 import { CmsPageView, NewsList, NewsPost } from './Content';
 import { GiftCards } from './GiftCards';
+import { FirstVisit } from './firstVisit';
 import { Home } from './Home';
 import { SeriesPage } from './Series';
 import { Unlimited } from './Unlimited';
@@ -11,7 +12,7 @@ import { Welcome } from './Welcome';
 
 /** Public storefront. Cover and release cards for other areas live in ./cards. */
 export const storeRoutes: RouteObject[] = [
-  { path: '/', element: <Home /> },
+  { path: '/', element: <FirstVisit><Home /></FirstVisit> },
   { path: '/welcome', element: <Welcome /> },
   { path: '/browse', element: <Browse /> },
   { path: '/series/:slug', element: <SeriesPage /> },
