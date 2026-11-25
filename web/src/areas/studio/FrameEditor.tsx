@@ -86,6 +86,7 @@ export function FrameEditor(props: Props) {
   const [drag, setDrag] = useState<Drag | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [spaceDown, setSpaceDown] = useState(false);
+  const liveFrames = useRef<Frame[] | null>(null); // frames while one is being dragged
 
   // View: zoom 1 = page fits the stage.
   const stage = useRef<HTMLDivElement>(null);
@@ -105,6 +106,10 @@ export function FrameEditor(props: Props) {
   const pageH = pageW / aspect;
   const left = (stageSize.w - pageW) / 2 + view.x;
   const top = (stageSize.h - pageH) / 2 + view.y;
+
+  // The newest frames, for tools that answer after a server round trip.
+  const framesRef = useRef(frames);
+  framesRef.current = frames;
 
   // History.
   const past = useRef<Frame[][]>([]);
@@ -148,6 +153,12 @@ export function FrameEditor(props: Props) {
     setView({ zoom: 1, x: 0, y: 0 });
   }, [imageUrl]);
 
+  // "Add to" and "Remove from" work on the selected frame. When the selection goes away
+  // (delete, undo, a new page), go back to Select instead of leaving a tool that cannot do anything.
+  useEffect(() => {
+    if (selected === null && (tool === 'add' || tool === 'remove')) setTool('select');
+  }, [selected, tool]);
+
   const toPage = (clientX: number, clientY: number): [number, number] => {
     const r = stage.current!.getBoundingClientRect();
     return [(clientX - r.left - left) / pageW, (clientY - r.top - top) / pageH];
@@ -170,6 +181,21 @@ export function FrameEditor(props: Props) {
     if (draft.length >= 3) commit([...frames, { points: draft.map(([x, y]) => [clamp(x, 0, 1), clamp(y, 0, 1)] as [number, number]) }], frames.length);
     setDraft([]);
   }, [draft, frames, commit]);
+
+  /**
+   * Switch tools. Leaving the point-by-point tool closes the shape in progress
+   * (kept when it has three or more points, dropped otherwise), and any drag
+   * that was under way is ended, so no tool is left half-finished behind the new one.
+   */
+  const chooseTool = useCallback(
+    (next: Tool) => {
+      if (next !== 'poly' && draft.length) finishPolygon();
+      liveFrames.current = null;
+      setDrag(null);
+      setTool(next);
+    },
+    [draft.length, finishPolygon],
+  );
 
   const removeFrame = useCallback(
     (i: number) => {
@@ -223,20 +249,25 @@ export function FrameEditor(props: Props) {
     }
 
     if (active === 'smart') {
-      if (!inPage(p)) return;
+      if (!inPage(p) || busy) return;
       return void run('smart', async () => {
         const f = await onSmartFrame(p[0], p[1]);
         if (!f) return void toast.info('Could not find a panel border there. Try the rectangle or point tools.');
-        commit([...frames, f], frames.length);
+        const now = framesRef.current;
+        commit([...now, f], now.length);
       });
     }
 
     if (active === 'add' || active === 'remove') {
-      if (selected === null || !inPage(p)) return;
+      if (selected === null || !inPage(p) || busy) return;
       const index = selected;
+      const target = frames[index];
       return void run(active, async () => {
-        const f = await onRefine(frames[index], p[0], p[1], active);
-        commit(frames.map((x, j) => (j === index ? f : x)));
+        const f = await onRefine(target, p[0], p[1], active);
+        // Only apply it if that frame is still there, unchanged, when the answer arrives.
+        const now = framesRef.current;
+        if (now[index] !== target) return;
+        commit(now.map((x, j) => (j === index ? f : x)));
       });
     }
 
@@ -248,7 +279,6 @@ export function FrameEditor(props: Props) {
     setDrag({ kind: 'move', index: hit.i, start: hit.f, px: p[0], py: p[1] });
   };
 
-  const liveFrames = useRef<Frame[] | null>(null);
   const [, redraw] = useState(0);
   const shown = liveFrames.current ?? frames;
 
@@ -256,6 +286,7 @@ export function FrameEditor(props: Props) {
     const p = toPage(e.clientX, e.clientY);
     setCursor(p);
     if (!drag) return;
+    if (e.buttons === 0) return onPointerUp();
     if (drag.kind === 'pan') return setView((v) => ({ ...v, x: drag.ox + e.clientX - drag.sx, y: drag.oy + e.clientY - drag.sy }));
     if (drag.kind === 'draw') return setDrag({ ...drag, x1: clamp(p[0], 0, 1), y1: clamp(p[1], 0, 1) });
 
@@ -306,7 +337,10 @@ export function FrameEditor(props: Props) {
   // Keyboard.
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement).closest('input, textarea, select')) return;
+      const target = e.target as HTMLElement;
+      if (target.closest('input, textarea, select, [contenteditable="true"]')) return;
+      // A button that has keyboard focus owns Space and Enter (they press it).
+      if ((e.key === ' ' || e.key === 'Enter') && target.closest('button, a')) return;
       if (e.key === ' ') {
         e.preventDefault();
         setSpaceDown(true);
@@ -325,6 +359,10 @@ export function FrameEditor(props: Props) {
       if (e.key === 'Enter' && draft.length) return finishPolygon();
       if (e.key === 'Escape') {
         if (draft.length) return setDraft([]);
+        if (drag) {
+          liveFrames.current = null;
+          return setDrag(null);
+        }
         setSelected(null);
         return setTool('select');
       }
@@ -336,14 +374,18 @@ export function FrameEditor(props: Props) {
       if (e.key === '-') return zoomBy(0.8);
       if (e.key === '0') return setView({ zoom: 1, x: 0, y: 0 });
       const t = TOOLS.find((x) => x.key.toLowerCase() === e.key.toLowerCase());
-      if (t && !(t.needsSelection && selected === null)) setTool(t.id);
+      if (t && !e.repeat && !(t.needsSelection && selected === null)) chooseTool(t.id);
     };
     const up = (e: KeyboardEvent) => e.key === ' ' && setSpaceDown(false);
+    // Space released while another window had focus never reaches us: do not stay in "move the page".
+    const lost = () => setSpaceDown(false);
     window.addEventListener('keydown', down);
     window.addEventListener('keyup', up);
+    window.addEventListener('blur', lost);
     return () => {
       window.removeEventListener('keydown', down);
       window.removeEventListener('keyup', up);
+      window.removeEventListener('blur', lost);
     };
   });
 
@@ -431,7 +473,7 @@ export function FrameEditor(props: Props) {
               )}
             >
               <GripVertical className="size-4 shrink-0 cursor-grab text-faint" aria-hidden />
-              <button className="flex-1 text-left" onClick={() => { setSelected(i); setTool('select'); }}>Frame {i + 1}</button>
+              <button className="flex-1 text-left" onMouseDown={(e) => e.preventDefault()} onClick={() => { setSelected(i); chooseTool('select'); }}>Frame {i + 1}</button>
               <IconButton label={`Move frame ${i + 1} earlier`} className="size-7" disabled={i === 0} onClick={() => reorder(i, i - 1)}><ChevronUp className="size-3.5" /></IconButton>
               <IconButton label={`Move frame ${i + 1} later`} className="size-7" disabled={i === frames.length - 1} onClick={() => reorder(i, i + 1)}><ChevronDown className="size-3.5" /></IconButton>
               <IconButton label={`Delete frame ${i + 1}`} className="size-7" onClick={() => removeFrame(i)}><Trash2 className="size-3.5" /></IconButton>
@@ -443,7 +485,7 @@ export function FrameEditor(props: Props) {
       <div className="order-1 flex min-h-0 min-w-0 flex-1 flex-col md:order-2">
         {/* Toolbar */}
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line bg-surface px-3 py-2">
-          <div className="no-scrollbar flex max-w-full items-center gap-0.5 overflow-x-auto rounded-xl bg-ink p-1" role="toolbar" aria-label="Frame tools">
+          <div className="no-scrollbar flex max-w-full items-center gap-0.5 overflow-x-auto rounded-xl bg-ink p-1" role="toolbar" aria-label="Frame tools" onMouseDown={(e) => e.preventDefault()}>
             {TOOLS.map((t) => (
               <button
                 key={t.id}
@@ -452,7 +494,7 @@ export function FrameEditor(props: Props) {
                 aria-label={t.label}
                 aria-pressed={tool === t.id}
                 disabled={t.needsSelection && selected === null}
-                onClick={() => setTool(t.id)}
+                onClick={() => chooseTool(t.id)}
                 className={cx('relative flex size-9 shrink-0 items-center justify-center rounded-lg transition-colors disabled:opacity-30', tool === t.id ? 'bg-accent text-accent-ink' : 'text-muted hover:bg-hover hover:text-paper')}
               >
                 {t.icon}
@@ -481,6 +523,7 @@ export function FrameEditor(props: Props) {
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
+          onLostPointerCapture={() => drag && onPointerUp()}
           onPointerLeave={() => setCursor(null)}
         >
           {stageSize.w > 0 && (
@@ -588,7 +631,7 @@ export function FrameEditor(props: Props) {
           )}
 
           {draft.length > 0 && (
-            <div className="absolute right-3 top-3 flex gap-2" onPointerDown={(e) => e.stopPropagation()}>
+            <div className="absolute right-3 top-3 flex gap-2" onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.preventDefault()}>
               <Button size="sm" variant="primary" disabled={draft.length < 3} onClick={finishPolygon} icon={<Check className="size-4" />}>Accept</Button>
               <Button size="sm" variant="secondary" onClick={() => setDraft([])} icon={<X className="size-4" />}>Cancel</Button>
             </div>
